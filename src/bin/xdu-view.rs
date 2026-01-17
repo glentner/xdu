@@ -469,13 +469,12 @@ fn ui(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
             Constraint::Min(1),     // List
             Constraint::Length(1),  // Status bar
         ])
         .split(f.area());
     
-    // Header with current path
+    // Title with current path (and loading indicator if needed)
     let title = if let Some(ref partition) = app.current_partition {
         // Show partition name and the relative path within it
         let display_path = if app.current_path.len() > app.partition_root.len() {
@@ -483,19 +482,18 @@ fn ui(f: &mut Frame, app: &App) {
         } else {
             ""
         };
-        format!(" {}{} ", partition, display_path)
+        if app.loading {
+            format!(" {}{} (loading...) ", partition, display_path)
+        } else {
+            format!(" {}{} ", partition, display_path)
+        }
     } else {
-        " Partitions ".to_string()
+        if app.loading {
+            " Partitions (loading...) ".to_string()
+        } else {
+            " Partitions ".to_string()
+        }
     };
-    
-    let header_block = Block::default()
-        .borders(Borders::ALL)
-        .title(title);
-    
-    let loading_indicator = if app.loading { " Loading..." } else { "" };
-    let header = Paragraph::new(loading_indicator)
-        .block(header_block);
-    f.render_widget(header, chunks[0]);
     
     // Pre-compute formatted strings and find max widths dynamically
     let formatted: Vec<(String, String, String, String)> = app.entries.iter().map(|entry| {
@@ -536,7 +534,7 @@ fn ui(f: &mut Frame, app: &App) {
     let atime_width = formatted.iter().map(|(_, _, _, a)| a.len()).max().unwrap_or(0).max(12);
     
     // Calculate available width for names
-    let area_width = chunks[1].width.saturating_sub(2) as usize; // Account for borders
+    let area_width = chunks[0].width.saturating_sub(2) as usize; // Account for borders
     let fixed_cols = size_width + count_width + atime_width + 8; // 8 = spacing between columns + highlight symbol
     let name_width = area_width.saturating_sub(fixed_cols);
     
@@ -564,14 +562,14 @@ fn ui(f: &mut Frame, app: &App) {
     }).collect();
     
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL))
+        .block(Block::default().borders(Borders::ALL).title(title))
         .highlight_symbol("▶ ")
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
     
-    f.render_stateful_widget(list, chunks[1], &mut app.list_state.clone());
+    f.render_stateful_widget(list, chunks[0], &mut app.list_state.clone());
     
     // Status bar
     let status = Paragraph::new(format!(" {} │ q:quit  ↑↓/jk:navigate  ←→/space/enter:open/back", app.status))
         .style(Style::default().add_modifier(Modifier::DIM));
-    f.render_widget(status, chunks[2]);
+    f.render_widget(status, chunks[1]);
 }
