@@ -4,9 +4,10 @@ High-performance file system indexer and query tools for storage administration.
 
 ## Overview
 
-xdu provides two commands:
+xdu provides three commands:
 - **xdu**: Crawls a filesystem and builds a Hive-partitioned Parquet index containing file paths, sizes, and access times
 - **xdu-find**: Queries the index using DuckDB, with filters for path patterns, size, and access time
+- **xdu-view**: Interactive TUI for exploring the index, inspired by ncdu
 
 Designed for HPC and enterprise storage environments where traditional tools like `du` and `find` are too slow for regular auditing.
 
@@ -17,12 +18,14 @@ Designed for HPC and enterprise storage environments where traditional tools lik
 - **Output**: `arrow` + `parquet` crates write Snappy-compressed Parquet files
 - **Traversal**: `walkdir` for recursive directory iteration
 - **Query**: `duckdb` crate for efficient Parquet queries with partition pruning
+- **TUI**: `ratatui` + `crossterm` for interactive terminal interface
 
 ## Key Files
 
 - `src/lib.rs` - Shared types (FileRecord, schema) and formatting utilities
 - `src/bin/xdu.rs` - Indexer binary
 - `src/bin/xdu-find.rs` - Query binary using DuckDB
+- `src/bin/xdu-view.rs` - Interactive TUI explorer
 
 ## Build & Run
 
@@ -34,6 +37,9 @@ cargo build --release
 
 # Query index
 ./target/release/xdu-find -i /path/to/index -p '\.py$' --min-size 1M
+
+# Interactive explorer
+./target/release/xdu-view -i /path/to/index
 ```
 
 ## Design Decisions

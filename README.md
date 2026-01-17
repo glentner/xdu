@@ -13,7 +13,7 @@ System administrators managing large shared storage (e.g., HPC clusters, researc
 
 Traditional tools like `du` and `find` are designed for interactive, one-off queries. They re-traverse the filesystem every time, which is prohibitively slow on systems with hundreds of millions of files. They also produce flat text output that's difficult to analyze at scale.
 
-**xdu** solves this by building a persistent, queryable index once—then enabling instant analytics via the included `xdu-find` command or external tools like DuckDB, Polars, or Apache Spark.
+**xdu** solves this by building a persistent, queryable index once—then enabling instant analytics via the included `xdu-find` command, interactive exploration with `xdu-view`, or external tools like DuckDB, Polars, or Apache Spark.
 
 ## Design
 
@@ -109,6 +109,26 @@ xdu-find -i /var/lib/xdu/home -p '\.tmp$' --older-than 30 | xargs rm
 | `-f, --format` | Output format: path, size, atime, csv, json | path |
 | `-l, --limit` | Limit number of results | |
 | `-c, --count` | Count matching records | |
+
+### Interactive Exploration with xdu-view
+
+The `xdu-view` command provides an ncdu-style TUI for browsing the index:
+
+```bash
+# Browse all partitions
+xdu-view -i /var/lib/xdu/home
+
+# Start in a specific partition
+xdu-view -i /var/lib/xdu/home -p alice
+```
+
+Navigation:
+- `↑`/`↓` or `j`/`k`: Move selection
+- `→`/`Enter`/`Space`: Enter directory
+- `←`/`Backspace`: Go up
+- `q`/`Esc`: Quit
+
+The view shows directory totals (size and most recent access time) computed from the index.
 
 ### Querying with DuckDB
 
