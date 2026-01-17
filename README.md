@@ -13,7 +13,7 @@ System administrators managing large shared storage (e.g., HPC clusters, researc
 
 Traditional tools like `du` and `find` are designed for interactive, one-off queries. They re-traverse the filesystem every time, which is prohibitively slow on systems with hundreds of millions of files. They also produce flat text output that's difficult to analyze at scale.
 
-**xdu** solves this by building a persistent, queryable index once—then enabling instant analytics via modern tools like DuckDB, Polars, or Apache Spark.
+**xdu** solves this by building a persistent, queryable index once—then enabling instant analytics via the included `xdu-find` command or external tools like DuckDB, Polars, or Apache Spark.
 
 ## Design
 
@@ -64,6 +64,8 @@ cargo install --path .
 
 ## Usage
 
+### Building an Index
+
 ```bash
 xdu /home -o /var/lib/xdu/home -j 16 -b 100000
 ```
@@ -74,7 +76,41 @@ xdu /home -o /var/lib/xdu/home -j 16 -b 100000
 | `-j, --jobs` | Parallel threads | 4 |
 | `-b, --buffsize` | Records per Parquet chunk | 100000 |
 
-## Querying with DuckDB
+### Querying with xdu-find
+
+The `xdu-find` command provides a convenient CLI for common queries:
+
+```bash
+# Find all Python files
+xdu-find -i /var/lib/xdu/home -p '\.py$'
+
+# Find large files (>1GB) not accessed in 90 days
+xdu-find -i /var/lib/xdu/home --min-size 1G --older-than 90
+
+# Query a specific user's partition, sorted by size
+xdu-find -i /var/lib/xdu/home -u alice --min-size 100M -f size
+
+# Count matching files
+xdu-find -i /var/lib/xdu/home -p '\.tmp$' --older-than 30 --count
+
+# Pipe to xargs for bulk operations
+xdu-find -i /var/lib/xdu/home -p '\.tmp$' --older-than 30 | xargs rm
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-i, --index` | Path to Parquet index directory | Required |
+| `-p, --pattern` | Regex pattern to match paths | |
+| `-u, --partition` | Filter by partition (user directory) | |
+| `--min-size` | Minimum file size (e.g., 1K, 10M, 1G) | |
+| `--max-size` | Maximum file size | |
+| `--older-than` | Files not accessed in N days | |
+| `--newer-than` | Files accessed within N days | |
+| `-f, --format` | Output format: path, size, atime, csv, json | path |
+| `-l, --limit` | Limit number of results | |
+| `-c, --count` | Count matching records | |
+
+### Querying with DuckDB
 
 The Parquet index integrates seamlessly with DuckDB for instant analytics:
 
