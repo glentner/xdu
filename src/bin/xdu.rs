@@ -1,3 +1,6 @@
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::manual_is_multiple_of)]
+
 use std::fs::{self, File};
 use std::io::{stderr, IsTerminal};
 use std::os::unix::fs::MetadataExt;

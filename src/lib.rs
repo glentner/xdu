@@ -21,7 +21,7 @@ pub fn round_to_block(size: u64, block_size: u64) -> u64 {
     if block_size == 0 || size == 0 {
         return size;
     }
-    ((size + block_size - 1) / block_size) * block_size
+    size.div_ceil(block_size) * block_size
 }
 
 /// Determines how to calculate file size

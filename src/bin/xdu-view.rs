@@ -1,3 +1,6 @@
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::collapsible_else_if)]
+
 use std::io::stdout;
 use std::path::PathBuf;
 use std::time::Instant;
