@@ -1,6 +1,16 @@
+<div align="center">
+
 # xdu
 
-A high-performance file system indexer that builds Hive-partitioned Parquet indexes for large-scale storage administration.
+**High-performance file system indexer for large-scale storage administration**
+
+[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/glentner/xdu)](https://github.com/glentner/xdu/releases)
+[![Tests](https://img.shields.io/github/actions/workflow/status/glentner/xdu/test.yaml?branch=main&label=tests)](https://github.com/glentner/xdu/actions/workflows/test.yaml)
+
+</div>
+
+Builds Hive-partitioned Parquet indexes for instant analytics on filesystems with hundreds of millions of files.
 
 ## Motivation
 
