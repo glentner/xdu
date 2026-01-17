@@ -141,7 +141,7 @@ xdu-view -i /var/lib/xdu/home -p '\.py$' --min-size 1M
 | `--newer-than` | Files accessed within N days | |
 | `-s, --sort` | Sort order (see below) | name |
 
-**Sort modes:** `name` (default, directories first), `size-desc`, `size-asc`, `count-desc`, `count-asc`
+**Sort modes:** `name` (default, directories first), `size-desc`, `size-asc`, `count-desc`, `count-asc`, `age-desc` (oldest first), `age-asc` (newest first)
 
 #### Keybindings
 
@@ -157,7 +157,7 @@ xdu-view -i /var/lib/xdu/home -p '\.py$' --min-size 1M
 **Sorting:**
 | Key | Action |
 |-----|--------|
-| `s` | Cycle sort mode: name → size-desc → size-asc → count-desc → count-asc |
+| `s` | Open sort selector (use `↑↓`/`jk` to choose, `Enter` to confirm, `Esc` to cancel) |
 
 **Filtering (interactive):**
 | Key | Action |

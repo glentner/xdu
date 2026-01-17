@@ -95,6 +95,8 @@ enum InputMode {
     MinSize,
     /// Entering max-size
     MaxSize,
+    /// Selecting sort mode
+    SortSelect,
 }
 
 impl InputMode {
@@ -106,6 +108,7 @@ impl InputMode {
             InputMode::NewerThan => "Newer than (days): ",
             InputMode::MinSize => "Min size (e.g., 1M): ",
             InputMode::MaxSize => "Max size (e.g., 1G): ",
+            InputMode::SortSelect => "",
         }
     }
 }
@@ -147,6 +150,9 @@ struct App {
 
     /// Current input buffer
     input_buffer: String,
+
+    /// Pending sort mode (for sort selection)
+    pending_sort: SortMode,
 }
 
 impl App {
@@ -171,6 +177,7 @@ impl App {
             sort_mode,
             input_mode: InputMode::Normal,
             input_buffer: String::new(),
+            pending_sort: sort_mode,
         };
         
         if let Some(partition) = initial_partition {
@@ -404,10 +411,33 @@ impl App {
         Ok(())
     }
 
-    /// Cycle to next sort mode and reload
-    fn cycle_sort(&mut self) -> Result<()> {
-        self.sort_mode = self.sort_mode.next();
+    /// Start sort selection mode
+    fn start_sort_select(&mut self) {
+        self.pending_sort = self.sort_mode;
+        self.input_mode = InputMode::SortSelect;
+    }
+
+    /// Cycle pending sort to next mode
+    fn sort_select_next(&mut self) {
+        self.pending_sort = self.pending_sort.next();
+    }
+
+    /// Cycle pending sort to previous mode
+    fn sort_select_prev(&mut self) {
+        self.pending_sort = self.pending_sort.prev();
+    }
+
+    /// Confirm sort selection and reload
+    fn confirm_sort(&mut self) -> Result<()> {
+        self.sort_mode = self.pending_sort;
+        self.input_mode = InputMode::Normal;
         self.reload()
+    }
+
+    /// Cancel sort selection
+    fn cancel_sort(&mut self) {
+        self.pending_sort = self.sort_mode;
+        self.input_mode = InputMode::Normal;
     }
 
     /// Reload the current view
@@ -512,7 +542,7 @@ impl App {
                     }
                 }
             }
-            InputMode::Normal => {}
+            InputMode::Normal | InputMode::SortSelect => {}
         }
         
         self.input_mode = InputMode::Normal;
@@ -695,7 +725,27 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     continue;
                 }
                 
-                // Handle input mode
+                // Handle sort selection mode
+                if app.input_mode == InputMode::SortSelect {
+                    match key.code {
+                        KeyCode::Esc => app.cancel_sort(),
+                        KeyCode::Enter | KeyCode::Char(' ') => {
+                            if let Err(e) = app.confirm_sort() {
+                                app.status = format!("Error: {}", e);
+                            }
+                        }
+                        KeyCode::Up | KeyCode::Char('k') | KeyCode::Left => {
+                            app.sort_select_prev();
+                        }
+                        KeyCode::Down | KeyCode::Char('j') | KeyCode::Right | KeyCode::Char('s') => {
+                            app.sort_select_next();
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
+                // Handle text input mode
                 if app.input_mode != InputMode::Normal {
                     match key.code {
                         KeyCode::Esc => app.cancel_input(),
@@ -730,12 +780,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                             app.status = format!("Error: {}", e);
                         }
                     }
-                    // Sort mode
-                    KeyCode::Char('s') => {
-                        if let Err(e) = app.cycle_sort() {
-                            app.status = format!("Error: {}", e);
-                        }
-                    }
+                    // Sort mode selection
+                    KeyCode::Char('s') => app.start_sort_select(),
                     // Filter inputs
                     KeyCode::Char('/') => app.start_input(InputMode::Pattern),
                     KeyCode::Char('o') => app.start_input(InputMode::OlderThan),
@@ -867,7 +913,20 @@ fn ui(f: &mut Frame, app: &App) {
     f.render_stateful_widget(list, chunks[0], &mut app.list_state.clone());
     
     // Status bar
-    let status_text = if app.input_mode != InputMode::Normal {
+    let status_text = if app.input_mode == InputMode::SortSelect {
+        // Build sort selector display with short names
+        let options: Vec<String> = SortMode::ALL
+            .iter()
+            .map(|m| {
+                if *m == app.pending_sort {
+                    format!("▶ {} ◀", m)  // Arrows highlight selection
+                } else {
+                    format!("  {}  ", m)
+                }
+            })
+            .collect();
+        format!(" Sort: {}  (s/→:next  ←:prev  Enter:apply  Esc:cancel)", options.join(""))
+    } else if app.input_mode != InputMode::Normal {
         format!(" {}{}", app.input_mode.prompt(), app.input_buffer)
     } else {
         format!(
@@ -877,7 +936,9 @@ fn ui(f: &mut Frame, app: &App) {
         )
     };
     
-    let status_style = if app.input_mode != InputMode::Normal {
+    let status_style = if app.input_mode == InputMode::SortSelect {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else if app.input_mode != InputMode::Normal {
         Style::default().add_modifier(Modifier::BOLD)
     } else {
         Style::default().add_modifier(Modifier::DIM)

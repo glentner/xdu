@@ -98,17 +98,32 @@ pub enum SortMode {
     /// Alphabetical by name (directories first)
     #[default]
     Name,
-    /// By total size, ascending
-    SizeAsc,
     /// By total size, descending
     SizeDesc,
-    /// By file count, ascending
-    CountAsc,
+    /// By total size, ascending
+    SizeAsc,
     /// By file count, descending
     CountDesc,
+    /// By file count, ascending
+    CountAsc,
+    /// By age (oldest first - least recent access)
+    AgeDesc,
+    /// By age (newest first - most recent access)
+    AgeAsc,
 }
 
 impl SortMode {
+    /// All sort modes in display order.
+    pub const ALL: [SortMode; 7] = [
+        SortMode::Name,
+        SortMode::SizeDesc,
+        SortMode::SizeAsc,
+        SortMode::CountDesc,
+        SortMode::CountAsc,
+        SortMode::AgeDesc,
+        SortMode::AgeAsc,
+    ];
+
     /// Returns the next sort mode in the cycle.
     pub fn next(self) -> Self {
         match self {
@@ -116,7 +131,22 @@ impl SortMode {
             SortMode::SizeDesc => SortMode::SizeAsc,
             SortMode::SizeAsc => SortMode::CountDesc,
             SortMode::CountDesc => SortMode::CountAsc,
-            SortMode::CountAsc => SortMode::Name,
+            SortMode::CountAsc => SortMode::AgeDesc,
+            SortMode::AgeDesc => SortMode::AgeAsc,
+            SortMode::AgeAsc => SortMode::Name,
+        }
+    }
+
+    /// Returns the previous sort mode in the cycle.
+    pub fn prev(self) -> Self {
+        match self {
+            SortMode::Name => SortMode::AgeAsc,
+            SortMode::SizeDesc => SortMode::Name,
+            SortMode::SizeAsc => SortMode::SizeDesc,
+            SortMode::CountDesc => SortMode::SizeAsc,
+            SortMode::CountAsc => SortMode::CountDesc,
+            SortMode::AgeDesc => SortMode::CountAsc,
+            SortMode::AgeAsc => SortMode::AgeDesc,
         }
     }
 
@@ -130,6 +160,8 @@ impl SortMode {
             SortMode::SizeAsc => "total_size ASC",
             SortMode::CountDesc => "file_count DESC",
             SortMode::CountAsc => "file_count ASC",
+            SortMode::AgeDesc => "latest_atime ASC",   // oldest first = smallest atime
+            SortMode::AgeAsc => "latest_atime DESC",   // newest first = largest atime
         }
     }
 
@@ -141,6 +173,8 @@ impl SortMode {
             SortMode::SizeAsc => "total_size ASC",
             SortMode::CountDesc => "file_count DESC",
             SortMode::CountAsc => "file_count ASC",
+            SortMode::AgeDesc => "latest_atime ASC",   // oldest first
+            SortMode::AgeAsc => "latest_atime DESC",   // newest first
         }
     }
 }
@@ -149,10 +183,12 @@ impl fmt::Display for SortMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SortMode::Name => write!(f, "name"),
-            SortMode::SizeAsc => write!(f, "size-asc"),
             SortMode::SizeDesc => write!(f, "size-desc"),
-            SortMode::CountAsc => write!(f, "count-asc"),
+            SortMode::SizeAsc => write!(f, "size-asc"),
             SortMode::CountDesc => write!(f, "count-desc"),
+            SortMode::CountAsc => write!(f, "count-asc"),
+            SortMode::AgeDesc => write!(f, "age-desc"),
+            SortMode::AgeAsc => write!(f, "age-asc"),
         }
     }
 }
@@ -163,11 +199,13 @@ impl FromStr for SortMode {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "name" => Ok(SortMode::Name),
-            "size-asc" => Ok(SortMode::SizeAsc),
             "size-desc" | "size" => Ok(SortMode::SizeDesc),
-            "count-asc" => Ok(SortMode::CountAsc),
+            "size-asc" => Ok(SortMode::SizeAsc),
             "count-desc" | "count" => Ok(SortMode::CountDesc),
-            _ => Err(format!("Invalid sort mode: {}. Use: name, size-asc, size-desc, count-asc, count-desc", s)),
+            "count-asc" => Ok(SortMode::CountAsc),
+            "age-desc" | "age" | "oldest" => Ok(SortMode::AgeDesc),
+            "age-asc" | "newest" => Ok(SortMode::AgeAsc),
+            _ => Err(format!("Invalid sort mode: {}. Use: name, size-desc, size-asc, count-desc, count-asc, age-desc, age-asc", s)),
         }
     }
 }
@@ -686,7 +724,9 @@ mod tests {
         assert_eq!(SortMode::SizeDesc.next(), SortMode::SizeAsc);
         assert_eq!(SortMode::SizeAsc.next(), SortMode::CountDesc);
         assert_eq!(SortMode::CountDesc.next(), SortMode::CountAsc);
-        assert_eq!(SortMode::CountAsc.next(), SortMode::Name);
+        assert_eq!(SortMode::CountAsc.next(), SortMode::AgeDesc);
+        assert_eq!(SortMode::AgeDesc.next(), SortMode::AgeAsc);
+        assert_eq!(SortMode::AgeAsc.next(), SortMode::Name);
     }
 
     #[test]
@@ -698,6 +738,11 @@ mod tests {
         assert_eq!("count-desc".parse::<SortMode>().unwrap(), SortMode::CountDesc);
         assert_eq!("count".parse::<SortMode>().unwrap(), SortMode::CountDesc);
         assert_eq!("count-asc".parse::<SortMode>().unwrap(), SortMode::CountAsc);
+        assert_eq!("age-desc".parse::<SortMode>().unwrap(), SortMode::AgeDesc);
+        assert_eq!("age".parse::<SortMode>().unwrap(), SortMode::AgeDesc);
+        assert_eq!("oldest".parse::<SortMode>().unwrap(), SortMode::AgeDesc);
+        assert_eq!("age-asc".parse::<SortMode>().unwrap(), SortMode::AgeAsc);
+        assert_eq!("newest".parse::<SortMode>().unwrap(), SortMode::AgeAsc);
     }
 
     #[test]
@@ -712,6 +757,8 @@ mod tests {
         assert_eq!(SortMode::SizeAsc.to_string(), "size-asc");
         assert_eq!(SortMode::CountDesc.to_string(), "count-desc");
         assert_eq!(SortMode::CountAsc.to_string(), "count-asc");
+        assert_eq!(SortMode::AgeDesc.to_string(), "age-desc");
+        assert_eq!(SortMode::AgeAsc.to_string(), "age-asc");
     }
 
     #[test]
@@ -720,6 +767,8 @@ mod tests {
         assert_eq!(SortMode::Name.to_order_by(false), "component");
         assert_eq!(SortMode::SizeDesc.to_order_by(true), "total_size DESC");
         assert_eq!(SortMode::SizeAsc.to_order_by(false), "total_size ASC");
+        assert_eq!(SortMode::AgeDesc.to_order_by(false), "latest_atime ASC");
+        assert_eq!(SortMode::AgeAsc.to_order_by(false), "latest_atime DESC");
     }
 
     // QueryFilters tests
