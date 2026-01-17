@@ -68,9 +68,25 @@ A typical 100M file filesystem might take 2-3 hours to `du`. With xdu, the index
 
 ## Installation
 
+### Quick Install (Recommended)
+
 ```bash
-cargo install --path .
+curl -sSfL https://raw.githubusercontent.com/glentner/xdu/main/install.sh | sh
 ```
+
+This downloads the latest release binary for your platform and installs it to `~/.local/bin`.
+
+**Options:**
+- `XDU_VERSION=v0.1.0` — Install a specific version
+- `XDU_INSTALL=/usr/local/bin` — Change install directory
+
+### From Source
+
+```bash
+cargo install --git https://github.com/glentner/xdu.git
+```
+
+Requires [Rust](https://rustup.rs) nightly toolchain.
 
 ## Usage
 
