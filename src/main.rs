@@ -348,3 +348,447 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use std::io::Write;
+    use tempfile::TempDir;
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
+    fn create_test_schema() -> Arc<Schema> {
+        get_schema()
+    }
+
+    // Tests for format_count()
+    #[test]
+    fn test_format_count_units() {
+        assert_eq!(format_count(0), "0");
+        assert_eq!(format_count(1), "1");
+        assert_eq!(format_count(999), "999");
+    }
+
+    #[test]
+    fn test_format_count_thousands() {
+        assert_eq!(format_count(1_000), "1.0K");
+        assert_eq!(format_count(1_500), "1.5K");
+        assert_eq!(format_count(999_999), "1000.0K");
+    }
+
+    #[test]
+    fn test_format_count_millions() {
+        assert_eq!(format_count(1_000_000), "1.0M");
+        assert_eq!(format_count(2_500_000), "2.5M");
+        assert_eq!(format_count(999_999_999), "1000.0M");
+    }
+
+    #[test]
+    fn test_format_count_billions() {
+        assert_eq!(format_count(1_000_000_000), "1.0B");
+        assert_eq!(format_count(5_500_000_000), "5.5B");
+    }
+
+    // Tests for format_bytes()
+    #[test]
+    fn test_format_bytes_bytes() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(1), "1 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+    }
+
+    #[test]
+    fn test_format_bytes_kib() {
+        assert_eq!(format_bytes(1024), "1.00 KiB");
+        assert_eq!(format_bytes(1536), "1.50 KiB");
+        assert_eq!(format_bytes(1024 * 1023), "1023.00 KiB");
+    }
+
+    #[test]
+    fn test_format_bytes_mib() {
+        assert_eq!(format_bytes(1024 * 1024), "1.00 MiB");
+        assert_eq!(format_bytes(1024 * 1024 * 2 + 1024 * 512), "2.50 MiB");
+    }
+
+    #[test]
+    fn test_format_bytes_gib() {
+        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.00 GiB");
+        assert_eq!(format_bytes(1024 * 1024 * 1024 * 3 + 1024 * 1024 * 512), "3.50 GiB");
+    }
+
+    #[test]
+    fn test_format_bytes_tib() {
+        assert_eq!(format_bytes(1024_u64 * 1024 * 1024 * 1024), "1.00 TiB");
+        assert_eq!(format_bytes(1024_u64 * 1024 * 1024 * 1024 * 2 + 1024_u64 * 1024 * 1024 * 512), "2.50 TiB");
+    }
+
+    // Tests for PartitionBuffer::add()
+    #[test]
+    fn test_partition_buffer_add_accumulates_records() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let schema = create_test_schema();
+        let mut buffer = PartitionBuffer::new(
+            "test_partition".to_string(),
+            temp_dir.path().to_path_buf(),
+            100, // large buffer so no flush
+            schema,
+        );
+
+        // Add records below buffer size
+        for i in 0..50 {
+            buffer.add(FileRecord {
+                path: format!("/path/to/file{}", i),
+                size: 1024 * i,
+                atime: 1700000000 + i,
+            })?;
+        }
+
+        // Records should be accumulated, not flushed
+        assert_eq!(buffer.records.len(), 50);
+        assert_eq!(buffer.chunk_counter.load(Ordering::SeqCst), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_partition_buffer_add_flushes_at_buffer_size() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let schema = create_test_schema();
+        let mut buffer = PartitionBuffer::new(
+            "test_partition".to_string(),
+            temp_dir.path().to_path_buf(),
+            10, // small buffer to trigger flush
+            schema,
+        );
+
+        // Add exactly buffsize records to trigger flush
+        for i in 0..10 {
+            buffer.add(FileRecord {
+                path: format!("/path/to/file{}", i),
+                size: 1024,
+                atime: 1700000000,
+            })?;
+        }
+
+        // Buffer should have flushed and be empty
+        assert_eq!(buffer.records.len(), 0);
+        assert_eq!(buffer.chunk_counter.load(Ordering::SeqCst), 1);
+
+        // Verify parquet file was created
+        let parquet_path = temp_dir.path().join("test_partition").join("000000.parquet");
+        assert!(parquet_path.exists());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_partition_buffer_add_multiple_flushes() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let schema = create_test_schema();
+        let mut buffer = PartitionBuffer::new(
+            "test_partition".to_string(),
+            temp_dir.path().to_path_buf(),
+            5,
+            schema,
+        );
+
+        // Add 12 records: should trigger 2 flushes with 2 remaining
+        for i in 0..12 {
+            buffer.add(FileRecord {
+                path: format!("/path/to/file{}", i),
+                size: 100,
+                atime: 1700000000,
+            })?;
+        }
+
+        assert_eq!(buffer.records.len(), 2);
+        assert_eq!(buffer.chunk_counter.load(Ordering::SeqCst), 2);
+
+        // Verify both parquet files exist
+        assert!(temp_dir.path().join("test_partition").join("000000.parquet").exists());
+        assert!(temp_dir.path().join("test_partition").join("000001.parquet").exists());
+
+        Ok(())
+    }
+
+    // Tests for PartitionBuffer::flush()
+    #[test]
+    fn test_partition_buffer_flush_empty_is_noop() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let schema = create_test_schema();
+        let mut buffer = PartitionBuffer::new(
+            "test_partition".to_string(),
+            temp_dir.path().to_path_buf(),
+            100,
+            schema,
+        );
+
+        // Flush empty buffer
+        buffer.flush()?;
+
+        // No files should be created
+        assert!(!temp_dir.path().join("test_partition").exists());
+        assert_eq!(buffer.chunk_counter.load(Ordering::SeqCst), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_partition_buffer_flush_writes_correct_parquet() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let schema = create_test_schema();
+        let mut buffer = PartitionBuffer::new(
+            "test_partition".to_string(),
+            temp_dir.path().to_path_buf(),
+            100,
+            schema,
+        );
+
+        // Add specific records
+        buffer.add(FileRecord {
+            path: "/path/to/file1.txt".to_string(),
+            size: 1024,
+            atime: 1700000001,
+        })?;
+        buffer.add(FileRecord {
+            path: "/path/to/file2.txt".to_string(),
+            size: 2048,
+            atime: 1700000002,
+        })?;
+        buffer.add(FileRecord {
+            path: "/path/to/file3.txt".to_string(),
+            size: 4096,
+            atime: 1700000003,
+        })?;
+
+        buffer.flush()?;
+
+        // Buffer should be cleared
+        assert_eq!(buffer.records.len(), 0);
+
+        // Read back the parquet file and verify contents
+        let parquet_path = temp_dir.path().join("test_partition").join("000000.parquet");
+        let file = File::open(&parquet_path)?;
+        let reader = ParquetRecordBatchReaderBuilder::try_new(file)?.build()?;
+
+        let batches: Vec<_> = reader.collect::<std::result::Result<Vec<_>, _>>()?;
+        assert_eq!(batches.len(), 1);
+
+        let batch = &batches[0];
+        assert_eq!(batch.num_rows(), 3);
+
+        // Verify paths
+        let paths = batch.column(0)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
+        assert_eq!(paths.value(0), "/path/to/file1.txt");
+        assert_eq!(paths.value(1), "/path/to/file2.txt");
+        assert_eq!(paths.value(2), "/path/to/file3.txt");
+
+        // Verify sizes
+        let sizes = batch.column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert_eq!(sizes.value(0), 1024);
+        assert_eq!(sizes.value(1), 2048);
+        assert_eq!(sizes.value(2), 4096);
+
+        // Verify atimes
+        let atimes = batch.column(2)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert_eq!(atimes.value(0), 1700000001);
+        assert_eq!(atimes.value(1), 1700000002);
+        assert_eq!(atimes.value(2), 1700000003);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_partition_buffer_flush_creates_partition_dir() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let schema = create_test_schema();
+        let mut buffer = PartitionBuffer::new(
+            "nested/partition/name".to_string(),
+            temp_dir.path().to_path_buf(),
+            100,
+            schema,
+        );
+
+        buffer.add(FileRecord {
+            path: "/test".to_string(),
+            size: 100,
+            atime: 1700000000,
+        })?;
+        buffer.flush()?;
+
+        // Verify nested directory was created
+        assert!(temp_dir.path().join("nested/partition/name").join("000000.parquet").exists());
+
+        Ok(())
+    }
+
+    // Integration test for indexing directories
+    #[test]
+    fn test_index_directories_creates_partitions() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let source_dir = temp_dir.path().join("source");
+        let output_dir = temp_dir.path().join("output");
+
+        // Create source directory structure with multiple partitions
+        let partition_a = source_dir.join("partition_a");
+        let partition_b = source_dir.join("partition_b");
+        fs::create_dir_all(&partition_a)?;
+        fs::create_dir_all(&partition_b)?;
+
+        // Create test files in partition_a
+        File::create(partition_a.join("file1.txt"))?.write_all(b"content1")?;
+        File::create(partition_a.join("file2.txt"))?.write_all(b"content22")?;
+
+        // Create test files in partition_b
+        let subdir = partition_b.join("subdir");
+        fs::create_dir_all(&subdir)?;
+        File::create(partition_b.join("file3.txt"))?.write_all(b"content333")?;
+        File::create(subdir.join("file4.txt"))?.write_all(b"content4444")?;
+
+        // Run indexing
+        fs::create_dir_all(&output_dir)?;
+        let schema = get_schema();
+
+        let partitions: Vec<PathBuf> = fs::read_dir(&source_dir)?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+
+        for partition_path in &partitions {
+            let partition_name = partition_path.file_name().unwrap().to_string_lossy().to_string();
+            let mut buffer = PartitionBuffer::new(
+                partition_name,
+                output_dir.clone(),
+                100,
+                schema.clone(),
+            );
+
+            for entry in WalkDir::new(partition_path)
+                .follow_links(false)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+
+                let metadata = fs::metadata(path)?;
+                buffer.add(FileRecord {
+                    path: path.to_string_lossy().to_string(),
+                    size: metadata.len() as i64,
+                    atime: metadata.atime(),
+                })?;
+            }
+
+            buffer.flush()?;
+        }
+
+        // Verify output structure
+        assert!(output_dir.join("partition_a").join("000000.parquet").exists());
+        assert!(output_dir.join("partition_b").join("000000.parquet").exists());
+
+        // Verify partition_a contents
+        let file_a = File::open(output_dir.join("partition_a").join("000000.parquet"))?;
+        let reader_a = ParquetRecordBatchReaderBuilder::try_new(file_a)?.build()?;
+        let batches_a: Vec<_> = reader_a.collect::<std::result::Result<Vec<_>, _>>()?;
+        let total_rows_a: usize = batches_a.iter().map(|b| b.num_rows()).sum();
+        assert_eq!(total_rows_a, 2); // 2 files in partition_a
+
+        // Verify partition_b contents
+        let file_b = File::open(output_dir.join("partition_b").join("000000.parquet"))?;
+        let reader_b = ParquetRecordBatchReaderBuilder::try_new(file_b)?.build()?;
+        let batches_b: Vec<_> = reader_b.collect::<std::result::Result<Vec<_>, _>>()?;
+        let total_rows_b: usize = batches_b.iter().map(|b| b.num_rows()).sum();
+        assert_eq!(total_rows_b, 2); // 2 files in partition_b (including subdir)
+
+        // Verify file sizes are recorded correctly
+        let batch_a = &batches_a[0];
+        let sizes_a = batch_a.column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        let total_size_a: i64 = (0..sizes_a.len()).map(|i| sizes_a.value(i)).sum();
+        assert_eq!(total_size_a, 8 + 9); // "content1" + "content22"
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_index_with_progress_tracking() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let source_dir = temp_dir.path().join("source");
+        let output_dir = temp_dir.path().join("output");
+
+        // Create partitions with multiple files to test progress tracking
+        let partition = source_dir.join("users");
+        fs::create_dir_all(&partition)?;
+
+        // Create enough files to trigger progress updates
+        for i in 0..50 {
+            let content = format!("file content {}", i);
+            File::create(partition.join(format!("file{}.txt", i)))?.write_all(content.as_bytes())?;
+        }
+
+        fs::create_dir_all(&output_dir)?;
+        let schema = get_schema();
+
+        let global_file_count = Arc::new(AtomicU64::new(0));
+        let global_byte_count = Arc::new(AtomicU64::new(0));
+
+        let mut buffer = PartitionBuffer::new(
+            "users".to_string(),
+            output_dir.clone(),
+            10, // Small buffer to force multiple flushes
+            schema.clone(),
+        );
+
+        for entry in WalkDir::new(&partition)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let metadata = fs::metadata(path)?;
+            let size = metadata.len() as i64;
+
+            buffer.add(FileRecord {
+                path: path.to_string_lossy().to_string(),
+                size,
+                atime: metadata.atime(),
+            })?;
+
+            global_file_count.fetch_add(1, Ordering::Relaxed);
+            global_byte_count.fetch_add(size as u64, Ordering::Relaxed);
+        }
+
+        buffer.flush()?;
+
+        // Verify progress counters
+        assert_eq!(global_file_count.load(Ordering::Relaxed), 50);
+        assert!(global_byte_count.load(Ordering::Relaxed) > 0);
+
+        // Verify multiple parquet files were created due to small buffer
+        let parquet_files: Vec<_> = fs::read_dir(output_dir.join("users"))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "parquet"))
+            .collect();
+        assert!(parquet_files.len() >= 5); // 50 files / 10 buffer size = 5 files
+
+        Ok(())
+    }
+}
