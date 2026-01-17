@@ -44,6 +44,10 @@ struct Args {
     /// Limit number of results
     #[arg(short, long)]
     limit: Option<usize>,
+
+    /// Count matching records instead of listing them
+    #[arg(short, long)]
+    count: bool,
 }
 
 /// Parse a human-readable size string into bytes.
@@ -143,6 +147,21 @@ fn main() -> Result<()> {
     // Build and execute query based on format
     let stdout = io::stdout();
     let mut out = stdout.lock();
+
+    // Handle count mode
+    if args.count {
+        let sql = format!(
+            "SELECT COUNT(*) FROM read_parquet('{}') {}",
+            glob_pattern, where_clause
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query([])?;
+        if let Some(row) = rows.next()? {
+            let count: i64 = row.get(0)?;
+            writeln!(out, "{}", count)?;
+        }
+        return Ok(());
+    }
 
     match args.format.as_str() {
         "path" => {
