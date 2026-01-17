@@ -14,9 +14,18 @@ anyhow = "1"
 parking_lot = "0.12"
 indicatif = "0.17"
 console = "0.15"
+duckdb = { version = "1", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[[bin]]
+name = "xdu"
+path = "src/bin/xdu.rs"
+
+[[bin]]
+name = "xdu-find"
+path = "src/bin/xdu-find.rs"
 
 [profile.release]
 lto = true
