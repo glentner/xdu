@@ -1,0 +1,22 @@
+[package]
+name = "xdu"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+rayon = "1.10"
+parquet = { version = "53", features = ["arrow"] }
+arrow = { version = "53", features = ["chrono-tz"] }
+walkdir = "2"
+anyhow = "1"
+parking_lot = "0.12"
+indicatif = "0.17"
+console = "0.15"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
