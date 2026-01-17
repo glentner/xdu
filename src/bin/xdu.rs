@@ -20,7 +20,7 @@ use parquet::file::properties::WriterProperties;
 use rayon::prelude::*;
 use walkdir::WalkDir;
 
-use xdu::{format_bytes, format_count, get_schema, FileRecord};
+use xdu::{format_bytes, format_count, get_schema, CrawlUnit, FileRecord, SizeMode};
 
 #[derive(Parser, Debug)]
 #[command(name = "xdu", about = "Build a distributed file metadata index in Parquet format")]
@@ -86,14 +86,6 @@ fn parse_size(s: &str) -> Result<u64> {
     let num: f64 = num.trim().parse()
         .with_context(|| format!("Invalid size: {}", s))?;
     Ok((num * mult as f64) as u64)
-}
-
-/// Round size up to the nearest block boundary.
-fn round_to_block(size: u64, block_size: u64) -> u64 {
-    if block_size == 0 || size == 0 {
-        return size;
-    }
-    ((size + block_size - 1) / block_size) * block_size
 }
 
 /// Per-partition buffer that accumulates records and flushes to Parquet.
@@ -206,31 +198,9 @@ impl PartitionBuffer {
     }
 }
 
-/// Determines how to calculate file size
-#[derive(Clone, Copy)]
-enum SizeMode {
-    /// Use st_blocks * 512 (actual disk usage)
-    DiskUsage,
-    /// Use st_size (apparent/logical size)
-    ApparentSize,
-    /// Use st_size rounded up to block size
-    BlockRounded(u64),
-}
-
-impl SizeMode {
-    fn calculate(&self, metadata: &std::fs::Metadata) -> u64 {
-        match self {
-            SizeMode::DiskUsage => metadata.blocks() * 512,
-            SizeMode::ApparentSize => metadata.len(),
-            SizeMode::BlockRounded(block_size) => round_to_block(metadata.len(), *block_size),
-        }
-    }
-}
-
-/// A work unit to crawl: directory path + display label
-struct CrawlUnit {
-    path: PathBuf,
-    label: String,
+/// Helper to calculate file size from metadata using the given SizeMode.
+fn calculate_size(size_mode: SizeMode, metadata: &std::fs::Metadata) -> u64 {
+    size_mode.calculate(metadata.blocks() * 512, metadata.len())
 }
 
 /// Crawl a directory tree, writing records to the buffer.
@@ -263,7 +233,7 @@ fn crawl_directory(
             Err(_) => continue,
         };
 
-        let file_size = size_mode.calculate(&metadata);
+        let file_size = calculate_size(size_mode, &metadata);
         let record = FileRecord {
             path: path.to_string_lossy().to_string(),
             size: file_size as i64,
@@ -337,10 +307,10 @@ fn main() -> Result<()> {
         sub_dirs.sort();
 
         // Build work units
-        let mut units: Vec<CrawlUnit> = sub_dirs.iter().map(|p| CrawlUnit {
-            path: p.clone(),
-            label: format!("{}:{}", partition_name, p.file_name().unwrap().to_string_lossy()),
-        }).collect();
+        let mut units: Vec<CrawlUnit> = sub_dirs.iter().map(|p| CrawlUnit::new(
+            p.clone(),
+            format!("{}:{}", partition_name, p.file_name().unwrap().to_string_lossy()),
+        )).collect();
 
         // Also crawl files directly in the partition root (not in subdirs)
         // We'll handle this by adding a unit for loose files
@@ -351,10 +321,10 @@ fn main() -> Result<()> {
         // If no subdirs or has loose files, we need special handling
         if units.is_empty() || has_loose_files {
             // Insert a unit for the partition root that only processes depth=1 files
-            units.insert(0, CrawlUnit {
-                path: partition_path.clone(),
-                label: format!("{}:.", partition_name),
-            });
+            units.insert(0, CrawlUnit::new(
+                partition_path.clone(),
+                format!("{}:.", partition_name),
+            ));
         }
 
         if units.is_empty() {
@@ -427,7 +397,7 @@ fn main() -> Result<()> {
                         Ok(m) => m,
                         Err(_) => continue,
                     };
-                    let file_size = size_mode.calculate(&metadata);
+                    let file_size = calculate_size(size_mode, &metadata);
                     let record = FileRecord {
                         path: path.to_string_lossy().to_string(),
                         size: file_size as i64,
@@ -547,10 +517,7 @@ fn main() -> Result<()> {
     let result = partitions.par_iter().try_for_each(|partition_path| -> Result<()> {
         let partition_name = partition_path.file_name().unwrap().to_string_lossy().to_string();
 
-        let unit = CrawlUnit {
-            path: partition_path.clone(),
-            label: partition_name.clone(),
-        };
+        let unit = CrawlUnit::new(partition_path.clone(), partition_name.clone());
 
         let partition_style = ProgressStyle::default_bar()
             .template("{spinner:.cyan} {prefix:.bold} {msg}")
