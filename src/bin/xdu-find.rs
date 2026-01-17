@@ -88,10 +88,11 @@ fn main() -> Result<()> {
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
 
     // Build the glob pattern for Parquet files
+    // Partitions are direct children of the index directory
     let glob_pattern = if let Some(ref partition) = args.partition {
-        format!("{}/**/{}/**/*.parquet", index_path.display(), partition)
+        format!("{}/{}/*.parquet", index_path.display(), partition)
     } else {
-        format!("{}/**/*.parquet", index_path.display())
+        format!("{}/*/*.parquet", index_path.display())
     };
 
     // Connect to DuckDB (in-memory)
