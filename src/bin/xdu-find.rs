@@ -1,10 +1,11 @@
 use std::io::{self, Write};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use duckdb::Connection;
+
+use xdu::QueryFilters;
 
 #[derive(Parser, Debug)]
 #[command(name = "xdu-find", about = "Query a file metadata index for matching paths")]
@@ -50,36 +51,6 @@ struct Args {
     count: bool,
 }
 
-/// Parse a human-readable size string into bytes.
-fn parse_size(s: &str) -> Result<i64> {
-    let s = s.trim().to_uppercase();
-    let (num, mult) = if let Some(n) = s.strip_suffix("TIB") {
-        (n, 1024_i64 * 1024 * 1024 * 1024)
-    } else if let Some(n) = s.strip_suffix("T") {
-        (n, 1024_i64 * 1024 * 1024 * 1024)
-    } else if let Some(n) = s.strip_suffix("GIB") {
-        (n, 1024_i64 * 1024 * 1024)
-    } else if let Some(n) = s.strip_suffix("G") {
-        (n, 1024_i64 * 1024 * 1024)
-    } else if let Some(n) = s.strip_suffix("MIB") {
-        (n, 1024_i64 * 1024)
-    } else if let Some(n) = s.strip_suffix("M") {
-        (n, 1024_i64 * 1024)
-    } else if let Some(n) = s.strip_suffix("KIB") {
-        (n, 1024_i64)
-    } else if let Some(n) = s.strip_suffix("K") {
-        (n, 1024_i64)
-    } else if let Some(n) = s.strip_suffix("B") {
-        (n, 1)
-    } else {
-        (s.as_str(), 1)
-    };
-
-    let num: f64 = num.trim().parse()
-        .with_context(|| format!("Invalid size: {}", s))?;
-    Ok((num * mult as f64) as i64)
-}
-
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -98,46 +69,17 @@ fn main() -> Result<()> {
     // Connect to DuckDB (in-memory)
     let conn = Connection::open_in_memory()?;
 
-    // Build WHERE clauses
-    let mut conditions = Vec::new();
+    // Build filters using shared QueryFilters
+    let filters = QueryFilters::new()
+        .with_pattern(args.pattern.clone())
+        .with_older_than(args.older_than)
+        .with_newer_than(args.newer_than)
+        .with_min_size(args.min_size.as_deref())
+        .map_err(|e| anyhow::anyhow!(e))?
+        .with_max_size(args.max_size.as_deref())
+        .map_err(|e| anyhow::anyhow!(e))?;
 
-    if let Some(ref pattern) = args.pattern {
-        // Escape single quotes in the pattern
-        let escaped = pattern.replace('\'', "''");
-        conditions.push(format!("regexp_matches(path, '{}')", escaped));
-    }
-
-    if let Some(ref min_size) = args.min_size {
-        let bytes = parse_size(min_size)?;
-        conditions.push(format!("size >= {}", bytes));
-    }
-
-    if let Some(ref max_size) = args.max_size {
-        let bytes = parse_size(max_size)?;
-        conditions.push(format!("size <= {}", bytes));
-    }
-
-    // Calculate atime thresholds
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-
-    if let Some(days) = args.older_than {
-        let threshold = now - (days as i64 * 86400);
-        conditions.push(format!("atime < {}", threshold));
-    }
-
-    if let Some(days) = args.newer_than {
-        let threshold = now - (days as i64 * 86400);
-        conditions.push(format!("atime >= {}", threshold));
-    }
-
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", conditions.join(" AND "))
-    };
+    let where_clause = filters.to_full_where_clause();
 
     let limit_clause = if let Some(n) = args.limit {
         format!("LIMIT {}", n)

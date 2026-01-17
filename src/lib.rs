@@ -1,7 +1,10 @@
 //! Shared types and utilities for xdu tools.
 
+use std::fmt;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use arrow::datatypes::{DataType, Field, Schema};
 
@@ -55,6 +58,286 @@ pub struct CrawlUnit {
 impl CrawlUnit {
     pub fn new(path: PathBuf, label: String) -> Self {
         Self { path, label }
+    }
+}
+
+/// Parse a human-readable size string into bytes.
+/// Supports suffixes: K, M, G, T (and KiB, MiB, GiB, TiB variants).
+pub fn parse_size(s: &str) -> Result<i64, String> {
+    let s = s.trim().to_uppercase();
+    let (num, mult) = if let Some(n) = s.strip_suffix("TIB") {
+        (n, 1024_i64 * 1024 * 1024 * 1024)
+    } else if let Some(n) = s.strip_suffix("T") {
+        (n, 1024_i64 * 1024 * 1024 * 1024)
+    } else if let Some(n) = s.strip_suffix("GIB") {
+        (n, 1024_i64 * 1024 * 1024)
+    } else if let Some(n) = s.strip_suffix("G") {
+        (n, 1024_i64 * 1024 * 1024)
+    } else if let Some(n) = s.strip_suffix("MIB") {
+        (n, 1024_i64 * 1024)
+    } else if let Some(n) = s.strip_suffix("M") {
+        (n, 1024_i64 * 1024)
+    } else if let Some(n) = s.strip_suffix("KIB") {
+        (n, 1024_i64)
+    } else if let Some(n) = s.strip_suffix("K") {
+        (n, 1024_i64)
+    } else if let Some(n) = s.strip_suffix("B") {
+        (n, 1)
+    } else {
+        (s.as_str(), 1)
+    };
+
+    let num: f64 = num.trim().parse()
+        .map_err(|_| format!("Invalid size: {}", s))?;
+    Ok((num * mult as f64) as i64)
+}
+
+/// Sort mode for directory listings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SortMode {
+    /// Alphabetical by name (directories first)
+    #[default]
+    Name,
+    /// By total size, ascending
+    SizeAsc,
+    /// By total size, descending
+    SizeDesc,
+    /// By file count, ascending
+    CountAsc,
+    /// By file count, descending
+    CountDesc,
+}
+
+impl SortMode {
+    /// Returns the next sort mode in the cycle.
+    pub fn next(self) -> Self {
+        match self {
+            SortMode::Name => SortMode::SizeDesc,
+            SortMode::SizeDesc => SortMode::SizeAsc,
+            SortMode::SizeAsc => SortMode::CountDesc,
+            SortMode::CountDesc => SortMode::CountAsc,
+            SortMode::CountAsc => SortMode::Name,
+        }
+    }
+
+    /// Returns the SQL ORDER BY clause for this sort mode.
+    /// When sorting by Name, directories are grouped first.
+    pub fn to_order_by(&self, dirs_first: bool) -> &'static str {
+        match self {
+            SortMode::Name if dirs_first => "bool_or(is_dir) DESC, component",
+            SortMode::Name => "component",
+            SortMode::SizeDesc => "total_size DESC",
+            SortMode::SizeAsc => "total_size ASC",
+            SortMode::CountDesc => "file_count DESC",
+            SortMode::CountAsc => "file_count ASC",
+        }
+    }
+
+    /// Returns the ORDER BY clause for partition listing.
+    pub fn to_partition_order_by(&self) -> &'static str {
+        match self {
+            SortMode::Name => "partition",
+            SortMode::SizeDesc => "total_size DESC",
+            SortMode::SizeAsc => "total_size ASC",
+            SortMode::CountDesc => "file_count DESC",
+            SortMode::CountAsc => "file_count ASC",
+        }
+    }
+}
+
+impl fmt::Display for SortMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SortMode::Name => write!(f, "name"),
+            SortMode::SizeAsc => write!(f, "size-asc"),
+            SortMode::SizeDesc => write!(f, "size-desc"),
+            SortMode::CountAsc => write!(f, "count-asc"),
+            SortMode::CountDesc => write!(f, "count-desc"),
+        }
+    }
+}
+
+impl FromStr for SortMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "name" => Ok(SortMode::Name),
+            "size-asc" => Ok(SortMode::SizeAsc),
+            "size-desc" | "size" => Ok(SortMode::SizeDesc),
+            "count-asc" => Ok(SortMode::CountAsc),
+            "count-desc" | "count" => Ok(SortMode::CountDesc),
+            _ => Err(format!("Invalid sort mode: {}. Use: name, size-asc, size-desc, count-asc, count-desc", s)),
+        }
+    }
+}
+
+/// Query filters for file metadata searches.
+#[derive(Clone, Debug, Default)]
+pub struct QueryFilters {
+    /// Regex pattern to match file paths.
+    pub pattern: Option<String>,
+    /// Minimum file size in bytes.
+    pub min_size: Option<i64>,
+    /// Maximum file size in bytes.
+    pub max_size: Option<i64>,
+    /// Files not accessed since this epoch timestamp.
+    pub older_than: Option<i64>,
+    /// Files accessed since this epoch timestamp.
+    pub newer_than: Option<i64>,
+}
+
+impl QueryFilters {
+    /// Create a new empty filter set.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set pattern filter from regex string.
+    pub fn with_pattern(mut self, pattern: Option<String>) -> Self {
+        self.pattern = pattern;
+        self
+    }
+
+    /// Set minimum size filter from human-readable string (e.g., "1M").
+    pub fn with_min_size(mut self, size: Option<&str>) -> Result<Self, String> {
+        self.min_size = size.map(parse_size).transpose()?;
+        Ok(self)
+    }
+
+    /// Set maximum size filter from human-readable string (e.g., "1G").
+    pub fn with_max_size(mut self, size: Option<&str>) -> Result<Self, String> {
+        self.max_size = size.map(parse_size).transpose()?;
+        Ok(self)
+    }
+
+    /// Set older-than filter from days.
+    pub fn with_older_than(mut self, days: Option<u64>) -> Self {
+        if let Some(d) = days {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            self.older_than = Some(now - (d as i64 * 86400));
+        }
+        self
+    }
+
+    /// Set newer-than filter from days.
+    pub fn with_newer_than(mut self, days: Option<u64>) -> Self {
+        if let Some(d) = days {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            self.newer_than = Some(now - (d as i64 * 86400));
+        }
+        self
+    }
+
+    /// Returns true if any filter is active.
+    pub fn is_active(&self) -> bool {
+        self.pattern.is_some()
+            || self.min_size.is_some()
+            || self.max_size.is_some()
+            || self.older_than.is_some()
+            || self.newer_than.is_some()
+    }
+
+    /// Returns individual WHERE clause conditions.
+    pub fn to_conditions(&self) -> Vec<String> {
+        let mut conditions = Vec::new();
+
+        if let Some(ref pattern) = self.pattern {
+            let escaped = pattern.replace('\'', "''");
+            conditions.push(format!("regexp_matches(path, '{}')", escaped));
+        }
+
+        if let Some(min_size) = self.min_size {
+            conditions.push(format!("size >= {}", min_size));
+        }
+
+        if let Some(max_size) = self.max_size {
+            conditions.push(format!("size <= {}", max_size));
+        }
+
+        if let Some(threshold) = self.older_than {
+            conditions.push(format!("atime < {}", threshold));
+        }
+
+        if let Some(threshold) = self.newer_than {
+            conditions.push(format!("atime >= {}", threshold));
+        }
+
+        conditions
+    }
+
+    /// Returns a WHERE clause string (without "WHERE" prefix).
+    /// Returns empty string if no filters are active.
+    pub fn to_where_clause(&self) -> String {
+        let conditions = self.to_conditions();
+        if conditions.is_empty() {
+            String::new()
+        } else {
+            conditions.join(" AND ")
+        }
+    }
+
+    /// Returns a full WHERE clause string (with "WHERE" prefix).
+    /// Returns empty string if no filters are active.
+    pub fn to_full_where_clause(&self) -> String {
+        let clause = self.to_where_clause();
+        if clause.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", clause)
+        }
+    }
+
+    /// Clear all filters.
+    pub fn clear(&mut self) {
+        self.pattern = None;
+        self.min_size = None;
+        self.max_size = None;
+        self.older_than = None;
+        self.newer_than = None;
+    }
+
+    /// Format active filters for display (e.g., "[older:30d] [min:1M]").
+    pub fn format_display(&self) -> String {
+        let mut parts = Vec::new();
+
+        if let Some(ref pattern) = self.pattern {
+            parts.push(format!("[/{}]", pattern));
+        }
+
+        if let Some(min_size) = self.min_size {
+            parts.push(format!("[min:{}]", format_bytes(min_size as u64)));
+        }
+
+        if let Some(max_size) = self.max_size {
+            parts.push(format!("[max:{}]", format_bytes(max_size as u64)));
+        }
+
+        if let Some(threshold) = self.older_than {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            let days = (now - threshold) / 86400;
+            parts.push(format!("[older:{}d]", days));
+        }
+
+        if let Some(threshold) = self.newer_than {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            let days = (now - threshold) / 86400;
+            parts.push(format!("[newer:{}d]", days));
+        }
+
+        parts.join(" ")
     }
 }
 
@@ -341,5 +624,158 @@ mod tests {
         let cloned = record.clone();
 
         assert_eq!(record, cloned);
+    }
+
+    // parse_size() tests
+    #[test]
+    fn test_parse_size_bytes() {
+        assert_eq!(parse_size("100").unwrap(), 100);
+        assert_eq!(parse_size("100B").unwrap(), 100);
+        assert_eq!(parse_size("0").unwrap(), 0);
+    }
+
+    #[test]
+    fn test_parse_size_kilobytes() {
+        assert_eq!(parse_size("1K").unwrap(), 1024);
+        assert_eq!(parse_size("1KiB").unwrap(), 1024);
+        assert_eq!(parse_size("2.5K").unwrap(), 2560);
+    }
+
+    #[test]
+    fn test_parse_size_megabytes() {
+        assert_eq!(parse_size("1M").unwrap(), 1024 * 1024);
+        assert_eq!(parse_size("1MiB").unwrap(), 1024 * 1024);
+        assert_eq!(parse_size("10M").unwrap(), 10 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_size_gigabytes() {
+        assert_eq!(parse_size("1G").unwrap(), 1024 * 1024 * 1024);
+        assert_eq!(parse_size("1GiB").unwrap(), 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_size_terabytes() {
+        assert_eq!(parse_size("1T").unwrap(), 1024_i64 * 1024 * 1024 * 1024);
+        assert_eq!(parse_size("1TiB").unwrap(), 1024_i64 * 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_size_case_insensitive() {
+        assert_eq!(parse_size("1k").unwrap(), 1024);
+        assert_eq!(parse_size("1m").unwrap(), 1024 * 1024);
+        assert_eq!(parse_size("1g").unwrap(), 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_size_invalid() {
+        assert!(parse_size("abc").is_err());
+        assert!(parse_size("K").is_err());
+    }
+
+    // SortMode tests
+    #[test]
+    fn test_sort_mode_default() {
+        let mode = SortMode::default();
+        assert_eq!(mode, SortMode::Name);
+    }
+
+    #[test]
+    fn test_sort_mode_cycle() {
+        assert_eq!(SortMode::Name.next(), SortMode::SizeDesc);
+        assert_eq!(SortMode::SizeDesc.next(), SortMode::SizeAsc);
+        assert_eq!(SortMode::SizeAsc.next(), SortMode::CountDesc);
+        assert_eq!(SortMode::CountDesc.next(), SortMode::CountAsc);
+        assert_eq!(SortMode::CountAsc.next(), SortMode::Name);
+    }
+
+    #[test]
+    fn test_sort_mode_from_str() {
+        assert_eq!("name".parse::<SortMode>().unwrap(), SortMode::Name);
+        assert_eq!("size-desc".parse::<SortMode>().unwrap(), SortMode::SizeDesc);
+        assert_eq!("size".parse::<SortMode>().unwrap(), SortMode::SizeDesc);
+        assert_eq!("size-asc".parse::<SortMode>().unwrap(), SortMode::SizeAsc);
+        assert_eq!("count-desc".parse::<SortMode>().unwrap(), SortMode::CountDesc);
+        assert_eq!("count".parse::<SortMode>().unwrap(), SortMode::CountDesc);
+        assert_eq!("count-asc".parse::<SortMode>().unwrap(), SortMode::CountAsc);
+    }
+
+    #[test]
+    fn test_sort_mode_from_str_invalid() {
+        assert!("invalid".parse::<SortMode>().is_err());
+    }
+
+    #[test]
+    fn test_sort_mode_display() {
+        assert_eq!(SortMode::Name.to_string(), "name");
+        assert_eq!(SortMode::SizeDesc.to_string(), "size-desc");
+        assert_eq!(SortMode::SizeAsc.to_string(), "size-asc");
+        assert_eq!(SortMode::CountDesc.to_string(), "count-desc");
+        assert_eq!(SortMode::CountAsc.to_string(), "count-asc");
+    }
+
+    #[test]
+    fn test_sort_mode_order_by() {
+        assert_eq!(SortMode::Name.to_order_by(true), "bool_or(is_dir) DESC, component");
+        assert_eq!(SortMode::Name.to_order_by(false), "component");
+        assert_eq!(SortMode::SizeDesc.to_order_by(true), "total_size DESC");
+        assert_eq!(SortMode::SizeAsc.to_order_by(false), "total_size ASC");
+    }
+
+    // QueryFilters tests
+    #[test]
+    fn test_query_filters_empty() {
+        let filters = QueryFilters::new();
+        assert!(!filters.is_active());
+        assert_eq!(filters.to_where_clause(), "");
+        assert_eq!(filters.to_full_where_clause(), "");
+    }
+
+    #[test]
+    fn test_query_filters_pattern() {
+        let filters = QueryFilters::new().with_pattern(Some("\\.py$".to_string()));
+        assert!(filters.is_active());
+        assert!(filters.to_where_clause().contains("regexp_matches"));
+        assert!(filters.to_where_clause().contains(".py$"));
+    }
+
+    #[test]
+    fn test_query_filters_size() {
+        let filters = QueryFilters::new()
+            .with_min_size(Some("1M")).unwrap()
+            .with_max_size(Some("1G")).unwrap();
+        assert!(filters.is_active());
+        let clause = filters.to_where_clause();
+        assert!(clause.contains("size >= 1048576"));
+        assert!(clause.contains("size <= 1073741824"));
+    }
+
+    #[test]
+    fn test_query_filters_combined() {
+        let filters = QueryFilters::new()
+            .with_pattern(Some("test".to_string()))
+            .with_min_size(Some("1K")).unwrap();
+        let clause = filters.to_where_clause();
+        assert!(clause.contains("AND"));
+        assert!(clause.contains("regexp_matches"));
+        assert!(clause.contains("size >= 1024"));
+    }
+
+    #[test]
+    fn test_query_filters_clear() {
+        let mut filters = QueryFilters::new()
+            .with_pattern(Some("test".to_string()))
+            .with_min_size(Some("1K")).unwrap();
+        assert!(filters.is_active());
+        filters.clear();
+        assert!(!filters.is_active());
+    }
+
+    #[test]
+    fn test_query_filters_full_where_clause() {
+        let filters = QueryFilters::new()
+            .with_min_size(Some("1M")).unwrap();
+        let clause = filters.to_full_where_clause();
+        assert!(clause.starts_with("WHERE "));
     }
 }

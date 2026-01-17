@@ -112,23 +112,110 @@ xdu-find -i /var/lib/xdu/home -p '\.tmp$' --older-than 30 | xargs rm
 
 ### Interactive Exploration with xdu-view
 
-The `xdu-view` command provides an ncdu-style TUI for browsing the index:
+The `xdu-view` command provides an ncdu-style TUI for browsing the index interactively, with powerful filtering and sorting capabilities.
 
 ```bash
 # Browse all partitions
 xdu-view -i /var/lib/xdu/home
 
 # Start in a specific partition
-xdu-view -i /var/lib/xdu/home -p alice
+xdu-view -i /var/lib/xdu/home -u alice
+
+# View only files not accessed in 30 days, sorted by size
+xdu-view -i /var/lib/xdu/home --older-than 30 -s size-desc
+
+# View large Python files (>1MB)
+xdu-view -i /var/lib/xdu/home -p '\.py$' --min-size 1M
 ```
 
-Navigation:
-- `↑`/`↓` or `j`/`k`: Move selection
-- `→`/`Enter`/`Space`: Enter directory
-- `←`/`Backspace`: Go up
-- `q`/`Esc`: Quit
+#### Command-Line Options
 
-The view shows directory totals (size and most recent access time) computed from the index.
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-i, --index` | Path to Parquet index directory | Required |
+| `-u, --partition` | Start in a specific partition | |
+| `-p, --pattern` | Regex pattern to filter paths | |
+| `--min-size` | Minimum file size (e.g., 1K, 10M, 1G) | |
+| `--max-size` | Maximum file size | |
+| `--older-than` | Files not accessed in N days | |
+| `--newer-than` | Files accessed within N days | |
+| `-s, --sort` | Sort order (see below) | name |
+
+**Sort modes:** `name` (default, directories first), `size-desc`, `size-asc`, `count-desc`, `count-asc`
+
+#### Keybindings
+
+**Navigation:**
+| Key | Action |
+|-----|--------|
+| `↑`/`k` | Move selection up |
+| `↓`/`j` | Move selection down |
+| `→`/`Enter`/`Space` | Enter directory |
+| `←`/`Backspace` | Go up / back |
+| `q`/`Esc` | Quit |
+
+**Sorting:**
+| Key | Action |
+|-----|--------|
+| `s` | Cycle sort mode: name → size-desc → size-asc → count-desc → count-asc |
+
+**Filtering (interactive):**
+| Key | Action |
+|-----|--------|
+| `/` | Set path pattern filter (regex) |
+| `o` | Set older-than filter (days) |
+| `n` | Set newer-than filter (days) |
+| `>` | Set minimum size filter |
+| `<` | Set maximum size filter |
+| `c` | Clear all filters |
+
+When entering a filter value, type the value and press `Enter` to apply, or `Esc` to cancel.
+
+#### UI Elements
+
+**Title bar** shows the current location and any active filters:
+```
+┌─ alice/projects [older:30d] [min:1.00 MiB] [/\.py$/] ─────────────────────┐
+```
+
+**Status bar** shows entry count, current sort mode, and available keybindings:
+```
+ 42 entries in 0.15s (filtered) │ sort:size-desc │ q:quit jk:nav /:pattern ...
+```
+
+**List entries** show name, total size, file count, and most recent access time:
+```
+▸ src                          1.23 GiB    4.2K files    3 days ago
+▸ tests                      128.50 MiB      892 files    1 month ago
+  README.md                    4.50 KiB        1 file     today
+```
+
+#### Common Use Cases
+
+**Find where old data is hiding:**
+```bash
+# Launch with 90-day stale filter, sorted by size
+xdu-view -i /var/lib/xdu/home --older-than 90 -s size-desc
+```
+Drill down into the largest directories to find purgeable data.
+
+**Audit a specific user's storage:**
+```bash
+# Jump directly to a user, show files >100MB
+xdu-view -i /var/lib/xdu/home -u alice --min-size 100M
+```
+
+**Identify recently active directories:**
+```bash
+# Show only data accessed in the last 7 days
+xdu-view -i /var/lib/xdu/home --newer-than 7 -s count-desc
+```
+
+**Find specific file types:**
+```bash
+# Explore all Jupyter notebooks
+xdu-view -i /var/lib/xdu/home -p '\.ipynb$' -s size-desc
+```
 
 ### Querying with DuckDB
 
@@ -162,6 +249,64 @@ Run xdu via cron to maintain a fresh index:
 ```cron
 0 2 * * * /usr/local/bin/xdu /home -o /var/lib/xdu/home -j 32
 ```
+
+## Pro Tips
+
+### Index ZFS Snapshots for Point-in-Time Accuracy
+
+On large ZFS filesystems (multi-petabyte scale), a full index can take 8-12+ hours. During that time, users may create, modify, or delete files—leading to an index that represents a "smeared" view of the filesystem rather than a consistent point-in-time snapshot.
+
+For accurate auditing, **index a ZFS snapshot instead of the live filesystem**:
+
+```bash
+#!/bin/bash
+# snapshot-index.sh - Atomic snapshot + index workflow
+
+POOL="tank/home"
+SNAP="$POOL@xdu-$(date +%Y%m%d)"
+MOUNT="/mnt/xdu-snapshot"
+INDEX="/var/lib/xdu/home"
+
+# Create snapshot (instantaneous)
+zfs snapshot "$SNAP"
+
+# Mount read-only
+mkdir -p "$MOUNT"
+mount -t zfs -o ro "$SNAP" "$MOUNT"
+
+# Build index from snapshot
+xdu "$MOUNT" -o "$INDEX" -j 32
+
+# Cleanup
+umount "$MOUNT"
+zfs destroy "$SNAP"
+
+echo "Index complete: $INDEX"
+```
+
+**Benefits:**
+- **Consistency**: The index reflects an exact point-in-time state
+- **Safety**: Indexing a read-only snapshot eliminates any risk of accidental modification
+- **Reproducibility**: If questions arise about the data, you can re-mount the same snapshot
+- **No user impact**: Snapshot creation is instantaneous; users don't experience slowdowns
+
+For rolling retention, keep the last few snapshots:
+
+```bash
+# Keep snapshots for 7 days
+zfs destroy tank/home@xdu-$(date -d '7 days ago' +%Y%m%d) 2>/dev/null || true
+```
+
+### Incremental Partition Updates
+
+If only a few users have changed significantly, re-index just their partitions:
+
+```bash
+# Re-index only alice's data
+xdu /home -o /var/lib/xdu/home -j 8 --partition alice
+```
+
+This is much faster than a full re-index and automatically prunes stale chunks from previous runs.
 
 ## License
 

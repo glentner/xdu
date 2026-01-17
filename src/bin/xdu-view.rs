@@ -15,7 +15,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 
-use xdu::format_bytes;
+use xdu::{format_bytes, parse_size, QueryFilters, SortMode};
 
 /// Format file count with K/M/B suffixes
 fn format_file_count(count: i64) -> String {
@@ -40,8 +40,32 @@ struct Args {
     index: PathBuf,
 
     /// Initial partition to view (optional, shows partition list if omitted)
-    #[arg(short, long, value_name = "NAME")]
+    #[arg(short = 'u', long, value_name = "NAME")]
     partition: Option<String>,
+
+    /// Regular expression pattern to match paths
+    #[arg(short, long, value_name = "REGEX")]
+    pattern: Option<String>,
+
+    /// Minimum file size (e.g., 1K, 10M, 1G)
+    #[arg(long, value_name = "SIZE")]
+    min_size: Option<String>,
+
+    /// Maximum file size (e.g., 1K, 10M, 1G)
+    #[arg(long, value_name = "SIZE")]
+    max_size: Option<String>,
+
+    /// Files not accessed in N days
+    #[arg(long, value_name = "DAYS")]
+    older_than: Option<u64>,
+
+    /// Files accessed within N days
+    #[arg(long, value_name = "DAYS")]
+    newer_than: Option<u64>,
+
+    /// Sort order: name, size-asc, size-desc, count-asc, count-desc
+    #[arg(short, long, default_value = "name")]
+    sort: String,
 }
 
 /// Represents a directory entry in the view
@@ -54,6 +78,36 @@ struct DirEntry {
     total_size: i64,
     file_count: i64,
     latest_atime: i64,
+}
+
+/// Input mode for interactive filter entry
+#[derive(Clone, Debug, PartialEq)]
+enum InputMode {
+    /// Normal navigation mode
+    Normal,
+    /// Entering a pattern filter
+    Pattern,
+    /// Entering older-than days
+    OlderThan,
+    /// Entering newer-than days
+    NewerThan,
+    /// Entering min-size
+    MinSize,
+    /// Entering max-size
+    MaxSize,
+}
+
+impl InputMode {
+    fn prompt(&self) -> &'static str {
+        match self {
+            InputMode::Normal => "",
+            InputMode::Pattern => "Pattern (regex): ",
+            InputMode::OlderThan => "Older than (days): ",
+            InputMode::NewerThan => "Newer than (days): ",
+            InputMode::MinSize => "Min size (e.g., 1M): ",
+            InputMode::MaxSize => "Max size (e.g., 1G): ",
+        }
+    }
 }
 
 /// Application state
@@ -81,10 +135,28 @@ struct App {
     
     /// Status message
     status: String,
+
+    /// Query filters
+    filters: QueryFilters,
+
+    /// Sort mode
+    sort_mode: SortMode,
+
+    /// Current input mode
+    input_mode: InputMode,
+
+    /// Current input buffer
+    input_buffer: String,
 }
 
 impl App {
-    fn new(conn: Connection, index_path: PathBuf, initial_partition: Option<String>) -> Result<Self> {
+    fn new(
+        conn: Connection,
+        index_path: PathBuf,
+        initial_partition: Option<String>,
+        filters: QueryFilters,
+        sort_mode: SortMode,
+    ) -> Result<Self> {
         let mut app = App {
             conn,
             index_path,
@@ -95,6 +167,10 @@ impl App {
             list_state: ListState::default(),
             loading: false,
             status: String::new(),
+            filters,
+            sort_mode,
+            input_mode: InputMode::Normal,
+            input_buffer: String::new(),
         };
         
         if let Some(partition) = initial_partition {
@@ -119,22 +195,52 @@ impl App {
         // Use DuckDB's hive partitioning to get partition names directly from directory structure
         let glob = format!("{}/*/*.parquet", self.index_path.display());
         
+        // Build filter clause
+        let filter_clause = self.filters.to_where_clause();
+        let having_clause = if filter_clause.is_empty() {
+            "HAVING partition IS NOT NULL AND partition != ''".to_string()
+        } else {
+            format!("HAVING partition IS NOT NULL AND partition != '' AND SUM(CASE WHEN {} THEN 1 ELSE 0 END) > 0", filter_clause)
+        };
+        
         // Query using filename to extract partition from the parquet file path
         // The partition name is the directory containing the parquet file
-        let sql = format!(
-            r#"
-            SELECT 
-                regexp_extract(filename, '.*/([^/]+)/[^/]+\.parquet$', 1) as partition,
-                SUM(size) as total_size,
-                MAX(atime) as latest_atime,
-                COUNT(*) as file_count
-            FROM read_parquet('{}', filename=true)
-            GROUP BY partition
-            HAVING partition IS NOT NULL AND partition != ''
-            ORDER BY partition
-            "#,
-            glob
-        );
+        // When filters are active, only count/sum matching files
+        let sql = if self.filters.is_active() {
+            format!(
+                r#"
+                SELECT 
+                    regexp_extract(filename, '.*/([^/]+)/[^/]+\.parquet$', 1) as partition,
+                    SUM(CASE WHEN {filter} THEN size ELSE 0 END) as total_size,
+                    MAX(CASE WHEN {filter} THEN atime ELSE 0 END) as latest_atime,
+                    SUM(CASE WHEN {filter} THEN 1 ELSE 0 END) as file_count
+                FROM read_parquet('{glob}', filename=true)
+                GROUP BY partition
+                {having}
+                ORDER BY {order}
+                "#,
+                filter = filter_clause,
+                glob = glob,
+                having = having_clause,
+                order = self.sort_mode.to_partition_order_by()
+            )
+        } else {
+            format!(
+                r#"
+                SELECT 
+                    regexp_extract(filename, '.*/([^/]+)/[^/]+\.parquet$', 1) as partition,
+                    SUM(size) as total_size,
+                    MAX(atime) as latest_atime,
+                    COUNT(*) as file_count
+                FROM read_parquet('{glob}', filename=true)
+                GROUP BY partition
+                HAVING partition IS NOT NULL AND partition != ''
+                ORDER BY {order}
+                "#,
+                glob = glob,
+                order = self.sort_mode.to_partition_order_by()
+            )
+        };
         
         self.entries.clear();
         let mut stmt = self.conn.prepare(&sql)?;
@@ -205,6 +311,17 @@ impl App {
         // Query to get entries at this level
         // We extract the next path component after the current path prefix
         let prefix_len = prefix.len();
+        
+        // Build filter conditions
+        let filter_clause = self.filters.to_where_clause();
+        let file_filter = if filter_clause.is_empty() {
+            format!("path LIKE '{}%'", prefix)
+        } else {
+            format!("path LIKE '{}%' AND {}", prefix, filter_clause)
+        };
+        
+        let order_by = self.sort_mode.to_order_by(self.sort_mode == SortMode::Name);
+        
         let sql = format!(
             r#"
             WITH files AS (
@@ -212,8 +329,8 @@ impl App {
                     path,
                     size,
                     atime
-                FROM read_parquet('{}')
-                WHERE path LIKE '{}%'
+                FROM read_parquet('{glob}')
+                WHERE {file_filter}
             ),
             components AS (
                 SELECT 
@@ -221,12 +338,12 @@ impl App {
                     size,
                     atime,
                     CASE 
-                        WHEN position('/' IN substr(path, {} + 1)) > 0 
-                        THEN substr(path, {} + 1, position('/' IN substr(path, {} + 1)) - 1)
-                        ELSE substr(path, {} + 1)
+                        WHEN position('/' IN substr(path, {prefix_len} + 1)) > 0 
+                        THEN substr(path, {prefix_len} + 1, position('/' IN substr(path, {prefix_len} + 1)) - 1)
+                        ELSE substr(path, {prefix_len} + 1)
                     END as component,
                     CASE 
-                        WHEN position('/' IN substr(path, {} + 1)) > 0 THEN true
+                        WHEN position('/' IN substr(path, {prefix_len} + 1)) > 0 THEN true
                         ELSE false
                     END as is_dir
                 FROM files
@@ -240,15 +357,12 @@ impl App {
             FROM components
             WHERE component != '' AND component IS NOT NULL
             GROUP BY component
-            ORDER BY bool_or(is_dir) DESC, component
+            ORDER BY {order_by}
             "#,
-            glob,
-            prefix,
-            prefix_len,
-            prefix_len,
-            prefix_len,
-            prefix_len,
-            prefix_len
+            glob = glob,
+            file_filter = file_filter,
+            prefix_len = prefix_len,
+            order_by = order_by
         );
         
         self.entries.clear();
@@ -284,9 +398,132 @@ impl App {
         }
         
         let elapsed = start.elapsed().as_secs_f64();
-        self.status = format!("{} entries in {:.2}s", self.entries.len(), elapsed);
+        let filter_info = if self.filters.is_active() { " (filtered)" } else { "" };
+        self.status = format!("{} entries in {:.2}s{}", self.entries.len(), elapsed, filter_info);
         self.loading = false;
         Ok(())
+    }
+
+    /// Cycle to next sort mode and reload
+    fn cycle_sort(&mut self) -> Result<()> {
+        self.sort_mode = self.sort_mode.next();
+        self.reload()
+    }
+
+    /// Reload the current view
+    fn reload(&mut self) -> Result<()> {
+        if self.current_partition.is_none() {
+            self.load_partitions()?;
+        } else {
+            self.load_directory()?;
+        }
+        // Preserve selection if possible
+        if let Some(idx) = self.list_state.selected() {
+            if idx >= self.entries.len() && !self.entries.is_empty() {
+                self.list_state.select(Some(self.entries.len() - 1));
+            }
+        }
+        Ok(())
+    }
+
+    /// Start input mode for a filter
+    fn start_input(&mut self, mode: InputMode) {
+        self.input_mode = mode;
+        self.input_buffer.clear();
+    }
+
+    /// Cancel input mode
+    fn cancel_input(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.input_buffer.clear();
+    }
+
+    /// Confirm input and apply filter
+    fn confirm_input(&mut self) -> Result<()> {
+        let value = self.input_buffer.trim().to_string();
+        
+        match self.input_mode {
+            InputMode::Pattern => {
+                if value.is_empty() {
+                    self.filters.pattern = None;
+                } else {
+                    self.filters.pattern = Some(value);
+                }
+            }
+            InputMode::OlderThan => {
+                if value.is_empty() {
+                    self.filters.older_than = None;
+                } else if let Ok(days) = value.parse::<u64>() {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as i64;
+                    self.filters.older_than = Some(now - (days as i64 * 86400));
+                } else {
+                    self.status = format!("Invalid number: {}", value);
+                    self.input_mode = InputMode::Normal;
+                    self.input_buffer.clear();
+                    return Ok(());
+                }
+            }
+            InputMode::NewerThan => {
+                if value.is_empty() {
+                    self.filters.newer_than = None;
+                } else if let Ok(days) = value.parse::<u64>() {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as i64;
+                    self.filters.newer_than = Some(now - (days as i64 * 86400));
+                } else {
+                    self.status = format!("Invalid number: {}", value);
+                    self.input_mode = InputMode::Normal;
+                    self.input_buffer.clear();
+                    return Ok(());
+                }
+            }
+            InputMode::MinSize => {
+                if value.is_empty() {
+                    self.filters.min_size = None;
+                } else {
+                    match parse_size(&value) {
+                        Ok(size) => self.filters.min_size = Some(size),
+                        Err(e) => {
+                            self.status = e;
+                            self.input_mode = InputMode::Normal;
+                            self.input_buffer.clear();
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            InputMode::MaxSize => {
+                if value.is_empty() {
+                    self.filters.max_size = None;
+                } else {
+                    match parse_size(&value) {
+                        Ok(size) => self.filters.max_size = Some(size),
+                        Err(e) => {
+                            self.status = e;
+                            self.input_mode = InputMode::Normal;
+                            self.input_buffer.clear();
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            InputMode::Normal => {}
+        }
+        
+        self.input_mode = InputMode::Normal;
+        self.input_buffer.clear();
+        self.reload()
+    }
+
+    /// Clear all filters
+    fn clear_filters(&mut self) -> Result<()> {
+        self.filters.clear();
+        self.reload()
     }
     
     fn select_next(&mut self) {
@@ -413,11 +650,25 @@ fn main() -> Result<()> {
     let index_path = args.index.canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
     
+    // Parse sort mode
+    let sort_mode: SortMode = args.sort.parse()
+        .map_err(|e: String| anyhow::anyhow!(e))?;
+    
+    // Build filters from CLI args
+    let filters = QueryFilters::new()
+        .with_pattern(args.pattern)
+        .with_older_than(args.older_than)
+        .with_newer_than(args.newer_than)
+        .with_min_size(args.min_size.as_deref())
+        .map_err(|e| anyhow::anyhow!(e))?
+        .with_max_size(args.max_size.as_deref())
+        .map_err(|e| anyhow::anyhow!(e))?;
+    
     // Connect to DuckDB
     let conn = Connection::open_in_memory()?;
     
     // Initialize app
-    let mut app = App::new(conn, index_path, args.partition)?;
+    let mut app = App::new(conn, index_path, args.partition, filters, sort_mode)?;
     
     // Setup terminal
     enable_raw_mode()?;
@@ -444,6 +695,27 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     continue;
                 }
                 
+                // Handle input mode
+                if app.input_mode != InputMode::Normal {
+                    match key.code {
+                        KeyCode::Esc => app.cancel_input(),
+                        KeyCode::Enter => {
+                            if let Err(e) = app.confirm_input() {
+                                app.status = format!("Error: {}", e);
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            app.input_buffer.pop();
+                        }
+                        KeyCode::Char(c) => {
+                            app.input_buffer.push(c);
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+                
+                // Normal mode
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                     KeyCode::Down | KeyCode::Char('j') => app.select_next(),
@@ -455,6 +727,24 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     }
                     KeyCode::Left | KeyCode::Backspace => {
                         if let Err(e) = app.go_up() {
+                            app.status = format!("Error: {}", e);
+                        }
+                    }
+                    // Sort mode
+                    KeyCode::Char('s') => {
+                        if let Err(e) = app.cycle_sort() {
+                            app.status = format!("Error: {}", e);
+                        }
+                    }
+                    // Filter inputs
+                    KeyCode::Char('/') => app.start_input(InputMode::Pattern),
+                    KeyCode::Char('o') => app.start_input(InputMode::OlderThan),
+                    KeyCode::Char('n') => app.start_input(InputMode::NewerThan),
+                    KeyCode::Char('>') => app.start_input(InputMode::MinSize),
+                    KeyCode::Char('<') => app.start_input(InputMode::MaxSize),
+                    // Clear filters
+                    KeyCode::Char('c') => {
+                        if let Err(e) = app.clear_filters() {
                             app.status = format!("Error: {}", e);
                         }
                     }
@@ -474,6 +764,14 @@ fn ui(f: &mut Frame, app: &App) {
         ])
         .split(f.area());
     
+    // Build filter display string
+    let filter_display = app.filters.format_display();
+    let filter_suffix = if filter_display.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", filter_display)
+    };
+    
     // Title with current path (and loading indicator if needed)
     let title = if let Some(ref partition) = app.current_partition {
         // Show partition name and the relative path within it
@@ -483,15 +781,15 @@ fn ui(f: &mut Frame, app: &App) {
             ""
         };
         if app.loading {
-            format!(" {}{} (loading...) ", partition, display_path)
+            format!(" {}{} (loading...){} ", partition, display_path, filter_suffix)
         } else {
-            format!(" {}{} ", partition, display_path)
+            format!(" {}{}{} ", partition, display_path, filter_suffix)
         }
     } else {
         if app.loading {
-            " Partitions (loading...) ".to_string()
+            format!(" Partitions (loading...){} ", filter_suffix)
         } else {
-            " Partitions ".to_string()
+            format!(" Partitions{} ", filter_suffix)
         }
     };
     
@@ -569,7 +867,22 @@ fn ui(f: &mut Frame, app: &App) {
     f.render_stateful_widget(list, chunks[0], &mut app.list_state.clone());
     
     // Status bar
-    let status = Paragraph::new(format!(" {} │ q:quit  ↑↓/jk:navigate  ←→/space/enter:open/back", app.status))
-        .style(Style::default().add_modifier(Modifier::DIM));
+    let status_text = if app.input_mode != InputMode::Normal {
+        format!(" {}{}", app.input_mode.prompt(), app.input_buffer)
+    } else {
+        format!(
+            " {} │ sort:{} │ q:quit jk:nav /:pattern o:older n:newer <>:size s:sort c:clear",
+            app.status,
+            app.sort_mode
+        )
+    };
+    
+    let status_style = if app.input_mode != InputMode::Normal {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::DIM)
+    };
+    
+    let status = Paragraph::new(status_text).style(status_style);
     f.render_widget(status, chunks[1]);
 }
