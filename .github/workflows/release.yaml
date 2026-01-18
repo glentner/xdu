@@ -49,6 +49,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
+          # Install x86_64 musl cross toolchain for C++ support (needed by DuckDB)
+          wget -q https://musl.cc/x86_64-linux-musl-cross.tgz
+          tar xzf x86_64-linux-musl-cross.tgz
+          echo "$PWD/x86_64-linux-musl-cross/bin" >> $GITHUB_PATH
 
       - name: Install cross-compilation tools (Linux aarch64)
         if: matrix.cross
@@ -72,13 +76,15 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
         env:
+          CC_x86_64_unknown_linux_musl: x86_64-linux-musl-gcc
+          CXX_x86_64_unknown_linux_musl: x86_64-linux-musl-g++
           CC_aarch64_unknown_linux_musl: aarch64-linux-musl-gcc
           CXX_aarch64_unknown_linux_musl: aarch64-linux-musl-g++
 
       - name: Package binaries (Unix)
         run: |
           cd target/${{ matrix.target }}/release
-          tar czvf ../../../xdu-${{ github.ref_name }}-${{ matrix.target }}.tar.gz xdu xdu-find xdu-view
+          tar czvf ../../../xdu-${{ github.ref_name }}-${{ matrix.target }}.tar.gz xdu xdu-find xdu-view xdu-rm
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
