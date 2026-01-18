@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{stderr, IsTerminal};
 use std::os::unix::fs::MetadataExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -282,8 +282,8 @@ struct CrawlStats {
 /// This parallelizes across subdirectories within the partition.
 fn crawl_partition(
     partition_name: &str,
-    top_dir: &PathBuf,
-    outdir: &PathBuf,
+    top_dir: &Path,
+    outdir: &Path,
     buffsize: usize,
     size_mode: SizeMode,
     schema: &Arc<Schema>,
@@ -338,7 +338,7 @@ fn crawl_partition(
     // Shared buffer for all threads
     let buffer = Arc::new(Mutex::new(PartitionBuffer::new(
         partition_name.to_string(),
-        outdir.clone(),
+        outdir.to_path_buf(),
         buffsize,
         schema.clone(),
     )));
@@ -453,8 +453,8 @@ fn crawl_partition(
 /// Full crawl mode: one partition per work unit, each with its own buffer.
 /// Optionally excludes partitions that have already been crawled.
 fn crawl_full(
-    top_dir: &PathBuf,
-    outdir: &PathBuf,
+    top_dir: &Path,
+    outdir: &Path,
     buffsize: usize,
     size_mode: SizeMode,
     schema: &Arc<Schema>,
@@ -531,7 +531,7 @@ fn crawl_full(
 
         let buffer = Arc::new(Mutex::new(PartitionBuffer::new(
             partition_name.clone(),
-            outdir.clone(),
+            outdir.to_path_buf(),
             buffsize,
             schema.clone(),
         )));

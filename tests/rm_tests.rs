@@ -81,8 +81,7 @@ fn build_index(source: &Path, index: &Path) -> std::io::Result<()> {
 
     if !output.status.success() {
         eprintln!("xdu stderr: {}", String::from_utf8_lossy(&output.stderr));
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        return Err(std::io::Error::other(
             format!("xdu failed: {}", String::from_utf8_lossy(&output.stderr)),
         ));
     }
@@ -113,7 +112,7 @@ fn test_dry_run_lists_files_without_deleting() {
     let index = temp_dir.path().join("index");
 
     // Create partition with files
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/file1.txt"), 100).unwrap();
     create_test_file(&source.join("user1/file2.txt"), 200).unwrap();
 
@@ -147,7 +146,7 @@ fn test_force_delete_removes_files() {
     let index = temp_dir.path().join("index");
 
     // Create partition with files
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/delete_me.txt"), 100).unwrap();
 
     // Build index
@@ -180,7 +179,7 @@ fn test_pattern_filter_deletes_matching_files() {
     let index = temp_dir.path().join("index");
 
     // Create partition with mixed files
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/keep.txt"), 100).unwrap();
     create_test_file(&source.join("user1/delete.log"), 100).unwrap();
     create_test_file(&source.join("user1/also_delete.log"), 100).unwrap();
@@ -215,7 +214,7 @@ fn test_min_size_filter() {
     let index = temp_dir.path().join("index");
 
     // Create partition with files of different sizes
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/small.txt"), 100).unwrap();
     create_test_file(&source.join("user1/large.txt"), 10000).unwrap();
 
@@ -244,7 +243,7 @@ fn test_max_size_filter() {
     let index = temp_dir.path().join("index");
 
     // Create partition with files of different sizes
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/small.txt"), 100).unwrap();
     create_test_file(&source.join("user1/large.txt"), 10000).unwrap();
 
@@ -277,7 +276,7 @@ fn test_older_than_filter() {
     let index = temp_dir.path().join("index");
 
     // Create partition with files
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/recent.txt"), 100).unwrap();
     create_test_file(&source.join("user1/old.txt"), 100).unwrap();
 
@@ -314,8 +313,8 @@ fn test_partition_filter() {
     let index = temp_dir.path().join("index");
 
     // Create multiple partitions
-    fs::create_dir_all(&source.join("alice")).unwrap();
-    fs::create_dir_all(&source.join("bob")).unwrap();
+    fs::create_dir_all(source.join("alice")).unwrap();
+    fs::create_dir_all(source.join("bob")).unwrap();
     create_test_file(&source.join("alice/file.txt"), 100).unwrap();
     create_test_file(&source.join("bob/file.txt"), 100).unwrap();
 
@@ -348,7 +347,7 @@ fn test_limit_option() {
     let index = temp_dir.path().join("index");
 
     // Create partition with multiple files
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/file1.txt"), 100).unwrap();
     create_test_file(&source.join("user1/file2.txt"), 100).unwrap();
     create_test_file(&source.join("user1/file3.txt"), 100).unwrap();
@@ -367,7 +366,7 @@ fn test_limit_option() {
     assert!(stdout.contains("Deleted: 1"));
 
     // Count remaining files (should be 2)
-    let remaining: Vec<_> = fs::read_dir(&source.join("user1"))
+    let remaining: Vec<_> = fs::read_dir(source.join("user1"))
         .unwrap()
         .filter_map(|e| e.ok())
         .collect();
@@ -385,7 +384,7 @@ fn test_safe_mode_protects_recently_accessed_files() {
     let index = temp_dir.path().join("index");
 
     // Create partition with an old file
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/important.txt"), 100).unwrap();
 
     // Set the file to be accessed 90 days ago
@@ -396,7 +395,7 @@ fn test_safe_mode_protects_recently_accessed_files() {
 
     // Now simulate the user accessing the file AFTER the index was built
     // This updates the atime to now
-    let _content = fs::read(&source.join("user1/important.txt")).unwrap();
+    let _content = fs::read(source.join("user1/important.txt")).unwrap();
 
     // Attempt to delete with --safe mode
     // Without --safe, the file would be deleted because the INDEX shows it as old
@@ -431,7 +430,7 @@ fn test_safe_mode_protects_files_that_grew() {
     let index = temp_dir.path().join("index");
 
     // Create partition with a small file
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/growing.txt"), 100).unwrap();
 
     // Build the index (captures the small size)
@@ -441,7 +440,7 @@ fn test_safe_mode_protects_files_that_grew() {
     {
         let mut file = fs::OpenOptions::new()
             .append(true)
-            .open(&source.join("user1/growing.txt"))
+            .open(source.join("user1/growing.txt"))
             .unwrap();
         file.write_all(&vec![b'y'; 2000]).unwrap();
     }
@@ -479,7 +478,7 @@ fn test_handles_missing_files_gracefully() {
     let index = temp_dir.path().join("index");
 
     // Create partition with files
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/exists.txt"), 100).unwrap();
     create_test_file(&source.join("user1/will_be_gone.txt"), 100).unwrap();
 
@@ -487,7 +486,7 @@ fn test_handles_missing_files_gracefully() {
     build_index(&source, &index).unwrap();
 
     // Delete one file manually (simulating external deletion)
-    fs::remove_file(&source.join("user1/will_be_gone.txt")).unwrap();
+    fs::remove_file(source.join("user1/will_be_gone.txt")).unwrap();
 
     // Run xdu-rm
     let (stdout, _stderr, success) = run_xdu_rm(&[
@@ -512,7 +511,7 @@ fn test_verbose_output() {
     let index = temp_dir.path().join("index");
 
     // Create partition with files
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/file1.txt"), 100).unwrap();
     create_test_file(&source.join("user1/file2.txt"), 100).unwrap();
 
@@ -543,7 +542,7 @@ fn test_no_matching_files() {
     let index = temp_dir.path().join("index");
 
     // Create partition with files
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/file.txt"), 100).unwrap();
 
     // Build index
@@ -571,7 +570,7 @@ fn test_combined_filters() {
     let index = temp_dir.path().join("index");
 
     // Create partition with various files
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
 
     // File that matches all criteria (old, .log, large enough)
     create_test_file(&source.join("user1/old_large.log"), 2000).unwrap();
@@ -621,7 +620,7 @@ fn test_safe_mode_without_relevant_filter_still_deletes() {
     let index = temp_dir.path().join("index");
 
     // Create partition with a file
-    fs::create_dir_all(&source.join("user1")).unwrap();
+    fs::create_dir_all(source.join("user1")).unwrap();
     create_test_file(&source.join("user1/file.txt"), 100).unwrap();
 
     // Build index

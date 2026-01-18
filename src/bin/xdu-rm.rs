@@ -172,7 +172,7 @@ fn main() -> Result<()> {
 
     let atime_threshold = args.older_than.map(|days| now - (days as i64 * 86400));
     let max_size_bytes = args.max_size.as_deref()
-        .map(|s| parse_size(s))
+        .map(parse_size)
         .transpose()
         .map_err(|e| anyhow::anyhow!(e))?;
 
