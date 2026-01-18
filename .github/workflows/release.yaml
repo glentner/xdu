@@ -18,20 +18,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
-          - target: x86_64-unknown-linux-gnu
+          # Linux x86_64 (static musl binary)
+          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             archive: tar.gz
-          # Linux aarch64
-          - target: aarch64-unknown-linux-gnu
+          # Linux aarch64 (static musl binary)
+          - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             archive: tar.gz
             cross: true
-          # macOS x86_64
+          # macOS x86_64 (dynamic - Apple doesn't support static)
           - target: x86_64-apple-darwin
             os: macos-latest
             archive: tar.gz
-          # macOS Apple Silicon
+          # macOS Apple Silicon (dynamic - Apple doesn't support static)
           - target: aarch64-apple-darwin
             os: macos-latest
             archive: tar.gz
@@ -44,26 +44,36 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools
+      - name: Install musl tools (Linux x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Install cross-compilation tools (Linux aarch64)
         if: matrix.cross
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          sudo apt-get install -y musl-tools
+          # Install cross-compilation musl toolchain
+          wget -q https://musl.cc/aarch64-linux-musl-cross.tgz
+          tar xzf aarch64-linux-musl-cross.tgz
+          echo "$PWD/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
 
       - name: Configure cross-compilation
         if: matrix.cross
         run: |
           mkdir -p .cargo
           cat >> .cargo/config.toml << EOF
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-musl-gcc"
           EOF
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
         env:
-          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          CC_aarch64_unknown_linux_musl: aarch64-linux-musl-gcc
+          CXX_aarch64_unknown_linux_musl: aarch64-linux-musl-g++
 
       - name: Package binaries (Unix)
         run: |
