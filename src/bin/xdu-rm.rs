@@ -2,11 +2,13 @@ use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use duckdb::Connection;
+use rayon::prelude::*;
 
 use xdu::{parse_size, QueryFilters};
 
@@ -60,6 +62,10 @@ struct Args {
     /// Show detailed output for each file
     #[arg(short, long)]
     verbose: bool,
+
+    /// Number of parallel threads for deletion
+    #[arg(short, long, default_value = "4")]
+    jobs: usize,
 }
 
 /// File info from the index query
@@ -72,6 +78,12 @@ struct FileInfo {
 
 fn main() -> Result<()> {
     let args = Args::parse();
+
+    // Configure thread pool
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(args.jobs)
+        .build_global()
+        .ok(); // Ignore error if pool already initialized
 
     // Resolve index path
     let index_path = args.index.canonicalize()
@@ -164,28 +176,31 @@ fn main() -> Result<()> {
         .transpose()
         .map_err(|e| anyhow::anyhow!(e))?;
 
-    // Delete files
-    let mut deleted = 0u64;
-    let mut skipped = 0u64;
-    let mut failed = 0u64;
-    let mut missing = 0u64;
+    // Delete files in parallel
+    let deleted = AtomicU64::new(0);
+    let skipped = AtomicU64::new(0);
+    let failed = AtomicU64::new(0);
+    let missing = AtomicU64::new(0);
 
-    for file in &files {
+    let safe = args.safe;
+    let verbose = args.verbose;
+
+    files.par_iter().for_each(|file| {
         let path = std::path::Path::new(&file.path);
 
         // Safe mode: re-stat the file and verify conditions
-        if args.safe {
+        if safe {
             match fs::metadata(path) {
                 Ok(meta) => {
                     // Check atime if --older-than was specified
                     if let Some(threshold) = atime_threshold {
                         let current_atime = meta.atime();
                         if current_atime >= threshold {
-                            if args.verbose {
+                            if verbose {
                                 println!("SKIP (accessed since index): {}", file.path);
                             }
-                            skipped += 1;
-                            continue;
+                            skipped.fetch_add(1, Ordering::Relaxed);
+                            return;
                         }
                     }
 
@@ -193,27 +208,27 @@ fn main() -> Result<()> {
                     if let Some(max_size) = max_size_bytes {
                         let current_size = meta.len() as i64;
                         if current_size > max_size {
-                            if args.verbose {
+                            if verbose {
                                 println!("SKIP (size changed): {}", file.path);
                             }
-                            skipped += 1;
-                            continue;
+                            skipped.fetch_add(1, Ordering::Relaxed);
+                            return;
                         }
                     }
                 }
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                    if args.verbose {
+                    if verbose {
                         println!("SKIP (not found): {}", file.path);
                     }
-                    missing += 1;
-                    continue;
+                    missing.fetch_add(1, Ordering::Relaxed);
+                    return;
                 }
                 Err(e) => {
-                    if args.verbose {
+                    if verbose {
                         eprintln!("FAIL (stat error): {}: {}", file.path, e);
                     }
-                    failed += 1;
-                    continue;
+                    failed.fetch_add(1, Ordering::Relaxed);
+                    return;
                 }
             }
         }
@@ -221,25 +236,31 @@ fn main() -> Result<()> {
         // Attempt deletion
         match fs::remove_file(path) {
             Ok(()) => {
-                if args.verbose {
+                if verbose {
                     println!("DELETE: {}", file.path);
                 }
-                deleted += 1;
+                deleted.fetch_add(1, Ordering::Relaxed);
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                if args.verbose {
+                if verbose {
                     println!("SKIP (not found): {}", file.path);
                 }
-                missing += 1;
+                missing.fetch_add(1, Ordering::Relaxed);
             }
             Err(e) => {
-                if args.verbose {
+                if verbose {
                     eprintln!("FAIL: {}: {}", file.path, e);
                 }
-                failed += 1;
+                failed.fetch_add(1, Ordering::Relaxed);
             }
         }
-    }
+    });
+
+    // Extract final counts
+    let deleted = deleted.load(Ordering::Relaxed);
+    let skipped = skipped.load(Ordering::Relaxed);
+    let failed = failed.load(Ordering::Relaxed);
+    let missing = missing.load(Ordering::Relaxed);
 
     // Print summary
     println!("\nDeleted: {}", deleted);

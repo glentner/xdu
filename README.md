@@ -243,6 +243,108 @@ xdu-view -i /var/lib/xdu/home --newer-than 7 -s count-desc
 xdu-view -i /var/lib/xdu/home -p '\.ipynb$' -s size-desc
 ```
 
+### Bulk Deletion with xdu-rm
+
+The `xdu-rm` command enables safe, parallel deletion of files matching query criteria. This is essential for enforcing retention policies at scale—purging millions of stale files that traditional `find | xargs rm` workflows can't handle efficiently.
+
+```bash
+# Preview files that would be deleted (dry-run)
+xdu-rm -i /var/lib/xdu/home --older-than 60 --dry-run
+
+# Delete files not accessed in 60 days, with confirmation
+xdu-rm -i /var/lib/xdu/home --older-than 60
+
+# Delete with 16 parallel threads for faster purging
+xdu-rm -i /var/lib/xdu/home --older-than 60 -j 16 --force
+
+# Delete only .tmp files older than 30 days in alice's partition
+xdu-rm -i /var/lib/xdu/home -u alice -p '\.tmp$' --older-than 30 --force
+```
+
+#### Command-Line Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-i, --index` | Path to Parquet index directory | Required |
+| `-p, --pattern` | Regex pattern to match paths | |
+| `-u, --partition` | Filter by partition (user directory) | |
+| `--min-size` | Minimum file size (e.g., 1K, 10M, 1G) | |
+| `--max-size` | Maximum file size | |
+| `--older-than` | Files not accessed in N days | |
+| `--newer-than` | Files accessed within N days | |
+| `-l, --limit` | Maximum number of files to delete | |
+| `-n, --dry-run` | Show what would be deleted without deleting | |
+| `--safe` | Verify file metadata before deletion | |
+| `-f, --force` | Skip confirmation prompt | |
+| `-v, --verbose` | Show per-file deletion status | |
+| `-j, --jobs` | Number of parallel threads | 4 |
+
+#### Safe Mode: Protecting Recently Accessed Files
+
+The `--safe` flag addresses a critical edge case: **the index may be stale**. If you built the index yesterday and a user accessed their "old" file today, the index still shows the old access time. Without `--safe`, that file would be incorrectly deleted.
+
+With `--safe` enabled, `xdu-rm` performs a fresh `stat()` on each file immediately before deletion and verifies:
+
+- **For `--older-than`**: The file's current atime is still older than the threshold
+- **For `--max-size`**: The file's current size still meets the criteria
+
+Files that no longer match are skipped:
+
+```bash
+# Safe deletion: re-check atime before each delete
+xdu-rm -i /var/lib/xdu/home --older-than 60 --safe --force -v
+
+# Output shows protected files:
+# SKIP (accessed since index): /home/alice/important_data.csv
+# DELETE: /home/bob/old_cache.tmp
+# ...
+# Deleted: 1,234,567
+# Skipped (safe mode): 42
+```
+
+**When to use `--safe`:**
+- Production purge workflows where data loss is unacceptable
+- When the index is more than a few hours old
+- When users may have accessed files between indexing and purging
+
+**When `--safe` may not be needed:**
+- Immediately after building a fresh index
+- When deleting from a read-only ZFS snapshot (files can't change)
+- For low-risk file types (e.g., `.tmp`, `.cache`)
+
+#### Common Workflows
+
+**Enforce 60-day retention policy:**
+```bash
+# Nightly cron job with safe mode
+0 3 * * * xdu-rm -i /var/lib/xdu/home --older-than 60 --safe -j 16 --force >> /var/log/xdu-purge.log 2>&1
+```
+
+**Clean up scratch space aggressively:**
+```bash
+# Delete files older than 7 days, no safe mode needed for scratch
+xdu-rm -i /var/lib/xdu/scratch --older-than 7 -j 32 --force
+```
+
+**Targeted cleanup by file type:**
+```bash
+# Remove old Jupyter checkpoints
+xdu-rm -i /var/lib/xdu/home -p '/\.ipynb_checkpoints/' --older-than 30 --force
+
+# Remove old core dumps
+xdu-rm -i /var/lib/xdu/home -p '/core\.\d+$' --older-than 7 --force
+```
+
+**Preview before production:**
+```bash
+# Always dry-run first to verify the query
+xdu-rm -i /var/lib/xdu/home --older-than 60 --min-size 1G --dry-run | head -20
+
+# Check count
+xdu-rm -i /var/lib/xdu/home --older-than 60 --min-size 1G --dry-run | tail -1
+# 847,231 file(s) would be deleted.
+```
+
 ### Querying with DuckDB
 
 The Parquet index integrates seamlessly with DuckDB for instant analytics:
