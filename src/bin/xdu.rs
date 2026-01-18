@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::manual_is_multiple_of)]
 
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{stderr, IsTerminal};
 use std::os::unix::fs::MetadataExt;
@@ -55,10 +56,16 @@ struct Args {
     #[arg(short = 'k', long, value_name = "SIZE")]
     block_size: Option<String>,
 
-    /// Index only a single partition (top-level subdirectory name).
-    /// All threads will be used to crawl this partition in parallel.
-    #[arg(short, long, value_name = "NAME")]
-    partition: Option<String>,
+    /// Index one or more partitions (top-level subdirectory names, comma-separated).
+    /// All threads will be used to crawl each partition in parallel.
+    #[arg(short, long, value_name = "NAMES", value_delimiter = ',')]
+    partition: Option<Vec<String>>,
+
+    /// After crawling specified partitions, do a full crawl excluding them.
+    /// Use with --partition to first crawl large partitions with full parallelism,
+    /// then crawl remaining partitions with one-thread-per-partition parallelism.
+    #[arg(long, requires = "partition")]
+    fast: bool,
 }
 
 /// Parse a human-readable size string into bytes.
@@ -264,6 +271,320 @@ fn crawl_directory(
     Ok(())
 }
 
+/// Statistics returned from a crawl operation.
+struct CrawlStats {
+    files: u64,
+    bytes: u64,
+    pruned: usize,
+}
+
+/// Crawl a single partition using all threads (parallel within partition).
+/// This parallelizes across subdirectories within the partition.
+fn crawl_partition(
+    partition_name: &str,
+    top_dir: &PathBuf,
+    outdir: &PathBuf,
+    buffsize: usize,
+    size_mode: SizeMode,
+    schema: &Arc<Schema>,
+    is_tty: bool,
+) -> Result<CrawlStats> {
+    let partition_path = top_dir.join(partition_name);
+    if !partition_path.is_dir() {
+        anyhow::bail!("Partition '{}' not found in {}", partition_name, top_dir.display());
+    }
+
+    // Collect subdirectories for parallel processing
+    let mut sub_dirs: Vec<PathBuf> = fs::read_dir(&partition_path)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    sub_dirs.sort();
+
+    // Build work units
+    let mut units: Vec<CrawlUnit> = sub_dirs.iter().map(|p| CrawlUnit::new(
+        p.clone(),
+        format!("{}:{}", partition_name, p.file_name().unwrap().to_string_lossy()),
+    )).collect();
+
+    // Also crawl files directly in the partition root (not in subdirs)
+    let has_loose_files = fs::read_dir(&partition_path)?
+        .filter_map(|e| e.ok())
+        .any(|e| e.path().is_file());
+
+    // If no subdirs or has loose files, we need special handling
+    if units.is_empty() || has_loose_files {
+        units.insert(0, CrawlUnit::new(
+            partition_path.clone(),
+            format!("{}:.", partition_name),
+        ));
+    }
+
+    if units.is_empty() {
+        if is_tty {
+            eprintln!("{} No content found in partition {}", style("warning:").yellow().bold(), partition_name);
+        } else {
+            eprintln!("warning: No content found in partition {}", partition_name);
+        }
+        return Ok(CrawlStats { files: 0, bytes: 0, pruned: 0 });
+    }
+
+    let total_units = units.len();
+    let global_file_count = Arc::new(AtomicU64::new(0));
+    let global_byte_count = Arc::new(AtomicU64::new(0));
+    let completed_units = Arc::new(AtomicUsize::new(0));
+
+    // Shared buffer for all threads
+    let buffer = Arc::new(Mutex::new(PartitionBuffer::new(
+        partition_name.to_string(),
+        outdir.clone(),
+        buffsize,
+        schema.clone(),
+    )));
+
+    let mp = MultiProgress::new();
+    if !is_tty {
+        mp.set_draw_target(ProgressDrawTarget::hidden());
+    }
+
+    let global_style = ProgressStyle::default_bar()
+        .template("{spinner:.green} {msg}")
+        .unwrap();
+    let global_bar = mp.add(ProgressBar::new_spinner());
+    global_bar.set_style(global_style);
+    global_bar.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    if is_tty {
+        eprintln!("{:>12} {} ({} subdirs)",
+            style("Indexing").green().bold(),
+            partition_path.display(),
+            total_units
+        );
+    } else {
+        eprintln!("Indexing {} ({} subdirs)", partition_path.display(), total_units);
+    }
+
+    let partition_path_clone = partition_path.clone();
+
+    let result = units.par_iter().try_for_each(|unit| -> Result<()> {
+        let unit_style = ProgressStyle::default_bar()
+            .template("{spinner:.cyan} {prefix:.bold} {msg}")
+            .unwrap();
+        let unit_bar = mp.insert_before(&global_bar, ProgressBar::new_spinner());
+        unit_bar.set_style(unit_style);
+        unit_bar.set_prefix(format!("{:>16}", &unit.label));
+        unit_bar.enable_steady_tick(std::time::Duration::from_millis(100));
+
+        let unit_file_count = AtomicU64::new(0);
+        let unit_byte_count = AtomicU64::new(0);
+
+        // Special case: if this is the partition root, only process files at depth 1
+        if unit.path == partition_path_clone {
+            for entry in fs::read_dir(&unit.path)?.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let metadata = match fs::metadata(&path) {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let file_size = calculate_size(size_mode, &metadata);
+                let record = FileRecord {
+                    path: path.to_string_lossy().to_string(),
+                    size: file_size as i64,
+                    atime: metadata.atime(),
+                };
+                buffer.lock().add(record)?;
+                unit_file_count.fetch_add(1, Ordering::Relaxed);
+                unit_byte_count.fetch_add(file_size, Ordering::Relaxed);
+                global_file_count.fetch_add(1, Ordering::Relaxed);
+                global_byte_count.fetch_add(file_size, Ordering::Relaxed);
+            }
+        } else {
+            crawl_directory(
+                unit, &buffer, size_mode,
+                &unit_file_count, &unit_byte_count,
+                &global_file_count, &global_byte_count,
+                &unit_bar, &global_bar,
+                &completed_units, total_units, "subdirs",
+            )?;
+        }
+
+        let final_count = unit_file_count.load(Ordering::Relaxed);
+        let final_bytes = unit_byte_count.load(Ordering::Relaxed);
+        completed_units.fetch_add(1, Ordering::Relaxed);
+
+        unit_bar.finish_and_clear();
+
+        if is_tty {
+            mp.println(format!("{:>12} {} ({} files, {})",
+                style("Finished").green().bold(),
+                unit.label,
+                format_count(final_count),
+                format_bytes(final_bytes)
+            ))?;
+        } else {
+            eprintln!("Finished {} ({} files, {})", unit.label, format_count(final_count), format_bytes(final_bytes));
+        }
+
+        Ok(())
+    });
+
+    global_bar.finish_and_clear();
+    result?;
+
+    // Finalize the shared buffer
+    buffer.lock().flush()?;
+    let buf = match Arc::try_unwrap(buffer) {
+        Ok(mutex) => mutex.into_inner(),
+        Err(_) => panic!("Buffer still has multiple references"),
+    };
+    let pruned = buf.finalize()?;
+
+    Ok(CrawlStats {
+        files: global_file_count.load(Ordering::Relaxed),
+        bytes: global_byte_count.load(Ordering::Relaxed),
+        pruned,
+    })
+}
+
+/// Full crawl mode: one partition per work unit, each with its own buffer.
+/// Optionally excludes partitions that have already been crawled.
+fn crawl_full(
+    top_dir: &PathBuf,
+    outdir: &PathBuf,
+    buffsize: usize,
+    size_mode: SizeMode,
+    schema: &Arc<Schema>,
+    exclude: &HashSet<String>,
+    is_tty: bool,
+) -> Result<CrawlStats> {
+    let mut partitions: Vec<PathBuf> = fs::read_dir(top_dir)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .filter(|p| {
+            let name = p.file_name().unwrap().to_string_lossy();
+            !exclude.contains(name.as_ref())
+        })
+        .collect();
+    partitions.sort();
+
+    if partitions.is_empty() {
+        if exclude.is_empty() {
+            if is_tty {
+                eprintln!("{} No subdirectories found in {}", style("warning:").yellow().bold(), top_dir.display());
+            } else {
+                eprintln!("warning: No subdirectories found in {}", top_dir.display());
+            }
+        }
+        return Ok(CrawlStats { files: 0, bytes: 0, pruned: 0 });
+    }
+
+    let total_partitions = partitions.len();
+    let global_file_count = Arc::new(AtomicU64::new(0));
+    let global_byte_count = Arc::new(AtomicU64::new(0));
+    let completed_partitions = Arc::new(AtomicUsize::new(0));
+    let total_pruned = Arc::new(AtomicUsize::new(0));
+
+    let mp = MultiProgress::new();
+    if !is_tty {
+        mp.set_draw_target(ProgressDrawTarget::hidden());
+    }
+
+    let global_style = ProgressStyle::default_bar()
+        .template("{spinner:.green} {msg}")
+        .unwrap();
+    let global_bar = mp.add(ProgressBar::new_spinner());
+    global_bar.set_style(global_style);
+    global_bar.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    let phase_label = if exclude.is_empty() { "" } else { " (remaining)" };
+    if is_tty {
+        eprintln!("{:>12} {}{} ({} partitions)",
+            style("Indexing").green().bold(),
+            top_dir.display(),
+            phase_label,
+            total_partitions
+        );
+    } else {
+        eprintln!("Indexing {}{} ({} partitions)", top_dir.display(), phase_label, total_partitions);
+    }
+
+    let result = partitions.par_iter().try_for_each(|partition_path| -> Result<()> {
+        let partition_name = partition_path.file_name().unwrap().to_string_lossy().to_string();
+
+        let unit = CrawlUnit::new(partition_path.clone(), partition_name.clone());
+
+        let partition_style = ProgressStyle::default_bar()
+            .template("{spinner:.cyan} {prefix:.bold} {msg}")
+            .unwrap();
+        let partition_bar = mp.insert_before(&global_bar, ProgressBar::new_spinner());
+        partition_bar.set_style(partition_style);
+        partition_bar.set_prefix(format!("{:>12}", &unit.label));
+        partition_bar.enable_steady_tick(std::time::Duration::from_millis(100));
+
+        let unit_file_count = AtomicU64::new(0);
+        let unit_byte_count = AtomicU64::new(0);
+
+        let buffer = Arc::new(Mutex::new(PartitionBuffer::new(
+            partition_name.clone(),
+            outdir.clone(),
+            buffsize,
+            schema.clone(),
+        )));
+
+        crawl_directory(
+            &unit, &buffer, size_mode,
+            &unit_file_count, &unit_byte_count,
+            &global_file_count, &global_byte_count,
+            &partition_bar, &global_bar,
+            &completed_partitions, total_partitions, "partitions",
+        )?;
+
+        buffer.lock().flush()?;
+        let buf = match Arc::try_unwrap(buffer) {
+            Ok(mutex) => mutex.into_inner(),
+            Err(_) => panic!("Buffer still has multiple references"),
+        };
+        let pruned = buf.finalize()?;
+        total_pruned.fetch_add(pruned, Ordering::Relaxed);
+
+        let final_count = unit_file_count.load(Ordering::Relaxed);
+        let final_bytes = unit_byte_count.load(Ordering::Relaxed);
+        completed_partitions.fetch_add(1, Ordering::Relaxed);
+
+        partition_bar.finish_and_clear();
+
+        let prune_info = if pruned > 0 { format!(", pruned {} stale", pruned) } else { String::new() };
+
+        if is_tty {
+            mp.println(format!("{:>12} {} ({} files, {}{})",
+                style("Finished").green().bold(),
+                unit.label,
+                format_count(final_count),
+                format_bytes(final_bytes),
+                prune_info
+            ))?;
+        } else {
+            eprintln!("Finished {} ({} files, {}{})", unit.label, format_count(final_count), format_bytes(final_bytes), prune_info);
+        }
+
+        Ok(())
+    });
+
+    global_bar.finish_and_clear();
+    result?;
+
+    Ok(CrawlStats {
+        files: global_file_count.load(Ordering::Relaxed),
+        bytes: global_byte_count.load(Ordering::Relaxed),
+        pruned: total_pruned.load(Ordering::Relaxed),
+    })
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let start_time = Instant::now();
@@ -294,306 +615,87 @@ fn main() -> Result<()> {
 
     let schema = get_schema();
 
-    // Single-partition mode: parallelize across subdirectories within the partition
-    if let Some(ref partition_name) = args.partition {
-        let partition_path = top_dir.join(partition_name);
-        if !partition_path.is_dir() {
-            anyhow::bail!("Partition '{}' not found in {}", partition_name, top_dir.display());
-        }
+    // Track total stats across all phases
+    let mut total_files: u64 = 0;
+    let mut total_bytes: u64 = 0;
+    let mut total_pruned: usize = 0;
 
-        // Collect subdirectories for parallel processing
-        let mut sub_dirs: Vec<PathBuf> = fs::read_dir(&partition_path)?
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.is_dir())
-            .collect();
-        sub_dirs.sort();
+    // Partition mode: crawl specified partitions with full parallelism
+    if let Some(ref partition_names) = args.partition {
+        // Phase 1: Crawl each specified partition sequentially (each uses all threads internally)
+        for partition_name in partition_names {
+            let stats = crawl_partition(
+                partition_name,
+                &top_dir,
+                &outdir,
+                args.buffsize,
+                size_mode,
+                &schema,
+                is_tty,
+            )?;
+            total_files += stats.files;
+            total_bytes += stats.bytes;
+            total_pruned += stats.pruned;
 
-        // Build work units
-        let mut units: Vec<CrawlUnit> = sub_dirs.iter().map(|p| CrawlUnit::new(
-            p.clone(),
-            format!("{}:{}", partition_name, p.file_name().unwrap().to_string_lossy()),
-        )).collect();
-
-        // Also crawl files directly in the partition root (not in subdirs)
-        // We'll handle this by adding a unit for loose files
-        let has_loose_files = fs::read_dir(&partition_path)?
-            .filter_map(|e| e.ok())
-            .any(|e| e.path().is_file());
-
-        // If no subdirs or has loose files, we need special handling
-        if units.is_empty() || has_loose_files {
-            // Insert a unit for the partition root that only processes depth=1 files
-            units.insert(0, CrawlUnit::new(
-                partition_path.clone(),
-                format!("{}:.", partition_name),
-            ));
-        }
-
-        if units.is_empty() {
+            let prune_info = if stats.pruned > 0 { format!(", pruned {} stale", stats.pruned) } else { String::new() };
             if is_tty {
-                eprintln!("{} No content found in partition {}", style("warning:").yellow().bold(), partition_name);
+                eprintln!("{:>12} {} ({} files, {}{})",
+                    style("Partition").cyan().bold(),
+                    partition_name,
+                    format_count(stats.files),
+                    format_bytes(stats.bytes),
+                    prune_info
+                );
             } else {
-                eprintln!("warning: No content found in partition {}", partition_name);
+                eprintln!("Partition {} ({} files, {}{})", partition_name, format_count(stats.files), format_bytes(stats.bytes), prune_info);
             }
-            return Ok(());
         }
 
-        let total_units = units.len();
-        let global_file_count = Arc::new(AtomicU64::new(0));
-        let global_byte_count = Arc::new(AtomicU64::new(0));
-        let completed_units = Arc::new(AtomicUsize::new(0));
-
-        // Shared buffer for all threads
-        let buffer = Arc::new(Mutex::new(PartitionBuffer::new(
-            partition_name.clone(),
-            outdir.clone(),
-            args.buffsize,
-            schema.clone(),
-        )));
-
-        let mp = MultiProgress::new();
-        if !is_tty {
-            mp.set_draw_target(ProgressDrawTarget::hidden());
+        // Phase 2: If --fast, crawl remaining partitions
+        if args.fast {
+            let exclude: HashSet<String> = partition_names.iter().cloned().collect();
+            let stats = crawl_full(
+                &top_dir,
+                &outdir,
+                args.buffsize,
+                size_mode,
+                &schema,
+                &exclude,
+                is_tty,
+            )?;
+            total_files += stats.files;
+            total_bytes += stats.bytes;
+            total_pruned += stats.pruned;
         }
-
-        let global_style = ProgressStyle::default_bar()
-            .template("{spinner:.green} {msg}")
-            .unwrap();
-        let global_bar = mp.add(ProgressBar::new_spinner());
-        global_bar.set_style(global_style);
-        global_bar.enable_steady_tick(std::time::Duration::from_millis(100));
-
-        if is_tty {
-            eprintln!("{:>12} {} ({} subdirs)",
-                style("Indexing").green().bold(),
-                partition_path.display(),
-                total_units
-            );
-        } else {
-            eprintln!("Indexing {} ({} subdirs)", partition_path.display(), total_units);
-        }
-
-        // Check if this unit is the partition root (for loose files only)
-        let partition_path_clone = partition_path.clone();
-
-        let result = units.par_iter().try_for_each(|unit| -> Result<()> {
-            let unit_style = ProgressStyle::default_bar()
-                .template("{spinner:.cyan} {prefix:.bold} {msg}")
-                .unwrap();
-            let unit_bar = mp.insert_before(&global_bar, ProgressBar::new_spinner());
-            unit_bar.set_style(unit_style);
-            unit_bar.set_prefix(format!("{:>16}", &unit.label));
-            unit_bar.enable_steady_tick(std::time::Duration::from_millis(100));
-
-            let unit_file_count = AtomicU64::new(0);
-            let unit_byte_count = AtomicU64::new(0);
-
-            // Special case: if this is the partition root, only process files at depth 1
-            if unit.path == partition_path_clone {
-                for entry in fs::read_dir(&unit.path)?.filter_map(|e| e.ok()) {
-                    let path = entry.path();
-                    if !path.is_file() {
-                        continue;
-                    }
-                    let metadata = match fs::metadata(&path) {
-                        Ok(m) => m,
-                        Err(_) => continue,
-                    };
-                    let file_size = calculate_size(size_mode, &metadata);
-                    let record = FileRecord {
-                        path: path.to_string_lossy().to_string(),
-                        size: file_size as i64,
-                        atime: metadata.atime(),
-                    };
-                    buffer.lock().add(record)?;
-                    unit_file_count.fetch_add(1, Ordering::Relaxed);
-                    unit_byte_count.fetch_add(file_size, Ordering::Relaxed);
-                    global_file_count.fetch_add(1, Ordering::Relaxed);
-                    global_byte_count.fetch_add(file_size, Ordering::Relaxed);
-                }
-            } else {
-                crawl_directory(
-                    unit, &buffer, size_mode,
-                    &unit_file_count, &unit_byte_count,
-                    &global_file_count, &global_byte_count,
-                    &unit_bar, &global_bar,
-                    &completed_units, total_units, "subdirs",
-                )?;
-            }
-
-            let final_count = unit_file_count.load(Ordering::Relaxed);
-            let final_bytes = unit_byte_count.load(Ordering::Relaxed);
-            completed_units.fetch_add(1, Ordering::Relaxed);
-
-            unit_bar.finish_and_clear();
-
-            if is_tty {
-                mp.println(format!("{:>12} {} ({} files, {})",
-                    style("Finished").green().bold(),
-                    unit.label,
-                    format_count(final_count),
-                    format_bytes(final_bytes)
-                ))?;
-            } else {
-                eprintln!("Finished {} ({} files, {})", unit.label, format_count(final_count), format_bytes(final_bytes));
-            }
-
-            Ok(())
-        });
-
-        global_bar.finish_and_clear();
-        result?;
-
-        // Finalize the shared buffer
-        buffer.lock().flush()?;
-        let buf = match Arc::try_unwrap(buffer) {
-            Ok(mutex) => mutex.into_inner(),
-            Err(_) => panic!("Buffer still has multiple references"),
-        };
-        let pruned = buf.finalize()?;
-
-        let elapsed = start_time.elapsed();
-        let total_files = global_file_count.load(Ordering::Relaxed);
-        let total_bytes = global_byte_count.load(Ordering::Relaxed);
-        let prune_info = if pruned > 0 { format!(", pruned {} stale", pruned) } else { String::new() };
-
-        if is_tty {
-            eprintln!("{:>12} {} files ({}) in {:.2}s{}",
-                style("Completed").green().bold(),
-                format_count(total_files),
-                format_bytes(total_bytes),
-                elapsed.as_secs_f64(),
-                prune_info
-            );
-        } else {
-            eprintln!("Completed {} files ({}) in {:.2}s{}", format_count(total_files), format_bytes(total_bytes), elapsed.as_secs_f64(), prune_info);
-        }
-
-        return Ok(());
-    }
-
-    // Full crawl mode: one partition per work unit, each with its own buffer
-    let mut partitions: Vec<PathBuf> = fs::read_dir(&top_dir)?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .collect();
-    partitions.sort();
-
-    if partitions.is_empty() {
-        if is_tty {
-            eprintln!("{} No subdirectories found in {}", style("warning:").yellow().bold(), top_dir.display());
-        } else {
-            eprintln!("warning: No subdirectories found in {}", top_dir.display());
-        }
-        return Ok(());
-    }
-
-    let total_partitions = partitions.len();
-    let global_file_count = Arc::new(AtomicU64::new(0));
-    let global_byte_count = Arc::new(AtomicU64::new(0));
-    let completed_partitions = Arc::new(AtomicUsize::new(0));
-
-    let mp = MultiProgress::new();
-    if !is_tty {
-        mp.set_draw_target(ProgressDrawTarget::hidden());
-    }
-
-    let global_style = ProgressStyle::default_bar()
-        .template("{spinner:.green} {msg}")
-        .unwrap();
-    let global_bar = mp.add(ProgressBar::new_spinner());
-    global_bar.set_style(global_style);
-    global_bar.enable_steady_tick(std::time::Duration::from_millis(100));
-
-    if is_tty {
-        eprintln!("{:>12} {} ({} partitions)",
-            style("Indexing").green().bold(),
-            top_dir.display(),
-            total_partitions
-        );
     } else {
-        eprintln!("Indexing {} ({} partitions)", top_dir.display(), total_partitions);
-    }
-
-    let result = partitions.par_iter().try_for_each(|partition_path| -> Result<()> {
-        let partition_name = partition_path.file_name().unwrap().to_string_lossy().to_string();
-
-        let unit = CrawlUnit::new(partition_path.clone(), partition_name.clone());
-
-        let partition_style = ProgressStyle::default_bar()
-            .template("{spinner:.cyan} {prefix:.bold} {msg}")
-            .unwrap();
-        let partition_bar = mp.insert_before(&global_bar, ProgressBar::new_spinner());
-        partition_bar.set_style(partition_style);
-        partition_bar.set_prefix(format!("{:>12}", &unit.label));
-        partition_bar.enable_steady_tick(std::time::Duration::from_millis(100));
-
-        let unit_file_count = AtomicU64::new(0);
-        let unit_byte_count = AtomicU64::new(0);
-
-        let buffer = Arc::new(Mutex::new(PartitionBuffer::new(
-            partition_name.clone(),
-            outdir.clone(),
+        // Full crawl mode (no partitions specified)
+        let stats = crawl_full(
+            &top_dir,
+            &outdir,
             args.buffsize,
-            schema.clone(),
-        )));
-
-        crawl_directory(
-            &unit, &buffer, size_mode,
-            &unit_file_count, &unit_byte_count,
-            &global_file_count, &global_byte_count,
-            &partition_bar, &global_bar,
-            &completed_partitions, total_partitions, "partitions",
+            size_mode,
+            &schema,
+            &HashSet::new(),
+            is_tty,
         )?;
-
-        buffer.lock().flush()?;
-        let buf = match Arc::try_unwrap(buffer) {
-            Ok(mutex) => mutex.into_inner(),
-            Err(_) => panic!("Buffer still has multiple references"),
-        };
-        let pruned = buf.finalize()?;
-
-        let final_count = unit_file_count.load(Ordering::Relaxed);
-        let final_bytes = unit_byte_count.load(Ordering::Relaxed);
-        completed_partitions.fetch_add(1, Ordering::Relaxed);
-
-        partition_bar.finish_and_clear();
-
-        let prune_info = if pruned > 0 { format!(", pruned {} stale", pruned) } else { String::new() };
-
-        if is_tty {
-            mp.println(format!("{:>12} {} ({} files, {}{})",
-                style("Finished").green().bold(),
-                unit.label,
-                format_count(final_count),
-                format_bytes(final_bytes),
-                prune_info
-            ))?;
-        } else {
-            eprintln!("Finished {} ({} files, {}{})", unit.label, format_count(final_count), format_bytes(final_bytes), prune_info);
-        }
-
-        Ok(())
-    });
-
-    global_bar.finish_and_clear();
-    result?;
+        total_files = stats.files;
+        total_bytes = stats.bytes;
+        total_pruned = stats.pruned;
+    }
 
     let elapsed = start_time.elapsed();
-    let total_files = global_file_count.load(Ordering::Relaxed);
-    let total_bytes = global_byte_count.load(Ordering::Relaxed);
+    let prune_info = if total_pruned > 0 { format!(", pruned {} stale", total_pruned) } else { String::new() };
 
     if is_tty {
-        eprintln!("{:>12} {} files ({}) in {:.2}s",
+        eprintln!("{:>12} {} files ({}) in {:.2}s{}",
             style("Completed").green().bold(),
             format_count(total_files),
             format_bytes(total_bytes),
-            elapsed.as_secs_f64()
+            elapsed.as_secs_f64(),
+            prune_info
         );
     } else {
-        eprintln!("Completed {} files ({}) in {:.2}s", format_count(total_files), format_bytes(total_bytes), elapsed.as_secs_f64());
+        eprintln!("Completed {} files ({}) in {:.2}s{}", format_count(total_files), format_bytes(total_bytes), elapsed.as_secs_f64(), prune_info);
     }
 
     Ok(())

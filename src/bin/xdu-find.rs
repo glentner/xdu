@@ -49,6 +49,10 @@ struct Args {
     /// Count matching records instead of listing them
     #[arg(short, long)]
     count: bool,
+
+    /// Show top N partitions by file count (for identifying large partitions)
+    #[arg(long, value_name = "N")]
+    top: Option<usize>,
 }
 
 fn main() -> Result<()> {
@@ -90,6 +94,29 @@ fn main() -> Result<()> {
     // Build and execute query based on format
     let stdout = io::stdout();
     let mut out = stdout.lock();
+
+    // Handle --top mode: show top N partitions by file count
+    if let Some(n) = args.top {
+        // Extract partition name from the path (parent directory of the parquet file)
+        // The glob pattern is index/*/*.parquet, so we extract the partition from the path
+        let sql = format!(
+            "SELECT 
+                regexp_extract(filename, '.*/([^/]+)/[^/]+\\.parquet$', 1) as partition,
+                COUNT(*) as file_count
+            FROM read_parquet('{}', filename=true) {}
+            GROUP BY partition
+            ORDER BY file_count DESC
+            LIMIT {}",
+            glob_pattern, where_clause, n
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let partition: String = row.get(0)?;
+            writeln!(out, "{}", partition)?;
+        }
+        return Ok(());
+    }
 
     // Handle count mode
     if args.count {

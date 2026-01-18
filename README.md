@@ -334,6 +334,24 @@ xdu /home -o /var/lib/xdu/home -j 8 --partition alice
 
 This is much faster than a full re-index and automatically prunes stale chunks from previous runs.
 
+### Fast Crawl for Large Partitions
+
+At extreme scale (1k+ partitions), a few "whale" users with 30-50M files can bottleneck the entire crawl. While 99% of partitions finish in hours, these whales may take 10+ hours each because they're limited to a single thread.
+
+Use the **two-phase fast crawl** to eliminate this long tail:
+
+```bash
+# Identify the largest partitions from the previous index
+WHALES=$(xdu-find -i /var/lib/xdu/home --top 5 | paste -sd, -)
+
+# Fast crawl: whales get full parallelism, then crawl remaining partitions
+xdu /home -o /var/lib/xdu/home --fast --partition "$WHALES" -j 32
+```
+
+This can reduce total crawl time from 12+ hours to 3-4 hours on large filesystems.
+
+See [docs/fast_crawl.md](docs/fast_crawl.md) for a detailed explanation and scripted workflow.
+
 ## License
 
 MIT
