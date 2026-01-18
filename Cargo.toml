@@ -20,6 +20,7 @@ crossterm = "0.28"
 
 [dev-dependencies]
 tempfile = "3"
+libc = "0.2"
 
 [[bin]]
 name = "xdu"
@@ -32,6 +33,10 @@ path = "src/bin/xdu-find.rs"
 [[bin]]
 name = "xdu-view"
 path = "src/bin/xdu-view.rs"
+
+[[bin]]
+name = "xdu-rm"
+path = "src/bin/xdu-rm.rs"
 
 [profile.release]
 lto = true

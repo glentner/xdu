@@ -2687,6 +2687,7 @@ dependencies = [
  "crossterm",
  "duckdb",
  "indicatif",
+ "libc",
  "parking_lot",
  "parquet",
  "ratatui",
