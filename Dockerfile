@@ -1,21 +1,18 @@
 # syntax=docker/dockerfile:1
 
-# Multi-stage build for static xdu binaries.
+# Multi-stage build for xdu binaries.
 #
 # Usage:
 #   docker build -t xdu .
 #   docker run --rm xdu xdu --help
 #
 # Copy binaries into another image:
-#   COPY --from=ghcr.io/glentner/xdu:latest /xdu /xdu-find /xdu-view /usr/local/bin/
+#   COPY --from=ghcr.io/glentner/xdu:latest /usr/local/bin/xdu* /usr/local/bin/
 
 # =============================================================================
-# Build stage: compile static musl binaries
+# Build stage
 # =============================================================================
-FROM rust:alpine AS builder
-
-# Install build dependencies (Alpine uses musl natively)
-RUN apk add --no-cache musl-dev gcc g++
+FROM rust:slim AS builder
 
 WORKDIR /build
 
@@ -26,21 +23,18 @@ COPY src ./src
 RUN cargo build --release && \
     strip target/release/xdu \
           target/release/xdu-find \
-          target/release/xdu-view
+          target/release/xdu-view \
+          target/release/xdu-rm
 
 # =============================================================================
-# Release stage: minimal image with just the binaries
+# Runtime stage
 # =============================================================================
-FROM scratch
+FROM debian:bookworm-slim
 
-# Copy static binaries to root for easy COPY --from= usage
-COPY --from=builder /build/target/release/xdu /xdu
-COPY --from=builder /build/target/release/xdu-find /xdu-find
-COPY --from=builder /build/target/release/xdu-view /xdu-view
-
-# Also place in /usr/local/bin for direct container usage
-COPY --from=builder /build/target/release/xdu /usr/local/bin/xdu
-COPY --from=builder /build/target/release/xdu-find /usr/local/bin/xdu-find
-COPY --from=builder /build/target/release/xdu-view /usr/local/bin/xdu-view
+# Copy binaries
+COPY --from=builder /build/target/release/xdu /usr/local/bin/
+COPY --from=builder /build/target/release/xdu-find /usr/local/bin/
+COPY --from=builder /build/target/release/xdu-view /usr/local/bin/
+COPY --from=builder /build/target/release/xdu-rm /usr/local/bin/
 
 ENTRYPOINT ["/usr/local/bin/xdu"]

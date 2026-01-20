@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./build.sh          # Build for current platform
-#   ./build.sh --target x86_64-unknown-linux-musl  # Cross-compile
+#   ./build.sh --target x86_64-unknown-linux-gnu  # Cross-compile
 #
 # Output: target/<target>/release/{xdu,xdu-find,xdu-view}
 
@@ -12,8 +12,8 @@ set -eu
 # Detect target if not specified
 if [ $# -eq 0 ]; then
     case "$(uname -s)-$(uname -m)" in
-        Linux-x86_64)   TARGET="x86_64-unknown-linux-musl" ;;
-        Linux-aarch64)  TARGET="aarch64-unknown-linux-musl" ;;
+        Linux-x86_64)   TARGET="x86_64-unknown-linux-gnu" ;;
+        Linux-aarch64)  TARGET="aarch64-unknown-linux-gnu" ;;
         Darwin-x86_64)  TARGET="x86_64-apple-darwin" ;;
         Darwin-arm64)   TARGET="aarch64-apple-darwin" ;;
         *)

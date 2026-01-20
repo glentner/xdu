@@ -3,6 +3,12 @@ name: Release
 on:
   release:
     types: [created]
+  # Manual trigger for re-running failed releases
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag (e.g., v0.2.0)'
+        required: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -18,75 +24,66 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64 (static musl binary)
-          - target: x86_64-unknown-linux-musl
+          # Linux x86_64
+          - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            archive: tar.gz
-          # Linux aarch64 (static musl binary)
-          - target: aarch64-unknown-linux-musl
+          # Linux aarch64
+          - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            archive: tar.gz
             cross: true
-          # macOS x86_64 (dynamic - Apple doesn't support static)
+          # macOS x86_64
           - target: x86_64-apple-darwin
             os: macos-latest
-            archive: tar.gz
-          # macOS Apple Silicon (dynamic - Apple doesn't support static)
+          # macOS Apple Silicon
           - target: aarch64-apple-darwin
             os: macos-latest
-            archive: tar.gz
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Determine version tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly
           targets: ${{ matrix.target }}
 
-      - name: Install musl tools (Linux x86_64)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-          # Install x86_64 musl cross toolchain for C++ support (needed by DuckDB)
-          wget -q https://musl.cc/x86_64-linux-musl-cross.tgz
-          tar xzf x86_64-linux-musl-cross.tgz
-          echo "$PWD/x86_64-linux-musl-cross/bin" >> $GITHUB_PATH
-
-      - name: Install cross-compilation tools (Linux aarch64)
+      - name: Install cross-compilation tools (aarch64)
         if: matrix.cross
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools
-          # Install cross-compilation musl toolchain
-          wget -q https://musl.cc/aarch64-linux-musl-cross.tgz
-          tar xzf aarch64-linux-musl-cross.tgz
-          echo "$PWD/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
-      - name: Configure cross-compilation
+      - name: Configure cross-compilation (aarch64)
         if: matrix.cross
         run: |
           mkdir -p .cargo
           cat >> .cargo/config.toml << EOF
-          [target.aarch64-unknown-linux-musl]
-          linker = "aarch64-linux-musl-gcc"
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
           EOF
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
         env:
-          CC_x86_64_unknown_linux_musl: x86_64-linux-musl-gcc
-          CXX_x86_64_unknown_linux_musl: x86_64-linux-musl-g++
-          CC_aarch64_unknown_linux_musl: aarch64-linux-musl-gcc
-          CXX_aarch64_unknown_linux_musl: aarch64-linux-musl-g++
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
 
       - name: Package binaries (Unix)
         run: |
           cd target/${{ matrix.target }}/release
-          tar czvf ../../../xdu-${{ github.ref_name }}-${{ matrix.target }}.tar.gz xdu xdu-find xdu-view xdu-rm
+          tar czvf ../../../xdu-${{ steps.version.outputs.tag }}-${{ matrix.target }}.tar.gz xdu xdu-find xdu-view xdu-rm
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: xdu-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: xdu-${{ steps.version.outputs.tag }}-${{ matrix.target }}.tar.gz
