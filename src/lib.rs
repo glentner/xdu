@@ -1,7 +1,6 @@
 //! Shared types and utilities for xdu tools.
 
 use std::fmt;
-use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -45,19 +44,6 @@ impl SizeMode {
             SizeMode::ApparentSize => file_len,
             SizeMode::BlockRounded(block_size) => round_to_block(file_len, *block_size),
         }
-    }
-}
-
-/// A work unit to crawl: directory path + display label
-#[derive(Clone, Debug, PartialEq)]
-pub struct CrawlUnit {
-    pub path: PathBuf,
-    pub label: String,
-}
-
-impl CrawlUnit {
-    pub fn new(path: PathBuf, label: String) -> Self {
-        Self { path, label }
     }
 }
 
@@ -564,56 +550,6 @@ mod tests {
         assert_eq!(round_to_block(1, mb), mb);
         assert_eq!(round_to_block(mb, mb), mb);
         assert_eq!(round_to_block(mb + 1, mb), 2 * mb);
-    }
-
-    // CrawlUnit tests
-    #[test]
-    fn test_crawl_unit_stores_path_and_label() {
-        let path = PathBuf::from("/data/users/alice");
-        let label = "alice".to_string();
-        let unit = CrawlUnit::new(path.clone(), label.clone());
-
-        assert_eq!(unit.path, path);
-        assert_eq!(unit.label, label);
-    }
-
-    #[test]
-    fn test_crawl_unit_with_subdirectory_label() {
-        let path = PathBuf::from("/data/users/alice/projects");
-        let label = "alice:projects".to_string();
-        let unit = CrawlUnit::new(path.clone(), label.clone());
-
-        assert_eq!(unit.path, PathBuf::from("/data/users/alice/projects"));
-        assert_eq!(unit.label, "alice:projects");
-    }
-
-    #[test]
-    fn test_crawl_unit_equality() {
-        let unit1 = CrawlUnit::new(
-            PathBuf::from("/data/users/alice"),
-            "alice".to_string(),
-        );
-        let unit2 = CrawlUnit::new(
-            PathBuf::from("/data/users/alice"),
-            "alice".to_string(),
-        );
-        let unit3 = CrawlUnit::new(
-            PathBuf::from("/data/users/bob"),
-            "bob".to_string(),
-        );
-
-        assert_eq!(unit1, unit2);
-        assert_ne!(unit1, unit3);
-    }
-
-    #[test]
-    fn test_crawl_unit_root_marker() {
-        // Test the pattern used for loose files in partition root
-        let path = PathBuf::from("/data/users/alice");
-        let label = "alice:.".to_string();
-        let unit = CrawlUnit::new(path, label);
-
-        assert_eq!(unit.label, "alice:.");
     }
 
     // FileRecord tests

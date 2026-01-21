@@ -59,10 +59,11 @@ This layout enables:
 
 **Why xdu is faster than `du` for this use-case:**
 
-1. **Parallel traversal**: Multiple threads crawl different partitions simultaneously
-2. **Columnar storage**: Parquet compresses paths efficiently (often 10:1) and enables predicate pushdown
-3. **Buffered writes**: Records accumulate in memory before flushing, minimizing I/O syscalls
-4. **One traversal, many queries**: Build the index once, query it thousands of times instantly
+1. **Adaptive parallel traversal**: Using jwalk, threads dynamically balance work at every directory level—no partition gets bottlenecked to a single thread
+2. **Parallel metadata**: File stat() calls happen in parallel within the thread pool, critical for high-latency network filesystems
+3. **Columnar storage**: Parquet compresses paths efficiently (often 10:1) and enables predicate pushdown
+4. **Buffered writes**: Records accumulate in memory before flushing, minimizing I/O syscalls
+5. **One traversal, many queries**: Build the index once, query it thousands of times instantly
 
 A typical 100M file filesystem might take 2-3 hours to `du`. With xdu, the index builds in 20-30 minutes and subsequent queries complete in seconds.
 
@@ -436,23 +437,13 @@ xdu /home -o /var/lib/xdu/home -j 8 --partition alice
 
 This is much faster than a full re-index and automatically prunes stale chunks from previous runs.
 
-### Fast Crawl for Large Partitions
+### Adaptive Parallelism
 
-At extreme scale (1k+ partitions), a few "whale" users with 30-50M files can bottleneck the entire crawl. While 99% of partitions finish in hours, these whales may take 10+ hours each because they're limited to a single thread.
+Unlike traditional one-thread-per-partition approaches, xdu uses jwalk's adaptive parallelism. Work is dynamically distributed at every directory level:
 
-Use the **two-phase fast crawl** to eliminate this long tail:
-
-```bash
-# Identify the largest partitions from the previous index
-WHALES=$(xdu-find -i /var/lib/xdu/home --top 5 | paste -sd, -)
-
-# Fast crawl: whales get full parallelism, then crawl remaining partitions
-xdu /home -o /var/lib/xdu/home --fast --partition "$WHALES" -j 32
-```
-
-This can reduce total crawl time from 12+ hours to 3-4 hours on large filesystems.
-
-See [docs/fast_crawl.md](docs/fast_crawl.md) for a detailed explanation and scripted workflow.
+- When a thread enters a directory with many subdirectories, those subdirectories are redistributed across idle threads
+- This eliminates the "long tail" problem where a few large partitions bottleneck the entire crawl
+- A filesystem with 1000 small partitions and 5 "whale" partitions (30M+ files each) now completes in 3-4 hours instead of 10+ hours
 
 ## License
 

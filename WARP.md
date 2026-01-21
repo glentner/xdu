@@ -15,9 +15,9 @@ Designed for HPC and enterprise storage environments where traditional tools lik
 ## Architecture
 
 - **CLI**: `clap` for argument parsing
-- **Parallelism**: `rayon` thread pool processes top-level subdirectories concurrently
+- **Parallelism**: `jwalk` for adaptive parallel directory traversal with parallel metadata loading
+- **Concurrency**: `dashmap` for lock-free partition buffer management
 - **Output**: `arrow` + `parquet` crates write Snappy-compressed Parquet files
-- **Traversal**: `walkdir` for recursive directory iteration
 - **Query**: `duckdb` crate for efficient Parquet queries with partition pruning
 - **TUI**: `ratatui` + `crossterm` for interactive terminal interface
 

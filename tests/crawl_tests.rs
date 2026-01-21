@@ -5,14 +5,18 @@
 
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use jwalk::{Parallelism, WalkDir};
 use parking_lot::Mutex;
 use tempfile::TempDir;
 
-use xdu::{CrawlUnit, FileRecord, SizeMode};
+use xdu::{FileRecord, SizeMode};
+
+/// Special partition name for files directly in the top-level directory.
+const ROOT_PARTITION: &str = "__root__";
 
 /// Simple buffer that collects FileRecords for testing.
 struct TestBuffer {
@@ -44,28 +48,43 @@ fn create_test_file(path: &PathBuf, size: usize) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Helper to crawl a directory and collect records into a TestBuffer.
-/// This simulates the crawl_directory function from xdu.rs.
+/// Extract partition name from path, mirroring the logic in xdu.rs
+fn extract_partition(path: &Path, top_dir: &Path) -> Option<String> {
+    let relative = path.strip_prefix(top_dir).ok()?;
+    let mut components = relative.components();
+    let first = components.next()?;
+    if components.next().is_some() {
+        Some(first.as_os_str().to_string_lossy().to_string())
+    } else {
+        Some(ROOT_PARTITION.to_string())
+    }
+}
+
+/// Helper to crawl a directory using jwalk and collect records into a TestBuffer.
 fn crawl_directory_for_test(
-    unit: &CrawlUnit,
+    top_dir: &Path,
     buffer: &Arc<Mutex<TestBuffer>>,
     size_mode: SizeMode,
-    unit_file_count: &AtomicU64,
-    unit_byte_count: &AtomicU64,
-    global_file_count: &AtomicU64,
-    global_byte_count: &AtomicU64,
+    file_count: &AtomicU64,
+    byte_count: &AtomicU64,
 ) {
-    for entry in walkdir::WalkDir::new(&unit.path)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if !path.is_file() {
+    let walker = WalkDir::new(top_dir)
+        .parallelism(Parallelism::Serial)
+        .skip_hidden(false)
+        .follow_links(false);
+
+    for entry in walker {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        if !entry.file_type().is_file() {
             continue;
         }
 
-        let metadata = match fs::metadata(path) {
+        let path = entry.path();
+        let metadata = match fs::metadata(&path) {
             Ok(m) => m,
             Err(_) => continue,
         };
@@ -79,10 +98,8 @@ fn crawl_directory_for_test(
         };
         buffer.lock().add(record);
 
-        unit_file_count.fetch_add(1, Ordering::Relaxed);
-        unit_byte_count.fetch_add(file_size, Ordering::Relaxed);
-        global_file_count.fetch_add(1, Ordering::Relaxed);
-        global_byte_count.fetch_add(file_size, Ordering::Relaxed);
+        file_count.fetch_add(1, Ordering::Relaxed);
+        byte_count.fetch_add(file_size, Ordering::Relaxed);
     }
 }
 
@@ -100,28 +117,21 @@ fn test_crawl_directory_accumulates_counts_and_sizes() {
     create_test_file(&base.join("file2.txt"), 200).unwrap();
     create_test_file(&base.join("file3.txt"), 300).unwrap();
 
-    let unit = CrawlUnit::new(base.to_path_buf(), "test".to_string());
     let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let unit_file_count = AtomicU64::new(0);
-    let unit_byte_count = AtomicU64::new(0);
-    let global_file_count = AtomicU64::new(0);
-    let global_byte_count = AtomicU64::new(0);
+    let file_count = AtomicU64::new(0);
+    let byte_count = AtomicU64::new(0);
 
     crawl_directory_for_test(
-        &unit,
+        base,
         &buffer,
         SizeMode::ApparentSize,
-        &unit_file_count,
-        &unit_byte_count,
-        &global_file_count,
-        &global_byte_count,
+        &file_count,
+        &byte_count,
     );
 
     // Verify counts
-    assert_eq!(unit_file_count.load(Ordering::Relaxed), 3);
-    assert_eq!(unit_byte_count.load(Ordering::Relaxed), 600);
-    assert_eq!(global_file_count.load(Ordering::Relaxed), 3);
-    assert_eq!(global_byte_count.load(Ordering::Relaxed), 600);
+    assert_eq!(file_count.load(Ordering::Relaxed), 3);
+    assert_eq!(byte_count.load(Ordering::Relaxed), 600);
 
     // Verify buffer has all records
     let buf = buffer.lock();
@@ -143,25 +153,20 @@ fn test_crawl_directory_with_nested_subdirectories() {
     create_test_file(&base.join("subdir1/nested/deep.txt"), 150).unwrap();
     create_test_file(&base.join("subdir2/file2.txt"), 200).unwrap();
 
-    let unit = CrawlUnit::new(base.to_path_buf(), "test".to_string());
     let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let unit_file_count = AtomicU64::new(0);
-    let unit_byte_count = AtomicU64::new(0);
-    let global_file_count = AtomicU64::new(0);
-    let global_byte_count = AtomicU64::new(0);
+    let file_count = AtomicU64::new(0);
+    let byte_count = AtomicU64::new(0);
 
     crawl_directory_for_test(
-        &unit,
+        base,
         &buffer,
         SizeMode::ApparentSize,
-        &unit_file_count,
-        &unit_byte_count,
-        &global_file_count,
-        &global_byte_count,
+        &file_count,
+        &byte_count,
     );
 
-    assert_eq!(unit_file_count.load(Ordering::Relaxed), 4);
-    assert_eq!(unit_byte_count.load(Ordering::Relaxed), 500);
+    assert_eq!(file_count.load(Ordering::Relaxed), 4);
+    assert_eq!(byte_count.load(Ordering::Relaxed), 500);
 }
 
 #[test]
@@ -171,21 +176,16 @@ fn test_crawl_directory_adds_records_to_buffer() {
 
     create_test_file(&base.join("test.txt"), 1024).unwrap();
 
-    let unit = CrawlUnit::new(base.to_path_buf(), "partition".to_string());
     let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let unit_file_count = AtomicU64::new(0);
-    let unit_byte_count = AtomicU64::new(0);
-    let global_file_count = AtomicU64::new(0);
-    let global_byte_count = AtomicU64::new(0);
+    let file_count = AtomicU64::new(0);
+    let byte_count = AtomicU64::new(0);
 
     crawl_directory_for_test(
-        &unit,
+        base,
         &buffer,
         SizeMode::ApparentSize,
-        &unit_file_count,
-        &unit_byte_count,
-        &global_file_count,
-        &global_byte_count,
+        &file_count,
+        &byte_count,
     );
 
     let buf = buffer.lock();
@@ -196,125 +196,78 @@ fn test_crawl_directory_adds_records_to_buffer() {
 }
 
 // =============================================================================
-// Test: Partial partition crawl handles subdirectories and loose files
+// Test: Partition extraction logic
 // =============================================================================
 
 #[test]
-fn test_partial_partition_crawl_with_subdirectories() {
+fn test_extract_partition_with_subdirectory() {
+    let top_dir = Path::new("/data/scratch");
+    let file_path = Path::new("/data/scratch/alice/projects/file.txt");
+    
+    let partition = extract_partition(file_path, top_dir);
+    assert_eq!(partition, Some("alice".to_string()));
+}
+
+#[test]
+fn test_extract_partition_root_level_file() {
+    let top_dir = Path::new("/data/scratch");
+    let file_path = Path::new("/data/scratch/readme.txt");
+    
+    let partition = extract_partition(file_path, top_dir);
+    assert_eq!(partition, Some(ROOT_PARTITION.to_string()));
+}
+
+#[test]
+fn test_extract_partition_deeply_nested() {
+    let top_dir = Path::new("/data/scratch");
+    let file_path = Path::new("/data/scratch/bob/projects/2024/january/report.pdf");
+    
+    let partition = extract_partition(file_path, top_dir);
+    assert_eq!(partition, Some("bob".to_string()));
+}
+
+#[test]
+fn test_crawl_with_partition_structure() {
     let temp_dir = TempDir::new().unwrap();
-    let partition_path = temp_dir.path();
+    let base = temp_dir.path();
 
-    // Create subdirectories (these would be crawled as separate units)
-    fs::create_dir_all(partition_path.join("subdir1")).unwrap();
-    fs::create_dir_all(partition_path.join("subdir2")).unwrap();
+    // Create partition-like structure
+    fs::create_dir_all(base.join("alice")).unwrap();
+    fs::create_dir_all(base.join("bob/projects")).unwrap();
 
-    create_test_file(&partition_path.join("subdir1/file1.txt"), 100).unwrap();
-    create_test_file(&partition_path.join("subdir1/file2.txt"), 200).unwrap();
-    create_test_file(&partition_path.join("subdir2/file3.txt"), 300).unwrap();
+    create_test_file(&base.join("alice/file1.txt"), 100).unwrap();
+    create_test_file(&base.join("bob/file2.txt"), 200).unwrap();
+    create_test_file(&base.join("bob/projects/file3.txt"), 300).unwrap();
 
-    // Simulate crawling each subdirectory as a separate unit
-    let global_file_count = Arc::new(AtomicU64::new(0));
-    let global_byte_count = Arc::new(AtomicU64::new(0));
     let buffer = Arc::new(Mutex::new(TestBuffer::new()));
+    let file_count = AtomicU64::new(0);
+    let byte_count = AtomicU64::new(0);
 
-    // Crawl subdir1
-    let unit1 = CrawlUnit::new(
-        partition_path.join("subdir1"),
-        "partition:subdir1".to_string(),
-    );
     crawl_directory_for_test(
-        &unit1,
+        base,
         &buffer,
         SizeMode::ApparentSize,
-        &AtomicU64::new(0),
-        &AtomicU64::new(0),
-        &global_file_count,
-        &global_byte_count,
+        &file_count,
+        &byte_count,
     );
 
-    // Crawl subdir2
-    let unit2 = CrawlUnit::new(
-        partition_path.join("subdir2"),
-        "partition:subdir2".to_string(),
-    );
-    crawl_directory_for_test(
-        &unit2,
-        &buffer,
-        SizeMode::ApparentSize,
-        &AtomicU64::new(0),
-        &AtomicU64::new(0),
-        &global_file_count,
-        &global_byte_count,
-    );
+    // All files should be crawled
+    assert_eq!(file_count.load(Ordering::Relaxed), 3);
+    assert_eq!(byte_count.load(Ordering::Relaxed), 600);
 
-    // Verify global totals
-    assert_eq!(global_file_count.load(Ordering::Relaxed), 3);
-    assert_eq!(global_byte_count.load(Ordering::Relaxed), 600);
-
+    // Verify partition extraction works for collected records
     let buf = buffer.lock();
-    assert_eq!(buf.records().len(), 3);
-}
-
-#[test]
-fn test_partial_partition_crawl_with_loose_files() {
-    let temp_dir = TempDir::new().unwrap();
-    let partition_path = temp_dir.path();
-
-    // Create a subdirectory and loose files at partition root
-    fs::create_dir_all(partition_path.join("subdir")).unwrap();
-    create_test_file(&partition_path.join("loose1.txt"), 50).unwrap();
-    create_test_file(&partition_path.join("loose2.txt"), 75).unwrap();
-    create_test_file(&partition_path.join("subdir/nested.txt"), 100).unwrap();
-
-    // Simulate the loose files handling (depth=1 only)
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let global_file_count = AtomicU64::new(0);
-    let global_byte_count = AtomicU64::new(0);
-
-    // Process loose files at partition root (simulating the special case)
-    for entry in fs::read_dir(partition_path).unwrap().filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let metadata = fs::metadata(&path).unwrap();
-        let file_size = metadata.len();
-        let record = FileRecord {
-            path: path.to_string_lossy().to_string(),
-            size: file_size as i64,
-            atime: 0,
-        };
-        buffer.lock().add(record);
-        global_file_count.fetch_add(1, Ordering::Relaxed);
-        global_byte_count.fetch_add(file_size, Ordering::Relaxed);
+    for record in buf.records() {
+        let path = Path::new(&record.path);
+        let partition = extract_partition(path, base);
+        assert!(partition.is_some());
+        let p = partition.unwrap();
+        assert!(p == "alice" || p == "bob");
     }
-
-    // Should only have the 2 loose files, not the nested one
-    assert_eq!(global_file_count.load(Ordering::Relaxed), 2);
-    assert_eq!(global_byte_count.load(Ordering::Relaxed), 125);
-
-    // Now crawl the subdirectory
-    let unit = CrawlUnit::new(
-        partition_path.join("subdir"),
-        "partition:subdir".to_string(),
-    );
-    crawl_directory_for_test(
-        &unit,
-        &buffer,
-        SizeMode::ApparentSize,
-        &AtomicU64::new(0),
-        &AtomicU64::new(0),
-        &global_file_count,
-        &global_byte_count,
-    );
-
-    // Now we should have all 3 files
-    assert_eq!(global_file_count.load(Ordering::Relaxed), 3);
-    assert_eq!(global_byte_count.load(Ordering::Relaxed), 225);
 }
 
 // =============================================================================
-// Test: Full crawl mode correctly processes partitions
+// Test: Full crawl mode correctly processes multiple partitions
 // =============================================================================
 
 #[test]
@@ -332,51 +285,35 @@ fn test_full_crawl_processes_multiple_partitions() {
     create_test_file(&base.join("bob/data.bin"), 500).unwrap();
     create_test_file(&base.join("charlie/notes.md"), 150).unwrap();
 
-    // Simulate full crawl with one buffer per partition
-    let global_file_count = Arc::new(AtomicU64::new(0));
-    let global_byte_count = Arc::new(AtomicU64::new(0));
-    let completed_partitions = AtomicUsize::new(0);
+    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
+    let file_count = AtomicU64::new(0);
+    let byte_count = AtomicU64::new(0);
 
-    let mut partitions: Vec<PathBuf> = fs::read_dir(base)
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .collect();
-    partitions.sort();
-
-    let total_partitions = partitions.len();
-    assert_eq!(total_partitions, 3);
-
-    for partition_path in &partitions {
-        let partition_name = partition_path.file_name().unwrap().to_string_lossy().to_string();
-        let unit = CrawlUnit::new(partition_path.clone(), partition_name);
-
-        let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-        let unit_file_count = AtomicU64::new(0);
-        let unit_byte_count = AtomicU64::new(0);
-
-        crawl_directory_for_test(
-            &unit,
-            &buffer,
-            SizeMode::ApparentSize,
-            &unit_file_count,
-            &unit_byte_count,
-            &global_file_count,
-            &global_byte_count,
-        );
-
-        completed_partitions.fetch_add(1, Ordering::Relaxed);
-    }
+    // Single crawl over entire directory tree
+    crawl_directory_for_test(
+        base,
+        &buffer,
+        SizeMode::ApparentSize,
+        &file_count,
+        &byte_count,
+    );
 
     // Verify totals
-    assert_eq!(completed_partitions.load(Ordering::Relaxed), 3);
-    assert_eq!(global_file_count.load(Ordering::Relaxed), 4);
-    assert_eq!(global_byte_count.load(Ordering::Relaxed), 950);
+    assert_eq!(file_count.load(Ordering::Relaxed), 4);
+    assert_eq!(byte_count.load(Ordering::Relaxed), 950);
+
+    // Verify partition detection works
+    let buf = buffer.lock();
+    let mut partitions: Vec<String> = buf.records().iter()
+        .filter_map(|r| extract_partition(Path::new(&r.path), base))
+        .collect();
+    partitions.sort();
+    partitions.dedup();
+    assert_eq!(partitions, vec!["alice", "bob", "charlie"]);
 }
 
 #[test]
-fn test_full_crawl_updates_global_counts_correctly() {
+fn test_crawl_accumulates_across_partitions() {
     let temp_dir = TempDir::new().unwrap();
     let base = temp_dir.path();
 
@@ -388,40 +325,21 @@ fn test_full_crawl_updates_global_counts_correctly() {
     create_test_file(&base.join("part2/b.txt"), 2000).unwrap();
     create_test_file(&base.join("part2/c.txt"), 3000).unwrap();
 
-    let global_file_count = Arc::new(AtomicU64::new(0));
-    let global_byte_count = Arc::new(AtomicU64::new(0));
+    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
+    let file_count = AtomicU64::new(0);
+    let byte_count = AtomicU64::new(0);
 
-    // Process part1
-    let buffer1 = Arc::new(Mutex::new(TestBuffer::new()));
     crawl_directory_for_test(
-        &CrawlUnit::new(base.join("part1"), "part1".to_string()),
-        &buffer1,
+        base,
+        &buffer,
         SizeMode::ApparentSize,
-        &AtomicU64::new(0),
-        &AtomicU64::new(0),
-        &global_file_count,
-        &global_byte_count,
+        &file_count,
+        &byte_count,
     );
 
-    // After part1
-    assert_eq!(global_file_count.load(Ordering::Relaxed), 1);
-    assert_eq!(global_byte_count.load(Ordering::Relaxed), 1000);
-
-    // Process part2
-    let buffer2 = Arc::new(Mutex::new(TestBuffer::new()));
-    crawl_directory_for_test(
-        &CrawlUnit::new(base.join("part2"), "part2".to_string()),
-        &buffer2,
-        SizeMode::ApparentSize,
-        &AtomicU64::new(0),
-        &AtomicU64::new(0),
-        &global_file_count,
-        &global_byte_count,
-    );
-
-    // After both partitions
-    assert_eq!(global_file_count.load(Ordering::Relaxed), 3);
-    assert_eq!(global_byte_count.load(Ordering::Relaxed), 6000);
+    // Verify totals from both partitions
+    assert_eq!(file_count.load(Ordering::Relaxed), 3);
+    assert_eq!(byte_count.load(Ordering::Relaxed), 6000);
 }
 
 // =============================================================================
@@ -436,24 +354,20 @@ fn test_crawl_with_block_rounded_size_mode() {
     // Create a small file that should round up to 4K
     create_test_file(&base.join("small.txt"), 100).unwrap();
 
-    let unit = CrawlUnit::new(base.to_path_buf(), "test".to_string());
     let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let unit_byte_count = AtomicU64::new(0);
-    let global_byte_count = AtomicU64::new(0);
+    let file_count = AtomicU64::new(0);
+    let byte_count = AtomicU64::new(0);
 
     crawl_directory_for_test(
-        &unit,
+        base,
         &buffer,
         SizeMode::BlockRounded(4096),
-        &AtomicU64::new(0),
-        &unit_byte_count,
-        &AtomicU64::new(0),
-        &global_byte_count,
+        &file_count,
+        &byte_count,
     );
 
     // 100 bytes should round up to 4096
-    assert_eq!(unit_byte_count.load(Ordering::Relaxed), 4096);
-    assert_eq!(global_byte_count.load(Ordering::Relaxed), 4096);
+    assert_eq!(byte_count.load(Ordering::Relaxed), 4096);
 
     let buf = buffer.lock();
     assert_eq!(buf.records()[0].size, 4096);
@@ -465,22 +379,18 @@ fn test_crawl_empty_directory() {
     let base = temp_dir.path();
 
     // Empty directory
-    let unit = CrawlUnit::new(base.to_path_buf(), "empty".to_string());
     let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let unit_file_count = AtomicU64::new(0);
-    let global_file_count = AtomicU64::new(0);
+    let file_count = AtomicU64::new(0);
+    let byte_count = AtomicU64::new(0);
 
     crawl_directory_for_test(
-        &unit,
+        base,
         &buffer,
         SizeMode::ApparentSize,
-        &unit_file_count,
-        &AtomicU64::new(0),
-        &global_file_count,
-        &AtomicU64::new(0),
+        &file_count,
+        &byte_count,
     );
 
-    assert_eq!(unit_file_count.load(Ordering::Relaxed), 0);
-    assert_eq!(global_file_count.load(Ordering::Relaxed), 0);
+    assert_eq!(file_count.load(Ordering::Relaxed), 0);
     assert_eq!(buffer.lock().records().len(), 0);
 }

@@ -9,7 +9,8 @@ clap = { version = "4", features = ["derive"] }
 rayon = "1.10"
 parquet = { version = "53", features = ["arrow"] }
 arrow = { version = "53", features = ["chrono-tz"] }
-walkdir = "2"
+jwalk = "0.8"
+dashmap = "6"
 anyhow = "1"
 parking_lot = "0.12"
 indicatif = "0.17"
