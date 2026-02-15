@@ -28,7 +28,16 @@ use xdu::{format_bytes, format_count, get_schema, parse_size, FileRecord, SizeMo
 const ROOT_PARTITION: &str = "__root__";
 
 #[derive(Parser, Debug)]
-#[command(name = "xdu", about = "Build a distributed file metadata index in Parquet format")]
+#[command(
+    name = "xdu",
+    about = "Build a distributed file metadata index in Parquet format",
+    after_help = "\
+Examples:
+  xdu /data/scratch -o /index/scratch -j 8
+  xdu /data/scratch -o /index/scratch --partition alice,bob
+  xdu /data/scratch -o /index/scratch --apparent-size
+  xdu /data/scratch -o /index/scratch --block-size 128K"
+)]
 struct Args {
     /// Top-level directory to index
     #[arg(value_name = "DIR")]
@@ -39,7 +48,7 @@ struct Args {
     outdir: PathBuf,
 
     /// Number of parallel threads
-    #[arg(short, long, default_value = "4")]
+    #[arg(short, long, default_value = "4", env = "XDU_JOBS")]
     jobs: usize,
 
     /// Number of records per output chunk

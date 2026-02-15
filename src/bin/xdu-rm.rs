@@ -13,10 +13,17 @@ use rayon::prelude::*;
 use xdu::{parse_size, QueryFilters};
 
 #[derive(Parser, Debug)]
-#[command(name = "xdu-rm", about = "Delete files matching index query criteria")]
+#[command(
+    name = "xdu-rm",
+    about = "Delete files matching index query criteria",
+    after_help = "Examples:
+  xdu-rm -i /index/scratch -u alice --older-than 180 -n
+  xdu-rm -i /index/scratch -p '\\.tmp$' --force
+  xdu-rm -i /index/scratch --min-size 1G --safe"
+)]
 struct Args {
     /// Path to the Parquet index directory
-    #[arg(short, long, value_name = "DIR")]
+    #[arg(short, long, value_name = "DIR", env = "XDU_INDEX")]
     index: PathBuf,
 
     /// Regular expression pattern to match paths
@@ -64,7 +71,7 @@ struct Args {
     verbose: bool,
 
     /// Number of parallel threads for deletion
-    #[arg(short, long, default_value = "4")]
+    #[arg(short, long, default_value = "4", env = "XDU_JOBS")]
     jobs: usize,
 }
 
