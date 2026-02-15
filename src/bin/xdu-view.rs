@@ -36,10 +36,18 @@ fn format_file_count(count: i64) -> String {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "xdu-view", about = "Interactive TUI for exploring a file metadata index")]
+#[command(
+    name = "xdu-view",
+    about = "Interactive TUI for exploring a file metadata index",
+    after_help = "\
+Examples:
+  xdu-view -i /index/scratch
+  xdu-view -i /index/scratch -u alice
+  xdu-view -i /index/scratch --older-than 90 --sort size"
+)]
 struct Args {
     /// Path to the Parquet index directory
-    #[arg(short, long, value_name = "DIR")]
+    #[arg(short, long, value_name = "DIR", env = "XDU_INDEX")]
     index: PathBuf,
 
     /// Initial partition to view (optional, shows partition list if omitted)

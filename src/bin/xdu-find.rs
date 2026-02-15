@@ -8,10 +8,18 @@ use duckdb::Connection;
 use xdu::QueryFilters;
 
 #[derive(Parser, Debug)]
-#[command(name = "xdu-find", about = "Query a file metadata index for matching paths")]
+#[command(
+    name = "xdu-find",
+    about = "Query a file metadata index for matching paths",
+    after_help = "Examples:
+  xdu-find -i /index/scratch -p '\\.py$' --min-size 1M
+  xdu-find -i /index/scratch --older-than 90 -f size
+  xdu-find -i /index/scratch -u alice --count
+  xdu-find -i /index/scratch --top 10"
+)]
 struct Args {
     /// Path to the Parquet index directory
-    #[arg(short, long, value_name = "DIR")]
+    #[arg(short, long, value_name = "DIR", env = "XDU_INDEX")]
     index: PathBuf,
 
     /// Regular expression pattern to match paths
