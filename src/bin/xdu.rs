@@ -22,7 +22,7 @@ use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
 use rayon::ThreadPoolBuilder;
 
-use xdu::{format_bytes, format_count, get_schema, parse_size, FileRecord, SizeMode};
+use xdu::{format_bytes, format_count, format_speed, get_schema, parse_size, FileRecord, SizeMode};
 
 /// Special partition name for files directly in the top-level directory.
 const ROOT_PARTITION: &str = "__root__";
@@ -311,16 +311,25 @@ fn crawl(
     let global_bytes = Arc::new(AtomicU64::new(0));
     let global_pruned = Arc::new(AtomicUsize::new(0));
 
+    // Global speed tracking (shared across drivers, protected by single Mutex)
+    let global_speed_state = Arc::new(Mutex::new((
+        Instant::now(),  // last sample time
+        0_u64,           // last sample file count
+        0.0_f64,         // current speed
+        0.0_f64,         // peak speed
+    )));
+
     let num_drivers = jobs.min(num_items).max(1);
 
     std::thread::scope(|s| -> Result<()> {
         let handles: Vec<_> = (0..num_drivers)
-            .map(|_| {
+            .map(|driver_id| {
                 let pool = pool.clone();
                 let queue = queue.clone();
                 let global_files = global_files.clone();
                 let global_bytes = global_bytes.clone();
                 let global_pruned = global_pruned.clone();
+                let global_speed_state = global_speed_state.clone();
                 let schema = schema.clone();
                 let mp_ref = &mp;
                 let global_bar_ref = &global_bar;
@@ -365,6 +374,12 @@ fn crawl(
                         let mut last_bar_update = Instant::now();
                         let bar_interval = Duration::from_millis(100);
 
+                        // Per-partition speed tracking (1s rolling window)
+                        let mut speed_sample_count: u64 = 0;
+                        let mut speed_sample_time = Instant::now();
+                        let mut current_speed: f64 = 0.0;
+                        let mut peak_speed: f64 = 0.0;
+
                         for entry in walker {
                             let entry = match entry {
                                 Ok(e) => e,
@@ -400,16 +415,66 @@ fn crawl(
                             // Update progress bars periodically
                             let now = Instant::now();
                             if now.duration_since(last_bar_update) >= bar_interval {
+                                // Per-partition speed: 1-second rolling window
+                                let speed_elapsed = now.duration_since(speed_sample_time).as_secs_f64();
+                                if speed_elapsed >= 1.0 {
+                                    let delta = buffer.file_count - speed_sample_count;
+                                    current_speed = delta as f64 / speed_elapsed;
+                                    if current_speed > peak_speed {
+                                        peak_speed = current_speed;
+                                    }
+                                    speed_sample_count = buffer.file_count;
+                                    speed_sample_time = now;
+                                }
+
+                                // Global speed: 1-second rolling window
+                                let total_files = global_files.load(Ordering::Relaxed);
+                                let global_speed_str = {
+                                    let mut gs = global_speed_state.lock().unwrap();
+                                    let g_elapsed = now.duration_since(gs.0).as_secs_f64();
+                                    if g_elapsed >= 1.0 {
+                                        let g_delta = total_files.saturating_sub(gs.1);
+                                        gs.2 = g_delta as f64 / g_elapsed;
+                                        if gs.2 > gs.3 {
+                                            gs.3 = gs.2;
+                                        }
+                                        gs.0 = now;
+                                        gs.1 = total_files;
+                                    }
+                                    if gs.2 > 0.0 {
+                                        format!(
+                                            " | {} (peak: {})",
+                                            format_speed(gs.2),
+                                            format_speed(gs.3)
+                                        )
+                                    } else {
+                                        String::new()
+                                    }
+                                };
+
+                                let speed_str = if current_speed > 0.0 {
+                                    format!(
+                                        " | {} (peak: {})",
+                                        format_speed(current_speed),
+                                        format_speed(peak_speed)
+                                    )
+                                } else {
+                                    String::new()
+                                };
+
                                 bar.set_message(format!(
-                                    "{}: {} files, {}",
+                                    "{}: {} files, {}{} [T{}]",
                                     item.partition,
                                     format_count(buffer.file_count),
-                                    format_bytes(buffer.byte_count)
+                                    format_bytes(buffer.byte_count),
+                                    speed_str,
+                                    driver_id,
                                 ));
                                 global_bar_ref.set_message(format!(
-                                    "{} files, {}",
-                                    format_count(global_files.load(Ordering::Relaxed)),
-                                    format_bytes(global_bytes.load(Ordering::Relaxed))
+                                    "{} files, {}{}",
+                                    format_count(total_files),
+                                    format_bytes(global_bytes.load(Ordering::Relaxed)),
+                                    global_speed_str,
                                 ));
                                 last_bar_update = now;
                             }

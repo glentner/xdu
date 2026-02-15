@@ -387,6 +387,17 @@ pub fn format_count(n: u64) -> String {
     }
 }
 
+/// Format crawl speed as human-readable files/s.
+pub fn format_speed(files_per_sec: f64) -> String {
+    if files_per_sec >= 1_000_000.0 {
+        format!("{:.1}M files/s", files_per_sec / 1_000_000.0)
+    } else if files_per_sec >= 1_000.0 {
+        format!("{:.0}k files/s", files_per_sec / 1_000.0)
+    } else {
+        format!("{:.0} files/s", files_per_sec)
+    }
+}
+
 /// Format bytes with binary suffixes (KiB, MiB, GiB, TiB).
 pub fn format_bytes(bytes: u64) -> String {
     const KIB: u64 = 1024;
@@ -436,6 +447,28 @@ mod tests {
     fn test_format_count_billions() {
         assert_eq!(format_count(1_000_000_000), "1.0B");
         assert_eq!(format_count(5_500_000_000), "5.5B");
+    }
+
+    #[test]
+    fn test_format_speed_low() {
+        assert_eq!(format_speed(0.0), "0 files/s");
+        assert_eq!(format_speed(1.0), "1 files/s");
+        assert_eq!(format_speed(500.0), "500 files/s");
+        assert_eq!(format_speed(999.0), "999 files/s");
+    }
+
+    #[test]
+    fn test_format_speed_thousands() {
+        assert_eq!(format_speed(1_000.0), "1k files/s");
+        assert_eq!(format_speed(42_500.0), "42k files/s");
+        assert_eq!(format_speed(127_000.0), "127k files/s");
+        assert_eq!(format_speed(999_999.0), "1000k files/s");
+    }
+
+    #[test]
+    fn test_format_speed_millions() {
+        assert_eq!(format_speed(1_000_000.0), "1.0M files/s");
+        assert_eq!(format_speed(2_500_000.0), "2.5M files/s");
     }
 
     #[test]
