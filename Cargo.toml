@@ -7,8 +7,8 @@ license = "MIT"
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
 rayon = "1.10"
-parquet = { version = "53", features = ["arrow"] }
-arrow = { version = "53", features = ["chrono-tz"] }
+parquet = { version = "56", features = ["arrow"] }
+arrow = { version = "56", features = ["chrono-tz"] }
 jwalk = "0.8"
 anyhow = "1"
 indicatif = "0.17"
