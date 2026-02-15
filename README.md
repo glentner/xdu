@@ -98,13 +98,13 @@ xdu /home -o /var/lib/xdu/home -j 16 -b 100000
 ```
 
 | Option | Description | Default |
-||--------|-------------|---------|
-|| `-o, --outdir` | Output directory for index | Required |
-|| `-j, --jobs` | Parallel threads (`XDU_JOBS` env) | 4 |
-|| `-B, --buffsize` | Records per Parquet chunk | 100000 |
-|| `-p, --partition` | Index only specific partitions (comma-separated) | All |
-|| `--apparent-size` | Report file length instead of disk usage (st_blocks) | |
-|| `-k, --block-size` | Round sizes up to block size (e.g., `128K`). Implies `--apparent-size` | |
+|--------|-------------|---------|
+| `-o, --outdir` | Output directory for index | Required |
+| `-j, --jobs` | Parallel threads (`XDU_JOBS` env) | 4 |
+| `-B, --buffsize` | Records per Parquet chunk | 100000 |
+| `-p, --partition` | Index only specific partitions (comma-separated) | All |
+| `--apparent-size` | Report file length instead of disk usage (st_blocks) | |
+| `-k, --block-size` | Round sizes up to block size (e.g., `128K`). Implies `--apparent-size` | |
 
 ### Querying with xdu-find
 
