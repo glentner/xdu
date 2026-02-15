@@ -392,7 +392,7 @@ pub fn format_speed(files_per_sec: f64) -> String {
     if files_per_sec >= 1_000_000.0 {
         format!("{:.1}M files/s", files_per_sec / 1_000_000.0)
     } else if files_per_sec >= 1_000.0 {
-        format!("{:.0}k files/s", files_per_sec / 1_000.0)
+        format!("{:.1}k files/s", files_per_sec / 1_000.0)
     } else {
         format!("{:.0} files/s", files_per_sec)
     }
@@ -459,10 +459,10 @@ mod tests {
 
     #[test]
     fn test_format_speed_thousands() {
-        assert_eq!(format_speed(1_000.0), "1k files/s");
-        assert_eq!(format_speed(42_500.0), "42k files/s");
-        assert_eq!(format_speed(127_000.0), "127k files/s");
-        assert_eq!(format_speed(999_999.0), "1000k files/s");
+        assert_eq!(format_speed(1_000.0), "1.0k files/s");
+        assert_eq!(format_speed(42_500.0), "42.5k files/s");
+        assert_eq!(format_speed(127_000.0), "127.0k files/s");
+        assert_eq!(format_speed(999_999.0), "1000.0k files/s");
     }
 
     #[test]
