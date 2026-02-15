@@ -21,12 +21,12 @@ Stabilize the jwalk-based crawler, fix the broken progress display, polish the C
 
 Detailed implementation plan: <plan:25d5d2a7-20e9-4bc0-83d1-2d9de17a5a43>
 
-- [ ] Create `ROADMAP.md` with YAML frontmatter and bootstrap prompt
-- [ ] Refactor crawler to shared-pool concurrent partition walks (`RayonExistingPool`)
-- [ ] Real-time per-partition progress with `indicatif` MultiProgress (per-partition bars, "Finished" lines, global summary)
+- [x] Create `ROADMAP.md` with YAML frontmatter and bootstrap prompt
+- [x] Refactor crawler to shared-pool concurrent partition walks (`RayonExistingPool`)
+- [x] Real-time per-partition progress with `indicatif` MultiProgress (per-partition bars, "Finished" lines, global summary)
 - [ ] CLI polish: `help_template`, `after_help` examples, environment variable fallbacks (`XDU_INDEX`, `XDU_JOBS`)
-- [ ] Code cleanup: consolidate `parse_size`, extract `PartitionBuffer` to `lib.rs`
-- [ ] Remove `--serial` flag, `DashMap`, `parking_lot` from crawler
+- [x] Code cleanup: consolidate `parse_size`, extract `PartitionBuffer` to `lib.rs`
+- [x] Remove `--serial` flag, `DashMap`, `parking_lot` from crawler
 - [ ] Pre-release verification: clippy, tests, macOS + HPC manual testing
 
 ## Phase 2: Tree View

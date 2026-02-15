@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use jwalk::{Parallelism, WalkDir};
-use parking_lot::Mutex;
+use std::sync::Mutex;
 use tempfile::TempDir;
 
 use xdu::{FileRecord, SizeMode};
@@ -96,7 +96,7 @@ fn crawl_directory_for_test(
             size: file_size as i64,
             atime: 0, // Not testing atime
         };
-        buffer.lock().add(record);
+        buffer.lock().unwrap().add(record);
 
         file_count.fetch_add(1, Ordering::Relaxed);
         byte_count.fetch_add(file_size, Ordering::Relaxed);
@@ -134,7 +134,7 @@ fn test_crawl_directory_accumulates_counts_and_sizes() {
     assert_eq!(byte_count.load(Ordering::Relaxed), 600);
 
     // Verify buffer has all records
-    let buf = buffer.lock();
+    let buf = buffer.lock().unwrap();
     assert_eq!(buf.records().len(), 3);
     assert_eq!(buf.total_size(), 600);
 }
@@ -188,7 +188,7 @@ fn test_crawl_directory_adds_records_to_buffer() {
         &byte_count,
     );
 
-    let buf = buffer.lock();
+    let buf = buffer.lock().unwrap();
     assert_eq!(buf.records().len(), 1);
     let record = &buf.records()[0];
     assert!(record.path.ends_with("test.txt"));
@@ -256,7 +256,7 @@ fn test_crawl_with_partition_structure() {
     assert_eq!(byte_count.load(Ordering::Relaxed), 600);
 
     // Verify partition extraction works for collected records
-    let buf = buffer.lock();
+    let buf = buffer.lock().unwrap();
     for record in buf.records() {
         let path = Path::new(&record.path);
         let partition = extract_partition(path, base);
@@ -303,7 +303,7 @@ fn test_full_crawl_processes_multiple_partitions() {
     assert_eq!(byte_count.load(Ordering::Relaxed), 950);
 
     // Verify partition detection works
-    let buf = buffer.lock();
+    let buf = buffer.lock().unwrap();
     let mut partitions: Vec<String> = buf.records().iter()
         .filter_map(|r| extract_partition(Path::new(&r.path), base))
         .collect();
@@ -369,7 +369,7 @@ fn test_crawl_with_block_rounded_size_mode() {
     // 100 bytes should round up to 4096
     assert_eq!(byte_count.load(Ordering::Relaxed), 4096);
 
-    let buf = buffer.lock();
+    let buf = buffer.lock().unwrap();
     assert_eq!(buf.records()[0].size, 4096);
 }
 
@@ -392,5 +392,5 @@ fn test_crawl_empty_directory() {
     );
 
     assert_eq!(file_count.load(Ordering::Relaxed), 0);
-    assert_eq!(buffer.lock().records().len(), 0);
+    assert_eq!(buffer.lock().unwrap().records().len(), 0);
 }
