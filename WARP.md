@@ -14,12 +14,13 @@ Designed for HPC and enterprise storage environments where traditional tools lik
 
 ## Architecture
 
-- **CLI**: `clap` for argument parsing
-- **Parallelism**: `jwalk` for adaptive parallel directory traversal with parallel metadata loading
-- **Concurrency**: `dashmap` for lock-free partition buffer management
-- **Output**: `arrow` + `parquet` crates write Snappy-compressed Parquet files
+- **CLI**: `clap` for argument parsing with env var fallbacks (`XDU_JOBS`, `XDU_INDEX`)
+- **Parallelism**: `jwalk` for adaptive parallel directory traversal with parallel metadata loading, backed by a shared `rayon` thread pool (`RayonExistingPool`)
+- **Concurrency**: C driver threads (`std::thread`) each pull partitions from a work queue; N rayon pool threads handle directory reads across all active walkers via work-stealing
+- **Output**: `arrow` + `parquet` crates write Snappy-compressed Parquet files with atomic `.partial` → `.parquet` finalization
 - **Query**: `duckdb` crate for efficient Parquet queries with partition pruning
 - **TUI**: `ratatui` + `crossterm` for interactive terminal interface
+- **Progress**: `indicatif` MultiProgress with per-partition bars showing file count, bytes, crawl speed (1s rolling window), peak speed, and driver thread ID
 
 ## Key Files
 
@@ -46,7 +47,9 @@ cargo build --release
 
 ## Design Decisions
 
-- **Partition by top-level subdirectory**: Enables per-user queries without full scans
+- **Shared-pool concurrent walks**: A single rayon thread pool is shared across all jwalk walkers. Driver threads consume walker iterators and write buffers; rayon work-stealing balances directory reads across all active partitions. Thread budget: N pool + C drivers + 1 main.
+- **Partition by top-level subdirectory**: Enables per-user queries without full scans. `--partition` allows incremental re-indexing of specific partitions.
+- **Atomic writes**: Chunks are written as `.partial` files, then renamed to `.parquet` on finalization. Stale chunks from previous runs are pruned.
 - **Buffered writes**: Accumulate records in memory to reduce I/O overhead
 - **Unix-only**: Uses `MetadataExt` for atime; not portable to Windows
 - **Snappy compression**: Fast encode/decode, reasonable compression ratio
