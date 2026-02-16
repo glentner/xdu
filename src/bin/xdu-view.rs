@@ -40,7 +40,12 @@ fn detect_file_type(sniff_buf: &[u8], file_path: &str) -> (String, bool) {
                 return (desc, false);
             }
         }
-        return (format!("{} ({})", mime, kind.extension()), false);
+        // For text/* MIME types (e.g. text/x-shellscript), fall through to
+        // our shebang and text sub-type layers for richer descriptions and
+        // correct is_text=true handling.
+        if !mime.starts_with("text/") {
+            return (format!("{} ({})", mime, kind.extension()), false);
+        }
     }
 
     // ELF that infer missed (it should catch it, but just in case)
