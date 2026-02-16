@@ -987,25 +987,124 @@ impl App {
         Ok(())
     }
 
-    /// Toggle between list and tree view modes.
+    /// Toggle between list and tree view modes, preserving navigation position.
     fn toggle_view_mode(&mut self) -> Result<()> {
         match self.view_mode {
             ViewMode::List => {
                 self.view_mode = ViewMode::Tree;
-                self.init_tree()?;
+                self.init_tree_from_list_position()?;
             }
             ViewMode::Tree => {
                 self.view_mode = ViewMode::List;
-                // Reset list mode to partition view
-                self.current_partition = None;
-                self.partition_root.clear();
-                self.current_path.clear();
-                self.load_partitions()?;
-                if !self.entries.is_empty() {
-                    self.list_state.select(Some(0));
+                self.restore_list_from_tree_position()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Initialize tree mode, expanding to match the current list-mode position.
+    fn init_tree_from_list_position(&mut self) -> Result<()> {
+        self.columns.clear();
+        self.active_column = 0;
+
+        let partition_col = self.make_partition_column()?;
+        self.columns.push(partition_col);
+
+        let Some(ref partition) = self.current_partition else {
+            // At partition list — just show the preview for first partition
+            self.tree_update_preview()?;
+            return Ok(());
+        };
+        let partition = partition.clone();
+
+        // Select the matching partition in column 0
+        if let Some(idx) = self.columns[0].entries.iter().position(|e| e.name == partition) {
+            self.columns[0].list_state.select(Some(idx));
+        }
+
+        // Expand into partition root
+        self.tree_update_preview()?;
+        self.active_column = 1;
+
+        // Walk path components from partition_root to current_path
+        if !self.current_path.is_empty() && self.current_path.len() > self.partition_root.len() {
+            let relative = self.current_path[self.partition_root.len()..].to_string();
+            let components: Vec<&str> = relative.split('/').filter(|c| !c.is_empty()).collect();
+
+            for component in &components {
+                // Select the matching entry in the current active column
+                let col = &self.columns[self.active_column];
+                if let Some(idx) = col.entries.iter().position(|e| e.name == *component) {
+                    self.columns[self.active_column].list_state.select(Some(idx));
+                    self.tree_update_preview()?;
+                    // Move into the newly expanded column
+                    if self.active_column + 1 < self.columns.len() {
+                        self.active_column += 1;
+                    }
+                } else {
+                    break;
                 }
             }
         }
+
+        // Active column is the deepest directory we reached; update its preview
+        self.tree_update_preview()?;
+        Ok(())
+    }
+
+    /// Restore list-mode state from the current tree-mode position.
+    fn restore_list_from_tree_position(&mut self) -> Result<()> {
+        if self.columns.is_empty() {
+            // No tree state — fall back to partition list
+            self.current_partition = None;
+            self.partition_root.clear();
+            self.current_path.clear();
+            self.load_partitions()?;
+            if !self.entries.is_empty() {
+                self.list_state.select(Some(0));
+            }
+            return Ok(());
+        }
+
+        let col = &self.columns[self.active_column];
+        let selected_name = col.list_state.selected()
+            .and_then(|idx| col.entries.get(idx))
+            .map(|e| e.name.clone());
+
+        if col.partition.is_none() {
+            // Active column is the partition list
+            self.current_partition = None;
+            self.partition_root.clear();
+            self.current_path.clear();
+            self.load_partitions()?;
+            // Try to select the same partition
+            if let Some(name) = selected_name {
+                if let Some(idx) = self.entries.iter().position(|e| e.name == name) {
+                    self.list_state.select(Some(idx));
+                    return Ok(());
+                }
+            }
+            if !self.entries.is_empty() {
+                self.list_state.select(Some(0));
+            }
+        } else {
+            // Active column is inside a partition
+            self.current_partition = col.partition.clone();
+            self.partition_root = col.partition_root.clone();
+            self.current_path = col.path.clone();
+            self.load_directory()?;
+            // Try to select the same entry
+            if let Some(name) = selected_name {
+                if let Some(idx) = self.entries.iter().position(|e| e.name == name) {
+                    self.list_state.select(Some(idx));
+                    return Ok(());
+                }
+            }
+            if !self.entries.is_empty() {
+                self.list_state.select(Some(0));
+            }
+        }
+
         Ok(())
     }
 
@@ -1388,16 +1487,24 @@ fn render_tree_content(f: &mut Frame, app: &App, area: Rect) {
         let highlight_width = 2; // "▶ "
         let content_width = col_inner_width.saturating_sub(highlight_width);
 
-        // Format entries: name left, size right
-        let items: Vec<ListItem> = col.entries.iter().map(|entry| {
-            let prefix = if entry.is_dir { "▸" } else { " " };
+        // Pre-compute formatted strings for all entries in this column
+        let formatted: Vec<(String, String, String, String)> = col.entries.iter().map(|entry| {
+            let prefix = if entry.is_dir { "▸ " } else { "  " };
+            let name = format!("{}{}", prefix, entry.name);
             let size_str = format_bytes(entry.total_size as u64);
-            let size_display_len = size_str.len();
+            let count_str = format_file_count(entry.file_count);
+            let atime_str = app.format_atime(entry.latest_atime);
+            (name, size_str, count_str, atime_str)
+        }).collect();
 
-            // Space for: prefix(1) + space(1) + name + space(1) + size
-            let name_max = content_width.saturating_sub(size_display_len + 3);
+        // Dynamic column widths based on content
+        let size_w = formatted.iter().map(|(_, s, _, _)| s.len()).max().unwrap_or(0).max(6);
+        let count_w = formatted.iter().map(|(_, _, c, _)| c.len()).max().unwrap_or(0).max(6);
+        let atime_w = formatted.iter().map(|(_, _, _, a)| a.len()).max().unwrap_or(0).max(6);
+        let stat_cols = size_w + count_w + atime_w + 6; // 3 x 2-char spacing
+        let name_max = content_width.saturating_sub(stat_cols);
 
-            let name = &entry.name;
+        let items: Vec<ListItem> = formatted.iter().map(|(name, size_str, count_str, atime_str)| {
             let name_display = if name.len() > name_max && name_max > 1 {
                 format!("{}…", &name[..name_max.saturating_sub(1)])
             } else if name_max == 0 {
@@ -1406,8 +1513,17 @@ fn render_tree_content(f: &mut Frame, app: &App, area: Rect) {
                 name.clone()
             };
 
-            let padding = content_width.saturating_sub(2 + name_display.len() + size_display_len);
-            let line = format!("{} {}{:>pad$}{}", prefix, name_display, "", size_str, pad = padding);
+            let line = format!(
+                "{:<name_w$}  {:>size_w$}  {:>count_w$}  {:>atime_w$}",
+                name_display,
+                size_str,
+                count_str,
+                atime_str,
+                name_w = name_max,
+                size_w = size_w,
+                count_w = count_w,
+                atime_w = atime_w
+            );
 
             ListItem::new(line)
         }).collect();
