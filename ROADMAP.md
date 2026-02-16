@@ -1,7 +1,7 @@
 ---
 status: in-progress
 current_phase: 2
-last_updated: 2026-02-15
+last_updated: 2026-02-16
 ---
 
 # XDU Roadmap
@@ -34,8 +34,8 @@ Detailed implementation plan: <plan:25d5d2a7-20e9-4bc0-83d1-2d9de17a5a43>
 Add a Miller columns ("tree") view to `xdu-view` inspired by macOS Finder's column view,
 with file type detection and preview capabilities.
 
-- [ ] Miller columns layout: horizontal cascade showing directory hierarchy left-to-right
-- [ ] Adaptive column count based on terminal width (gracefully show last 3–5 columns as depth increases)
+- [x] Miller columns layout: horizontal cascade showing directory hierarchy left-to-right
+- [x] Adaptive column count based on terminal width (gracefully show last 3–5 columns as depth increases)
 - [ ] File type detection (equivalent to Unix `file` command) via Rust ecosystem
 - [ ] Plain-text file preview with built-in pager and scroll keybindings
 - [ ] "List" mode: `<space>` opens overlay modal with file type info and text preview
