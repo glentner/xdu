@@ -14,6 +14,7 @@ anyhow = "1"
 indicatif = "0.17"
 console = "0.15"
 duckdb = { version = "1", features = ["bundled"] }
+infer = "0.19"
 ratatui = "0.29"
 crossterm = "0.28"
 

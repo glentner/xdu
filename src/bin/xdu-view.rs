@@ -1,7 +1,8 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::collapsible_else_if)]
 
-use std::io::stdout;
+use std::fs::File;
+use std::io::{stdout, Read};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -133,6 +134,24 @@ enum ViewMode {
     Tree,
 }
 
+/// Cached file preview for the rightmost pane in tree view.
+struct FilePreview {
+    /// Full file path on disk
+    path: String,
+    /// File size from the index
+    size: i64,
+    /// Access time from the index
+    atime: i64,
+    /// Human-readable type description (e.g. "PNG image", "text/plain; UTF-8")
+    type_description: String,
+    /// Whether the file is detected as plain text
+    is_text: bool,
+    /// Content lines for text files (empty for binary)
+    lines: Vec<String>,
+    /// Current scroll offset in the pager
+    scroll_offset: usize,
+}
+
 /// A single column in the Miller columns (tree) view.
 struct Column {
     /// Display title for the column header
@@ -198,6 +217,12 @@ struct App {
 
     /// Active column index in tree view
     active_column: usize,
+
+    /// File preview for the rightmost pane in tree view
+    file_preview: Option<FilePreview>,
+
+    /// Whether the preview pane pager is focused (less-like scroll mode)
+    preview_focused: bool,
 }
 
 impl App {
@@ -226,6 +251,8 @@ impl App {
             view_mode: ViewMode::List,
             columns: Vec::new(),
             active_column: 0,
+            file_preview: None,
+            preview_focused: false,
         };
         
         if let Some(partition) = initial_partition {
@@ -890,48 +917,138 @@ impl App {
     }
 
     /// Update the preview column (active_column + 1) based on the active column's selection.
-    /// Truncates any columns beyond the preview.
+    /// Truncates any columns beyond the preview. For files, populates `file_preview`.
     fn tree_update_preview(&mut self) -> Result<()> {
         // Remove everything after the active column
         self.columns.truncate(self.active_column + 1);
+        self.file_preview = None;
+        self.preview_focused = false;
 
         // Extract info from active column's selection (avoid borrow conflict)
-        let preview_info = {
+        enum PreviewAction {
+            Directory {
+                is_partition_list: bool,
+                name: String,
+                partition: Option<String>,
+                partition_root: String,
+                path: String,
+            },
+            File {
+                path: String,
+                size: i64,
+                atime: i64,
+            },
+            None,
+        }
+
+        let action = {
             let col = &self.columns[self.active_column];
             if let Some(idx) = col.list_state.selected() {
                 if idx < col.entries.len() {
                     let entry = &col.entries[idx];
                     if entry.is_dir {
-                        Some((
-                            col.partition.is_none(),
-                            entry.name.clone(),
-                            col.partition.clone(),
-                            col.partition_root.clone(),
-                            col.path.clone(),
-                        ))
+                        PreviewAction::Directory {
+                            is_partition_list: col.partition.is_none(),
+                            name: entry.name.clone(),
+                            partition: col.partition.clone(),
+                            partition_root: col.partition_root.clone(),
+                            path: col.path.clone(),
+                        }
                     } else {
-                        None
+                        PreviewAction::File {
+                            path: entry.path.clone(),
+                            size: entry.total_size,
+                            atime: entry.latest_atime,
+                        }
                     }
                 } else {
-                    None
+                    PreviewAction::None
                 }
             } else {
-                None
+                PreviewAction::None
             }
         };
 
-        if let Some((is_partition_list, name, partition, partition_root, path)) = preview_info {
-            let new_col = if is_partition_list {
-                self.make_partition_root_column(&name)?
-            } else {
-                let part = partition.as_ref().unwrap();
-                let new_path = format!("{}/{}", path, name);
-                self.make_directory_column_tree(part, &partition_root, &new_path)?
-            };
-            self.columns.push(new_col);
+        match action {
+            PreviewAction::Directory { is_partition_list, name, partition, partition_root, path } => {
+                let new_col = if is_partition_list {
+                    self.make_partition_root_column(&name)?
+                } else {
+                    let part = partition.as_ref().unwrap();
+                    let new_path = format!("{}/{}", path, name);
+                    self.make_directory_column_tree(part, &partition_root, &new_path)?
+                };
+                self.columns.push(new_col);
+            }
+            PreviewAction::File { path, size, atime } => {
+                self.file_preview = Some(Self::load_file_preview(&path, size, atime));
+            }
+            PreviewAction::None => {}
         }
 
         Ok(())
+    }
+
+    /// Load file type info and (optionally) text content for the preview pane.
+    fn load_file_preview(path: &str, size: i64, atime: i64) -> FilePreview {
+        const SNIFF_SIZE: usize = 8192;
+        const MAX_TEXT_BYTES: usize = 65536;
+
+        // Read the first SNIFF_SIZE bytes for type detection
+        let sniff_buf = File::open(path)
+            .and_then(|mut f| {
+                let mut buf = vec![0u8; SNIFF_SIZE];
+                let n = f.read(&mut buf)?;
+                buf.truncate(n);
+                Ok(buf)
+            })
+            .unwrap_or_default();
+
+        if sniff_buf.is_empty() {
+            return FilePreview {
+                path: path.to_string(),
+                size,
+                atime,
+                type_description: "(unreadable)".to_string(),
+                is_text: false,
+                lines: Vec::new(),
+                scroll_offset: 0,
+            };
+        }
+
+        // Try magic-byte detection via infer
+        let (type_description, is_text) = if let Some(kind) = infer::get(&sniff_buf) {
+            (format!("{} ({})", kind.mime_type(), kind.extension()), false)
+        } else if std::str::from_utf8(&sniff_buf).is_ok() {
+            // Valid UTF-8 — treat as plain text
+            ("text/plain; UTF-8".to_string(), true)
+        } else {
+            ("application/octet-stream (binary data)".to_string(), false)
+        };
+
+        // Load text content if applicable
+        let lines = if is_text {
+            File::open(path)
+                .and_then(|mut f| {
+                    let mut buf = String::new();
+                    f.by_ref().take(MAX_TEXT_BYTES as u64).read_to_string(&mut buf)?;
+                    Ok(buf)
+                })
+                .map(|content| content.lines().map(String::from).collect())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        FilePreview {
+            path: path.to_string(),
+            size,
+            atime,
+            type_description,
+            is_text,
+            lines,
+            scroll_offset: 0,
+        }
     }
 
     /// Move selection down in the active tree column and update preview.
@@ -1238,6 +1355,52 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     continue;
                 }
                 
+                // Handle preview pager focus mode (tree view file preview)
+                if app.preview_focused {
+                    match key.code {
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            if let Some(ref mut preview) = app.file_preview {
+                                if preview.scroll_offset + 1 < preview.lines.len() {
+                                    preview.scroll_offset += 1;
+                                }
+                            }
+                        }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            if let Some(ref mut preview) = app.file_preview {
+                                preview.scroll_offset = preview.scroll_offset.saturating_sub(1);
+                            }
+                        }
+                        KeyCode::Char('g') => {
+                            if let Some(ref mut preview) = app.file_preview {
+                                preview.scroll_offset = 0;
+                            }
+                        }
+                        KeyCode::Char('G') => {
+                            if let Some(ref mut preview) = app.file_preview {
+                                preview.scroll_offset = preview.lines.len().saturating_sub(1);
+                            }
+                        }
+                        KeyCode::Char('d') => {
+                            // Half-page down
+                            if let Some(ref mut preview) = app.file_preview {
+                                preview.scroll_offset = (preview.scroll_offset + 20)
+                                    .min(preview.lines.len().saturating_sub(1));
+                            }
+                        }
+                        KeyCode::Char('u') => {
+                            // Half-page up
+                            if let Some(ref mut preview) = app.file_preview {
+                                preview.scroll_offset = preview.scroll_offset.saturating_sub(20);
+                            }
+                        }
+                        KeyCode::Esc | KeyCode::Left | KeyCode::Char('q') | KeyCode::Char(' ') => {
+                            app.preview_focused = false;
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 // Normal mode — shared keys first, then mode-specific navigation
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
@@ -1290,7 +1453,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                                 }
                             }
                             KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ') => {
-                                if let Err(e) = app.tree_right() {
+                                // If a file is selected, activate pager mode
+                                if app.file_preview.is_some() {
+                                    app.preview_focused = true;
+                                } else if let Err(e) = app.tree_right() {
                                     app.status = format!("Error: {}", e);
                                 }
                             }
@@ -1442,23 +1608,31 @@ fn render_tree_content(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    // Calculate how many columns fit in the available width
+    // Determine whether the rightmost slot is a file preview or a directory column.
+    // The preview pane occupies one slot regardless.
+    let has_preview_pane = app.file_preview.is_some()
+        || app.columns.len() > app.active_column + 1; // dir preview column exists
+    let need_extra_slot = app.file_preview.is_some(); // file preview needs its own slot
+
+    // Total pane count: directory columns + (1 extra if file preview occupies a separate slot)
+    let total_panes = app.columns.len() + if need_extra_slot { 1 } else { 0 };
+
     let available_width = area.width;
-    let num_visible = app.columns.len()
+    let num_visible = total_panes
         .min(MAX_VISIBLE_COLUMNS)
         .min((available_width / MIN_COLUMN_WIDTH) as usize)
         .max(1);
 
-    // Ensure the active column is always visible — show columns ending at or after active
-    let start_idx = if app.active_column + 2 > num_visible {
-        // Show active column and (ideally) its preview
-        (app.active_column + 2).saturating_sub(num_visible).min(app.columns.len().saturating_sub(num_visible))
+    // Ensure the active column + its preview are visible
+    let slots_after_active = if has_preview_pane { 2 } else { 1 };
+    let start_idx = if app.active_column + slots_after_active > num_visible {
+        (app.active_column + slots_after_active).saturating_sub(num_visible)
+            .min(total_panes.saturating_sub(num_visible))
     } else {
         0
     };
-    let end_idx = (start_idx + num_visible).min(app.columns.len());
-    let visible_columns = &app.columns[start_idx..end_idx];
-    let actual_visible = visible_columns.len();
+    let end_idx = (start_idx + num_visible).min(total_panes);
+    let actual_visible = end_idx - start_idx;
 
     // Create horizontal layout with equal widths
     let constraints: Vec<Constraint> = (0..actual_visible)
@@ -1470,24 +1644,37 @@ fn render_tree_content(f: &mut Frame, app: &App, area: Rect) {
         .constraints(constraints)
         .split(area);
 
-    for (i, col) in visible_columns.iter().enumerate() {
-        let global_idx = start_idx + i;
+    for slot in 0..actual_visible {
+        let global_idx = start_idx + slot;
+
+        // Is this slot the file-preview pane?
+        let is_file_preview_slot = need_extra_slot && global_idx == app.columns.len();
+
+        if is_file_preview_slot {
+            render_file_preview_pane(f, app, col_chunks[slot]);
+            continue;
+        }
+
+        // Otherwise render a directory column
+        if global_idx >= app.columns.len() {
+            continue;
+        }
+        let col = &app.columns[global_idx];
         let is_active = global_idx == app.active_column;
-        let is_preview = global_idx == app.active_column + 1;
+        let is_dir_preview = global_idx == app.active_column + 1;
 
         let border_style = if is_active {
             Style::default().fg(Color::Blue)
-        } else if is_preview {
+        } else if is_dir_preview {
             Style::default().fg(Color::Cyan)
         } else {
             Style::default().fg(Color::DarkGray)
         };
 
-        let col_inner_width = col_chunks[i].width.saturating_sub(2) as usize; // borders
-        let highlight_width = 2; // "▶ "
+        let col_inner_width = col_chunks[slot].width.saturating_sub(2) as usize;
+        let highlight_width = 2;
         let content_width = col_inner_width.saturating_sub(highlight_width);
 
-        // Pre-compute formatted strings for all entries in this column
         let formatted: Vec<(String, String, String, String)> = col.entries.iter().map(|entry| {
             let prefix = if entry.is_dir { "▸ " } else { "  " };
             let name = format!("{}{}", prefix, entry.name);
@@ -1497,11 +1684,10 @@ fn render_tree_content(f: &mut Frame, app: &App, area: Rect) {
             (name, size_str, count_str, atime_str)
         }).collect();
 
-        // Dynamic column widths based on content
         let size_w = formatted.iter().map(|(_, s, _, _)| s.len()).max().unwrap_or(0).max(6);
         let count_w = formatted.iter().map(|(_, _, c, _)| c.len()).max().unwrap_or(0).max(6);
         let atime_w = formatted.iter().map(|(_, _, _, a)| a.len()).max().unwrap_or(0).max(6);
-        let stat_cols = size_w + count_w + atime_w + 6; // 3 x 2-char spacing
+        let stat_cols = size_w + count_w + atime_w + 6;
         let name_max = content_width.saturating_sub(stat_cols);
 
         let items: Vec<ListItem> = formatted.iter().map(|(name, size_str, count_str, atime_str)| {
@@ -1544,8 +1730,88 @@ fn render_tree_content(f: &mut Frame, app: &App, area: Rect) {
             .highlight_symbol("▶ ")
             .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
 
-        f.render_stateful_widget(list, col_chunks[i], &mut col.list_state.clone());
+        f.render_stateful_widget(list, col_chunks[slot], &mut col.list_state.clone());
     }
+}
+
+/// Render the file preview pane (rightmost slot when a file is selected).
+fn render_file_preview_pane(f: &mut Frame, app: &App, area: Rect) {
+    let Some(ref preview) = app.file_preview else {
+        // Empty placeholder pane
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .title(Span::styled(" Preview ", Style::default().fg(Color::DarkGray)));
+        f.render_widget(block, area);
+        return;
+    };
+
+    let border_style = if app.preview_focused {
+        Style::default().fg(Color::Blue)
+    } else {
+        Style::default().fg(Color::Cyan)
+    };
+    let title_style = if app.preview_focused {
+        Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Cyan)
+    };
+
+    let file_name = preview.path.rsplit('/').next().unwrap_or(&preview.path);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(border_style)
+        .title(Span::styled(format!(" {} ", file_name), title_style));
+
+    let inner_height = area.height.saturating_sub(2) as usize; // borders top+bottom
+
+    // Build content lines: header info + optional text content
+    let mut text_lines: Vec<Line> = Vec::new();
+
+    // File metadata header
+    text_lines.push(Line::from(Span::styled(
+        format!("  Type: {}", preview.type_description),
+        Style::default().fg(Color::Yellow),
+    )));
+    text_lines.push(Line::from(Span::styled(
+        format!("  Size: {}", format_bytes(preview.size as u64)),
+        Style::default().fg(Color::Green),
+    )));
+    text_lines.push(Line::from(Span::styled(
+        format!("  Atime: {}", app.format_atime(preview.atime)),
+        Style::default().fg(Color::Cyan),
+    )));
+    text_lines.push(Line::from(""));
+
+    if preview.is_text && !preview.lines.is_empty() {
+        // Show text content starting at scroll_offset
+        let content_height = inner_height.saturating_sub(text_lines.len());
+        let start = preview.scroll_offset;
+        let end = (start + content_height).min(preview.lines.len());
+
+        for line in &preview.lines[start..end] {
+            text_lines.push(Line::from(Span::raw(format!("  {}", line))));
+        }
+
+        // Scroll indicator
+        if preview.lines.len() > content_height {
+            let pct = if preview.lines.len() <= 1 { 100 } else {
+                (start * 100) / (preview.lines.len().saturating_sub(content_height))
+            };
+            text_lines.push(Line::from(Span::styled(
+                format!("  ── {}% ({}/{} lines) ──", pct.min(100), start + 1, preview.lines.len()),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    } else if !preview.is_text {
+        text_lines.push(Line::from(Span::styled(
+            "  (binary file — no preview)",
+            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+        )));
+    }
+
+    let paragraph = Paragraph::new(text_lines).block(block);
+    f.render_widget(paragraph, area);
 }
 
 /// Render the shared status bar.
@@ -1565,6 +1831,18 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         format!(" Sort: {}  (s/→:next  ←:prev  Enter:apply  Esc:cancel)", options.join(""))
     } else if app.input_mode != InputMode::Normal {
         format!(" {}{}", app.input_mode.prompt(), app.input_buffer)
+    } else if app.preview_focused {
+        // Pager mode status
+        if let Some(ref preview) = app.file_preview {
+            let file_name = preview.path.rsplit('/').next().unwrap_or(&preview.path);
+            format!(
+                " ▶ {} │ {} │ jk↑↓:scroll d/u:page g/G:top/bottom Esc/←/q/␣:back",
+                file_name,
+                preview.type_description
+            )
+        } else {
+            " Esc:back".to_string()
+        }
     } else {
         // Build mode-specific status
         let mode_indicator = match app.view_mode {

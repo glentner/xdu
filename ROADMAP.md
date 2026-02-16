@@ -36,10 +36,10 @@ with file type detection and preview capabilities.
 
 - [x] Miller columns layout: horizontal cascade showing directory hierarchy left-to-right
 - [x] Adaptive column count based on terminal width (gracefully show last 3–5 columns as depth increases)
-- [ ] File type detection (equivalent to Unix `file` command) via Rust ecosystem
-- [ ] Plain-text file preview with built-in pager and scroll keybindings
+- [x] File type detection (equivalent to Unix `file` command) via `infer` crate (magic bytes + UTF-8 sniffing)
+- [x] Plain-text file preview with built-in pager and scroll keybindings
 - [ ] "List" mode: `<space>` opens overlay modal with file type info and text preview
-- [ ] "Tree" mode: rightmost column shows automatic preview of selected file
+- [x] "Tree" mode: rightmost column shows automatic preview of selected file
 
 ## Phase 3: S3 Target
 
