@@ -460,6 +460,9 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
+/// Special partition name for files directly in the top-level directory.
+const ROOT_PARTITION: &str = "__root__";
+
 /// Maximum lines to keep in the sliding window buffer.
 const MAX_BUFFER_LINES: usize = 100_000;
 /// Chunk size for streaming reads (64KB).
@@ -608,6 +611,75 @@ impl App {
         Ok(app)
     }
     
+    /// Query individual files from the __root__ partition.
+    /// Returns DirEntry items with is_dir=false and file_count=1.
+    fn query_root_files(&self) -> Result<Vec<DirEntry>> {
+        let glob = format!("{}/{}/*.parquet", self.index_path.display(), ROOT_PARTITION);
+
+        let filter_clause = self.filters.to_where_clause();
+        let where_clause = if filter_clause.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", filter_clause)
+        };
+
+        let sql = format!(
+            r#"
+            SELECT path, size, atime
+            FROM read_parquet('{glob}')
+            {where_clause}
+            "#,
+            glob = glob,
+            where_clause = where_clause
+        );
+
+        let mut entries = Vec::new();
+        let mut stmt = match self.conn.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return Ok(entries), // No __root__ partition exists
+        };
+        let mut rows = match stmt.query([]) {
+            Ok(r) => r,
+            Err(_) => return Ok(entries),
+        };
+
+        while let Some(row) = rows.next()? {
+            let path: String = row.get(0)?;
+            let size: i64 = row.get(1)?;
+            let atime: i64 = row.get(2)?;
+            let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+            entries.push(DirEntry {
+                name,
+                path,
+                is_dir: false,
+                total_size: size,
+                file_count: 1,
+                latest_atime: atime,
+            });
+        }
+
+        Ok(entries)
+    }
+
+    /// Sort entries in-place according to the current SortMode.
+    fn sort_entries(entries: &mut [DirEntry], sort_mode: SortMode) {
+        match sort_mode {
+            SortMode::Name => {
+                // Directories first, then alphabetical by name
+                entries.sort_by(|a, b| {
+                    b.is_dir.cmp(&a.is_dir)
+                        .then_with(|| a.name.cmp(&b.name))
+                });
+            }
+            SortMode::SizeDesc => entries.sort_by(|a, b| b.total_size.cmp(&a.total_size)),
+            SortMode::SizeAsc => entries.sort_by(|a, b| a.total_size.cmp(&b.total_size)),
+            SortMode::CountDesc => entries.sort_by(|a, b| b.file_count.cmp(&a.file_count)),
+            SortMode::CountAsc => entries.sort_by(|a, b| a.file_count.cmp(&b.file_count)),
+            SortMode::AgeDesc => entries.sort_by(|a, b| a.latest_atime.cmp(&b.latest_atime)), // oldest first
+            SortMode::AgeAsc => entries.sort_by(|a, b| b.latest_atime.cmp(&a.latest_atime)),  // newest first
+        }
+    }
+
     /// Load the list of partitions
     fn load_partitions(&mut self) -> Result<()> {
         self.loading = true;
@@ -616,12 +688,15 @@ impl App {
         // Use DuckDB's hive partitioning to get partition names directly from directory structure
         let glob = format!("{}/*/*.parquet", self.index_path.display());
         
-        // Build filter clause
+        // Build filter clause — exclude __root__ (its files are merged as individual entries)
         let filter_clause = self.filters.to_where_clause();
         let having_clause = if filter_clause.is_empty() {
-            "HAVING partition IS NOT NULL AND partition != ''".to_string()
+            format!("HAVING partition IS NOT NULL AND partition != '' AND partition != '{}'", ROOT_PARTITION)
         } else {
-            format!("HAVING partition IS NOT NULL AND partition != '' AND SUM(CASE WHEN {} THEN 1 ELSE 0 END) > 0", filter_clause)
+            format!(
+                "HAVING partition IS NOT NULL AND partition != '' AND partition != '{}' AND SUM(CASE WHEN {} THEN 1 ELSE 0 END) > 0",
+                ROOT_PARTITION, filter_clause
+            )
         };
         
         // Query using filename to extract partition from the parquet file path
@@ -655,10 +730,11 @@ impl App {
                     COUNT(*) as file_count
                 FROM read_parquet('{glob}', filename=true)
                 GROUP BY partition
-                HAVING partition IS NOT NULL AND partition != ''
+                HAVING partition IS NOT NULL AND partition != '' AND partition != '{root}'
                 ORDER BY {order}
                 "#,
                 glob = glob,
+                root = ROOT_PARTITION,
                 order = self.sort_mode.to_partition_order_by()
             )
         };
@@ -682,8 +758,15 @@ impl App {
                 latest_atime,
             });
         }
+
+        // Merge individual files from the __root__ partition
+        let root_files = self.query_root_files()?;
+        if !root_files.is_empty() {
+            self.entries.extend(root_files);
+            Self::sort_entries(&mut self.entries, self.sort_mode);
+        }
         
-        self.status = format!("{} partitions loaded in {:.2}s", self.entries.len(), start.elapsed().as_secs_f64());
+        self.status = format!("{} entries loaded in {:.2}s", self.entries.len(), start.elapsed().as_secs_f64());
         self.loading = false;
         Ok(())
     }
@@ -1074,12 +1157,13 @@ impl App {
     fn make_partition_column(&self) -> Result<Column> {
         let glob = format!("{}/*/*.parquet", self.index_path.display());
         let filter_clause = self.filters.to_where_clause();
+        // Exclude __root__ — its files are merged as individual entries
         let having_clause = if filter_clause.is_empty() {
-            "HAVING partition IS NOT NULL AND partition != ''".to_string()
+            format!("HAVING partition IS NOT NULL AND partition != '' AND partition != '{}'", ROOT_PARTITION)
         } else {
             format!(
-                "HAVING partition IS NOT NULL AND partition != '' AND SUM(CASE WHEN {} THEN 1 ELSE 0 END) > 0",
-                filter_clause
+                "HAVING partition IS NOT NULL AND partition != '' AND partition != '{}' AND SUM(CASE WHEN {} THEN 1 ELSE 0 END) > 0",
+                ROOT_PARTITION, filter_clause
             )
         };
 
@@ -1111,10 +1195,11 @@ impl App {
                     COUNT(*) as file_count
                 FROM read_parquet('{glob}', filename=true)
                 GROUP BY partition
-                HAVING partition IS NOT NULL AND partition != ''
+                HAVING partition IS NOT NULL AND partition != '' AND partition != '{root}'
                 ORDER BY {order}
                 "#,
                 glob = glob,
+                root = ROOT_PARTITION,
                 order = self.sort_mode.to_partition_order_by()
             )
         };
@@ -1136,6 +1221,13 @@ impl App {
                 file_count,
                 latest_atime,
             });
+        }
+
+        // Merge individual files from the __root__ partition
+        let root_files = self.query_root_files()?;
+        if !root_files.is_empty() {
+            entries.extend(root_files);
+            Self::sort_entries(&mut entries, self.sort_mode);
         }
 
         let mut list_state = ListState::default();
