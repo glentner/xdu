@@ -355,7 +355,7 @@ struct Args {
     #[arg(long, value_name = "DAYS")]
     newer_than: Option<u64>,
 
-    /// Sort order: name, size-asc, size-desc, count-asc, count-desc
+    /// Sort order: name, size-asc, size-desc, count-asc, count-desc, age-asc, age-desc
     #[arg(short, long, default_value = "name")]
     sort: String,
 }
@@ -364,7 +364,6 @@ struct Args {
 #[derive(Clone, Debug)]
 struct DirEntry {
     name: String,
-    #[allow(dead_code)]
     path: String,
     is_dir: bool,
     total_size: i64,
@@ -615,13 +614,7 @@ impl App {
     /// Returns DirEntry items with is_dir=false and file_count=1.
     fn query_root_files(&self) -> Result<Vec<DirEntry>> {
         let glob = format!("{}/{}/*.parquet", self.index_path.display(), ROOT_PARTITION);
-
-        let filter_clause = self.filters.to_where_clause();
-        let where_clause = if filter_clause.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", filter_clause)
-        };
+        let where_clause = self.filters.to_full_where_clause();
 
         let sql = format!(
             r#"
