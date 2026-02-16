@@ -6,6 +6,7 @@ license = "MIT"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
 rayon = "1.10"
 parquet = { version = "56", features = ["arrow"] }
 arrow = { version = "56", features = ["chrono-tz"] }
@@ -37,6 +38,10 @@ path = "src/bin/xdu-view.rs"
 [[bin]]
 name = "xdu-rm"
 path = "src/bin/xdu-rm.rs"
+
+[[bin]]
+name = "gen-completions"
+path = "src/bin/gen-completions.rs"
 
 [profile.release]
 lto = true

@@ -17,8 +17,43 @@ permissions:
   contents: write
 
 jobs:
+  prepare:
+    name: Prepare (man pages + completions)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install scdoc
+        run: sudo apt-get update && sudo apt-get install -y scdoc
+
+      - name: Build man pages
+        run: |
+          mkdir -p share/man/man1
+          for scd in doc/*.scd; do
+            name=$(basename "$scd" .1.scd)
+            scdoc < "$scd" > "share/man/man1/${name}.1"
+          done
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+
+      - name: Generate shell completions
+        run: |
+          cargo build --release --bin gen-completions
+          mkdir -p share/bash-completion/completions share/zsh/site-functions
+          ./target/release/gen-completions share/bash-completion/completions share/zsh/site-functions
+
+      - name: Upload share artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: share
+          path: share/
+
   build:
     name: Build (${{ matrix.target }})
+    needs: prepare
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -71,16 +106,26 @@ jobs:
           linker = "aarch64-linux-gnu-gcc"
           EOF
 
-      - name: Build release binary
+      - name: Build release binaries
         run: cargo build --release --target ${{ matrix.target }}
         env:
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
           CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
 
-      - name: Package binaries (Unix)
+      - name: Download share artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: share
+          path: staging/share
+
+      - name: Package release tarball
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czvf ../../../xdu-${{ steps.version.outputs.tag }}-${{ matrix.target }}.tar.gz xdu xdu-find xdu-view xdu-rm
+          STAGING="staging"
+          mkdir -p "${STAGING}/bin"
+          for bin in xdu xdu-find xdu-view xdu-rm; do
+            cp "target/${{ matrix.target }}/release/${bin}" "${STAGING}/bin/"
+          done
+          tar czvf xdu-${{ steps.version.outputs.tag }}-${{ matrix.target }}.tar.gz -C "${STAGING}" bin share
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2

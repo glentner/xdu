@@ -1,5 +1,7 @@
 //! Shared types and utilities for xdu tools.
 
+pub mod cli;
+
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;

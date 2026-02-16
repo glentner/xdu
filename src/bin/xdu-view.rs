@@ -316,49 +316,7 @@ fn format_file_count(count: i64) -> String {
     }
 }
 
-#[derive(Parser, Debug)]
-#[command(
-    name = "xdu-view",
-    about = "Interactive TUI for exploring a file metadata index",
-    after_help = "\
-Examples:
-  xdu-view -i /index/scratch
-  xdu-view -i /index/scratch -u alice
-  xdu-view -i /index/scratch --older-than 90 --sort size"
-)]
-struct Args {
-    /// Path to the Parquet index directory
-    #[arg(short, long, value_name = "DIR", env = "XDU_INDEX")]
-    index: PathBuf,
-
-    /// Initial partition to view (optional, shows partition list if omitted)
-    #[arg(short = 'u', long, value_name = "NAME")]
-    partition: Option<String>,
-
-    /// Regular expression pattern to match paths
-    #[arg(short, long, value_name = "REGEX")]
-    pattern: Option<String>,
-
-    /// Minimum file size (e.g., 1K, 10M, 1G)
-    #[arg(long, value_name = "SIZE")]
-    min_size: Option<String>,
-
-    /// Maximum file size (e.g., 1K, 10M, 1G)
-    #[arg(long, value_name = "SIZE")]
-    max_size: Option<String>,
-
-    /// Files not accessed in N days
-    #[arg(long, value_name = "DAYS")]
-    older_than: Option<u64>,
-
-    /// Files accessed within N days
-    #[arg(long, value_name = "DAYS")]
-    newer_than: Option<u64>,
-
-    /// Sort order: name, size-asc, size-desc, count-asc, count-desc, age-asc, age-desc
-    #[arg(short, long, default_value = "name")]
-    sort: String,
-}
+use xdu::cli::XduViewArgs;
 
 /// Represents a directory entry in the view
 #[derive(Clone, Debug)]
@@ -1834,7 +1792,7 @@ impl App {
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = XduViewArgs::parse();
     
     // Resolve index path
     let index_path = args.index.canonicalize()

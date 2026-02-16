@@ -22,54 +22,11 @@ use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
 use rayon::ThreadPoolBuilder;
 
+use xdu::cli::XduArgs;
 use xdu::{format_bytes, format_count, format_speed, get_schema, parse_size, FileRecord, SizeMode};
 
 /// Special partition name for files directly in the top-level directory.
 const ROOT_PARTITION: &str = "__root__";
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "xdu",
-    about = "Build a distributed file metadata index in Parquet format",
-    after_help = "\
-Examples:
-  xdu /data/scratch -o /index/scratch -j 8
-  xdu /data/scratch -o /index/scratch --partition alice,bob
-  xdu /data/scratch -o /index/scratch --apparent-size
-  xdu /data/scratch -o /index/scratch --block-size 128K"
-)]
-struct Args {
-    /// Top-level directory to index
-    #[arg(value_name = "DIR")]
-    dir: PathBuf,
-
-    /// Output directory for the Parquet index
-    #[arg(short, long, value_name = "DIR")]
-    outdir: PathBuf,
-
-    /// Number of parallel threads
-    #[arg(short, long, default_value = "4", env = "XDU_JOBS")]
-    jobs: usize,
-
-    /// Number of records per output chunk
-    #[arg(short = 'B', long, default_value = "100000")]
-    buffsize: usize,
-
-    /// Report apparent sizes (file length) rather than disk usage.
-    /// By default, xdu reports actual disk usage from st_blocks.
-    #[arg(long)]
-    apparent_size: bool,
-
-    /// Round sizes up to this block size (e.g., 128K, 1M).
-    /// Useful when st_blocks is inaccurate (e.g., over NFS) and you know the filesystem block size.
-    /// Implies --apparent-size for the base size, then rounds up.
-    #[arg(short = 'k', long, value_name = "SIZE")]
-    block_size: Option<String>,
-
-    /// Index only specific partitions (top-level subdirectory names, comma-separated).
-    #[arg(short, long, value_name = "NAMES", value_delimiter = ',')]
-    partition: Option<Vec<String>>,
-}
 
 /// Per-partition buffer that accumulates records and flushes to Parquet.
 struct PartitionBuffer {
@@ -550,7 +507,7 @@ fn crawl(
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = XduArgs::parse();
     let start_time = Instant::now();
     let is_tty = stderr().is_terminal();
 

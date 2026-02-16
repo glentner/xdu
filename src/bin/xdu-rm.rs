@@ -1,7 +1,6 @@
 use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::MetadataExt;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -10,70 +9,8 @@ use clap::Parser;
 use duckdb::Connection;
 use rayon::prelude::*;
 
+use xdu::cli::XduRmArgs;
 use xdu::{parse_size, QueryFilters};
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "xdu-rm",
-    about = "Delete files matching index query criteria",
-    after_help = "Examples:
-  xdu-rm -i /index/scratch -u alice --older-than 180 -n
-  xdu-rm -i /index/scratch -p '\\.tmp$' --force
-  xdu-rm -i /index/scratch --min-size 1G --safe"
-)]
-struct Args {
-    /// Path to the Parquet index directory
-    #[arg(short, long, value_name = "DIR", env = "XDU_INDEX")]
-    index: PathBuf,
-
-    /// Regular expression pattern to match paths
-    #[arg(short, long, value_name = "REGEX")]
-    pattern: Option<String>,
-
-    /// Filter by partition (user directory name)
-    #[arg(short = 'u', long, value_name = "NAME")]
-    partition: Option<String>,
-
-    /// Minimum file size (e.g., 1K, 10M, 1G)
-    #[arg(long, value_name = "SIZE")]
-    min_size: Option<String>,
-
-    /// Maximum file size (e.g., 1K, 10M, 1G)
-    #[arg(long, value_name = "SIZE")]
-    max_size: Option<String>,
-
-    /// Files not accessed in N days
-    #[arg(long, value_name = "DAYS")]
-    older_than: Option<u64>,
-
-    /// Files accessed within N days
-    #[arg(long, value_name = "DAYS")]
-    newer_than: Option<u64>,
-
-    /// Limit number of files to delete
-    #[arg(short, long)]
-    limit: Option<usize>,
-
-    /// Show what would be deleted without deleting
-    #[arg(short = 'n', long)]
-    dry_run: bool,
-
-    /// Verify file metadata before deletion (re-stat to check atime/size)
-    #[arg(long)]
-    safe: bool,
-
-    /// Skip confirmation prompt
-    #[arg(short, long)]
-    force: bool,
-
-    /// Show detailed output for each file
-    #[arg(short, long)]
-    verbose: bool,
-
-    /// Number of parallel threads for deletion
-    #[arg(short, long, default_value = "4", env = "XDU_JOBS")]
-    jobs: usize,
-}
 
 /// File info from the index query
 #[allow(dead_code)]
@@ -84,7 +21,7 @@ struct FileInfo {
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = XduRmArgs::parse();
 
     // Configure thread pool
     rayon::ThreadPoolBuilder::new()

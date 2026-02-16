@@ -1,70 +1,14 @@
 use std::io::{self, Write};
-use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use duckdb::Connection;
 
+use xdu::cli::XduFindArgs;
 use xdu::QueryFilters;
 
-#[derive(Parser, Debug)]
-#[command(
-    name = "xdu-find",
-    about = "Query a file metadata index for matching paths",
-    after_help = "Examples:
-  xdu-find -i /index/scratch -p '\\.py$' --min-size 1M
-  xdu-find -i /index/scratch --older-than 90 -f size
-  xdu-find -i /index/scratch -u alice --count
-  xdu-find -i /index/scratch --top 10"
-)]
-struct Args {
-    /// Path to the Parquet index directory
-    #[arg(short, long, value_name = "DIR", env = "XDU_INDEX")]
-    index: PathBuf,
-
-    /// Regular expression pattern to match paths
-    #[arg(short, long, value_name = "REGEX")]
-    pattern: Option<String>,
-
-    /// Filter by partition (user directory name)
-    #[arg(short = 'u', long, value_name = "NAME")]
-    partition: Option<String>,
-
-    /// Minimum file size (e.g., 1K, 10M, 1G)
-    #[arg(long, value_name = "SIZE")]
-    min_size: Option<String>,
-
-    /// Maximum file size (e.g., 1K, 10M, 1G)
-    #[arg(long, value_name = "SIZE")]
-    max_size: Option<String>,
-
-    /// Files not accessed in N days
-    #[arg(long, value_name = "DAYS")]
-    older_than: Option<u64>,
-
-    /// Files accessed within N days
-    #[arg(long, value_name = "DAYS")]
-    newer_than: Option<u64>,
-
-    /// Output format: path (default), size, atime, csv, json
-    #[arg(short, long, default_value = "path")]
-    format: String,
-
-    /// Limit number of results
-    #[arg(short, long)]
-    limit: Option<usize>,
-
-    /// Count matching records instead of listing them
-    #[arg(short, long)]
-    count: bool,
-
-    /// Show top N partitions by file count (for identifying large partitions)
-    #[arg(long, value_name = "N")]
-    top: Option<usize>,
-}
-
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = XduFindArgs::parse();
 
     // Resolve index path
     let index_path = args.index.canonicalize()
