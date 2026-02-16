@@ -1117,76 +1117,44 @@ impl App {
             return;
         }
 
-        let mut reader = BufReader::with_capacity(CHUNK_BYTES, &mut f);
+        let mut reader = BufReader::with_capacity(CHUNK_BYTES, f);
         let mut bytes_read: u64 = 0;
+        let mut line_buf = String::new();
 
         loop {
-            let buf = match reader.fill_buf() {
-                Ok([]) => {
+            line_buf.clear();
+            match reader.read_line(&mut line_buf) {
+                Ok(0) => {
+                    // True EOF
                     preview.eof_reached = true;
                     break;
                 }
-                Ok(buf) => buf,
-                Err(_) => {
-                    preview.eof_reached = true;
-                    break;
-                }
-            };
+                Ok(n) => {
+                    bytes_read += n as u64;
 
-            // Find lines within this buffer segment
-            if let Some(newline_pos) = buf.iter().position(|&b| b == b'\n') {
-                // We have a complete line
-                let line_bytes = &buf[..newline_pos];
-                let line = String::from_utf8_lossy(line_bytes).into_owned();
-                let consumed = newline_pos + 1; // include the newline
-                reader.consume(consumed);
-                bytes_read += consumed as u64;
+                    // Strip trailing newline (and CR if present)
+                    if line_buf.ends_with('\n') {
+                        line_buf.pop();
+                        if line_buf.ends_with('\r') {
+                            line_buf.pop();
+                        }
+                    }
 
-                preview.lines.push_back(line);
-                preview.total_lines_loaded += 1;
-
-                // Trim front if over budget
-                if preview.lines.len() > MAX_BUFFER_LINES {
-                    preview.lines.pop_front();
-                    preview.first_line_number += 1;
-                }
-
-                // Stop after reading ~CHUNK_BYTES
-                if bytes_read >= CHUNK_BYTES as u64 {
-                    break;
-                }
-            } else {
-                // No newline in buffer — could be a very long line or near EOF
-                let len = buf.len();
-                if len >= CHUNK_BYTES {
-                    // Very long line without newline — consume it all as one line
-                    let line = String::from_utf8_lossy(buf).into_owned();
-                    reader.consume(len);
-                    bytes_read += len as u64;
-
-                    preview.lines.push_back(line);
+                    preview.lines.push_back(line_buf.clone());
                     preview.total_lines_loaded += 1;
 
+                    // Trim front if over budget
                     if preview.lines.len() > MAX_BUFFER_LINES {
                         preview.lines.pop_front();
                         preview.first_line_number += 1;
                     }
-                    break;
-                } else {
-                    // Small remaining chunk with no newline — this is the last line (EOF)
-                    let line = String::from_utf8_lossy(buf).into_owned();
-                    reader.consume(len);
-                    bytes_read += len as u64;
 
-                    if !line.is_empty() {
-                        preview.lines.push_back(line);
-                        preview.total_lines_loaded += 1;
-
-                        if preview.lines.len() > MAX_BUFFER_LINES {
-                            preview.lines.pop_front();
-                            preview.first_line_number += 1;
-                        }
+                    // Stop after reading ~CHUNK_BYTES
+                    if bytes_read >= CHUNK_BYTES as u64 {
+                        break;
                     }
+                }
+                Err(_) => {
                     preview.eof_reached = true;
                     break;
                 }
