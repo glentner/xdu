@@ -22,6 +22,280 @@ use ratatui::{
 
 use xdu::{format_bytes, parse_size, QueryFilters, SortMode};
 
+/// Detect file type from magic bytes, shebangs, text content, and extension.
+///
+/// Returns `(description, is_text)` where `description` is a human-readable
+/// string like "ELF 64-bit LSB executable, x86-64" or "Python script, UTF-8 text"
+/// and `is_text` indicates whether the file should be treated as scrollable text.
+fn detect_file_type(sniff_buf: &[u8], file_path: &str) -> (String, bool) {
+    // --- Layer 1: infer magic bytes (with enrichment) ---
+    if let Some(kind) = infer::get(sniff_buf) {
+        let mime = kind.mime_type();
+        // ELF enrichment
+        if mime == "application/x-executable"
+            || mime == "application/x-sharedlib"
+            || (sniff_buf.len() >= 4 && &sniff_buf[..4] == b"\x7FELF")
+        {
+            if let Some(desc) = describe_elf(sniff_buf) {
+                return (desc, false);
+            }
+        }
+        return (format!("{} ({})", mime, kind.extension()), false);
+    }
+
+    // ELF that infer missed (it should catch it, but just in case)
+    if sniff_buf.len() >= 4 && &sniff_buf[..4] == b"\x7FELF" {
+        if let Some(desc) = describe_elf(sniff_buf) {
+            return (desc, false);
+        }
+        return ("ELF binary".to_string(), false);
+    }
+
+    // Mach-O enrichment (infer may not detect all variants)
+    if sniff_buf.len() >= 8 {
+        let magic = &sniff_buf[..4];
+        if magic == b"\xCF\xFA\xED\xFE" || magic == b"\xFE\xED\xFA\xCF"
+            || magic == b"\xCE\xFA\xED\xFE" || magic == b"\xFE\xED\xFA\xCE"
+        {
+            if let Some(desc) = describe_macho(sniff_buf) {
+                return (desc, false);
+            }
+            return ("Mach-O binary".to_string(), false);
+        }
+        // Universal (fat) binary
+        if magic == b"\xCA\xFE\xBA\xBE" || magic == b"\xBE\xBA\xFE\xCA" {
+            return ("Mach-O universal binary".to_string(), false);
+        }
+    }
+
+    // --- Layer 2: Shebang detection ---
+    if sniff_buf.len() >= 2 && &sniff_buf[..2] == b"#!" {
+        if let Some(desc) = describe_shebang(sniff_buf) {
+            return (desc, true);
+        }
+    }
+
+    // --- Layer 3: Text sub-type sniffing ---
+    if let Ok(text) = std::str::from_utf8(sniff_buf) {
+        // Content-based detection
+        let trimmed = text.trim_start();
+        if trimmed.starts_with('{') || trimmed.starts_with('[') {
+            return ("JSON text, UTF-8".to_string(), true);
+        }
+        if trimmed.starts_with("<?xml") || trimmed.starts_with("<!DOCTYPE") {
+            return ("XML text, UTF-8".to_string(), true);
+        }
+
+        // Extension-based fallback for text files
+        if let Some(desc) = describe_text_by_extension(file_path) {
+            return (format!("{}, UTF-8", desc), true);
+        }
+
+        // --- Layer 4a: Generic UTF-8 text ---
+        return ("text/plain; UTF-8".to_string(), true);
+    }
+
+    // --- Layer 4b: Binary fallback ---
+    ("application/octet-stream (binary data)".to_string(), false)
+}
+
+/// Parse ELF header fields from the sniff buffer.
+fn describe_elf(buf: &[u8]) -> Option<String> {
+    if buf.len() < 20 {
+        return None;
+    }
+    let class = match buf[4] {
+        1 => "32-bit",
+        2 => "64-bit",
+        _ => "unknown-class",
+    };
+    let endian = match buf[5] {
+        1 => "LSB",
+        2 => "MSB",
+        _ => "unknown-endian",
+    };
+    let e_type_val = if buf[5] == 1 {
+        u16::from_le_bytes([buf[16], buf[17]])
+    } else {
+        u16::from_be_bytes([buf[16], buf[17]])
+    };
+    let etype = match e_type_val {
+        1 => "relocatable",
+        2 => "executable",
+        3 => "shared object",
+        4 => "core dump",
+        _ => "object",
+    };
+    let e_machine_val = if buf[5] == 1 {
+        u16::from_le_bytes([buf[18], buf[19]])
+    } else {
+        u16::from_be_bytes([buf[18], buf[19]])
+    };
+    let arch = match e_machine_val {
+        0x03 => "x86",
+        0x08 => "MIPS",
+        0x14 => "PowerPC",
+        0x15 => "PowerPC64",
+        0x28 => "ARM",
+        0x2A => "SuperH",
+        0x32 => "IA-64",
+        0x3E => "x86-64",
+        0xB7 => "AArch64",
+        0xF3 => "RISC-V",
+        0xF7 => "BPF",
+        _ => "unknown-arch",
+    };
+    Some(format!("ELF {} {} {}, {}", class, endian, etype, arch))
+}
+
+/// Parse Mach-O header fields from the sniff buffer.
+fn describe_macho(buf: &[u8]) -> Option<String> {
+    if buf.len() < 8 {
+        return None;
+    }
+    let magic = &buf[..4];
+    let (class, le) = match magic {
+        b"\xCF\xFA\xED\xFE" => ("64-bit", true),   // MH_MAGIC_64 (LE)
+        b"\xFE\xED\xFA\xCF" => ("64-bit", false),  // MH_MAGIC_64 (BE)
+        b"\xCE\xFA\xED\xFE" => ("32-bit", true),   // MH_MAGIC (LE)
+        b"\xFE\xED\xFA\xCE" => ("32-bit", false),  // MH_MAGIC (BE)
+        _ => return None,
+    };
+    let cpu_type = if le {
+        u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]])
+    } else {
+        u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]])
+    };
+    let arch = match cpu_type {
+        7 => "x86",                     // CPU_TYPE_X86
+        0x0100_0007 => "x86-64",        // CPU_TYPE_X86_64
+        12 => "ARM",                    // CPU_TYPE_ARM
+        0x0100_000C => "ARM64",         // CPU_TYPE_ARM64
+        18 => "PowerPC",                // CPU_TYPE_POWERPC
+        0x0100_0012 => "PowerPC64",     // CPU_TYPE_POWERPC64
+        _ => "unknown-arch",
+    };
+    // file_type at offset 12 (4 bytes)
+    let ftype = if buf.len() >= 16 {
+        let ft = if le {
+            u32::from_le_bytes([buf[12], buf[13], buf[14], buf[15]])
+        } else {
+            u32::from_be_bytes([buf[12], buf[13], buf[14], buf[15]])
+        };
+        match ft {
+            1 => "object",
+            2 => "executable",
+            3 => "fixed VM shared library",
+            4 => "core dump",
+            5 => "preloaded executable",
+            6 => "dylib",
+            7 => "dynamic linker",
+            8 => "bundle",
+            _ => "binary",
+        }
+    } else {
+        "binary"
+    };
+    Some(format!("Mach-O {} {}, {}", class, ftype, arch))
+}
+
+/// Parse a shebang line to identify the script type.
+fn describe_shebang(buf: &[u8]) -> Option<String> {
+    // Find the end of the first line
+    let end = buf.iter().position(|&b| b == b'\n').unwrap_or(buf.len().min(256));
+    let line = std::str::from_utf8(&buf[2..end]).ok()?.trim();
+    if line.is_empty() {
+        return None;
+    }
+
+    // Handle "env" indirection: "#!/usr/bin/env python3" -> "python3"
+    let interpreter = if line.contains("env ") || line.contains("env\t") {
+        line.split_whitespace().last()?
+    } else {
+        // "/usr/bin/perl" -> "perl", "/bin/bash" -> "bash"
+        line.split_whitespace()
+            .next()?
+            .rsplit('/')
+            .next()?
+    };
+
+    let desc = match interpreter {
+        "bash" => "Bash script",
+        "sh" => "POSIX shell script",
+        "zsh" => "Zsh script",
+        "fish" => "Fish script",
+        "dash" => "Dash script",
+        i if i.starts_with("python") => "Python script",
+        "perl" => "Perl script",
+        "ruby" => "Ruby script",
+        "node" | "nodejs" => "Node.js script",
+        "Rscript" => "R script",
+        "lua" => "Lua script",
+        "php" => "PHP script",
+        "awk" | "gawk" | "mawk" => "AWK script",
+        "sed" => "Sed script",
+        "tclsh" | "wish" => "Tcl script",
+        _ => return Some(format!("Script (#!{}), UTF-8 text", interpreter)),
+    };
+    Some(format!("{}, UTF-8 text", desc))
+}
+
+/// Map file extension to a human-readable text type description.
+fn describe_text_by_extension(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit('.').next()?.to_ascii_lowercase();
+    let desc = match ext.as_str() {
+        "csv" => "CSV text",
+        "tsv" => "TSV text",
+        "json" => "JSON text",
+        "jsonl" | "ndjson" => "JSON Lines text",
+        "yaml" | "yml" => "YAML text",
+        "toml" => "TOML text",
+        "xml" => "XML text",
+        "html" | "htm" => "HTML text",
+        "css" => "CSS text",
+        "md" | "markdown" => "Markdown text",
+        "rst" => "reStructuredText",
+        "tex" | "latex" => "LaTeX text",
+        "py" => "Python source",
+        "rs" => "Rust source",
+        "c" => "C source",
+        "h" => "C header",
+        "cpp" | "cc" | "cxx" => "C++ source",
+        "hpp" | "hh" | "hxx" => "C++ header",
+        "java" => "Java source",
+        "go" => "Go source",
+        "js" | "mjs" | "cjs" => "JavaScript source",
+        "ts" | "mts" | "cts" => "TypeScript source",
+        "rb" => "Ruby source",
+        "pl" | "pm" => "Perl source",
+        "php" => "PHP source",
+        "r" => "R source",
+        "jl" => "Julia source",
+        "lua" => "Lua source",
+        "swift" => "Swift source",
+        "kt" | "kts" => "Kotlin source",
+        "scala" => "Scala source",
+        "hs" => "Haskell source",
+        "ml" | "mli" => "OCaml source",
+        "ex" | "exs" => "Elixir source",
+        "erl" | "hrl" => "Erlang source",
+        "f" | "f90" | "f95" | "f03" | "f08" | "for" => "Fortran source",
+        "sh" | "bash" => "Shell script",
+        "zsh" => "Zsh script",
+        "fish" => "Fish script",
+        "ps1" => "PowerShell script",
+        "sql" => "SQL text",
+        "graphql" | "gql" => "GraphQL text",
+        "proto" => "Protocol Buffers text",
+        "ini" | "cfg" | "conf" => "Configuration text",
+        "env" => "Environment file",
+        "txt" | "text" | "log" => "Plain text",
+        "makefile" => "Makefile",
+        _ => return None,
+    };
+    Some(desc)
+}
+
 /// Format file count with K/M/B suffixes
 fn format_file_count(count: i64) -> String {
     if count >= 1_000_000_000 {
@@ -1045,15 +1319,8 @@ impl App {
             };
         }
 
-        // Try magic-byte detection via infer
-        let (type_description, is_text) = if let Some(kind) = infer::get(&sniff_buf) {
-            (format!("{} ({})", kind.mime_type(), kind.extension()), false)
-        } else if std::str::from_utf8(&sniff_buf).is_ok() {
-            // Valid UTF-8 — treat as plain text
-            ("text/plain; UTF-8".to_string(), true)
-        } else {
-            ("application/octet-stream (binary data)".to_string(), false)
-        };
+        // Detect file type using multi-layer heuristics
+        let (type_description, is_text) = detect_file_type(&sniff_buf, path);
 
         // Load initial text content if applicable
         let mut lines = VecDeque::new();
