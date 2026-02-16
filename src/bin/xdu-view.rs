@@ -1,8 +1,9 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::collapsible_else_if)]
 
+use std::collections::VecDeque;
 use std::fs::File;
-use std::io::{stdout, Read};
+use std::io::{stdout, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -134,6 +135,11 @@ enum ViewMode {
     Tree,
 }
 
+/// Maximum lines to keep in the sliding window buffer.
+const MAX_BUFFER_LINES: usize = 100_000;
+/// Chunk size for streaming reads (64KB).
+const CHUNK_BYTES: usize = 65_536;
+
 /// Cached file preview for the rightmost pane in tree view.
 struct FilePreview {
     /// Full file path on disk
@@ -146,9 +152,17 @@ struct FilePreview {
     type_description: String,
     /// Whether the file is detected as plain text
     is_text: bool,
-    /// Content lines for text files (empty for binary)
-    lines: Vec<String>,
-    /// Current scroll offset in the pager
+    /// Content lines (sliding window for text files, empty for binary)
+    lines: VecDeque<String>,
+    /// Global line number of `lines[0]`
+    first_line_number: usize,
+    /// Total lines read from the file so far
+    total_lines_loaded: usize,
+    /// Byte position where the last read stopped
+    file_offset: u64,
+    /// Whether we've hit EOF
+    eof_reached: bool,
+    /// Current scroll offset — a global line number
     scroll_offset: usize,
 }
 
@@ -992,7 +1006,6 @@ impl App {
     /// Load file type info and (optionally) text content for the preview pane.
     fn load_file_preview(path: &str, size: i64, atime: i64) -> FilePreview {
         const SNIFF_SIZE: usize = 8192;
-        const MAX_TEXT_BYTES: usize = 65536;
 
         // Read the first SNIFF_SIZE bytes for type detection
         let sniff_buf = File::open(path)
@@ -1011,7 +1024,11 @@ impl App {
                 atime,
                 type_description: "(unreadable)".to_string(),
                 is_text: false,
-                lines: Vec::new(),
+                lines: VecDeque::new(),
+                first_line_number: 0,
+                total_lines_loaded: 0,
+                file_offset: 0,
+                eof_reached: true,
                 scroll_offset: 0,
             };
         }
@@ -1026,19 +1043,48 @@ impl App {
             ("application/octet-stream (binary data)".to_string(), false)
         };
 
-        // Load text content if applicable
-        let lines = if is_text {
-            File::open(path)
-                .and_then(|mut f| {
-                    let mut buf = String::new();
-                    f.by_ref().take(MAX_TEXT_BYTES as u64).read_to_string(&mut buf)?;
-                    Ok(buf)
-                })
-                .map(|content| content.lines().map(String::from).collect())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        // Load initial text content if applicable
+        let mut lines = VecDeque::new();
+        let mut file_offset: u64 = 0;
+        let mut eof_reached = !is_text;
+        let mut total_lines_loaded: usize = 0;
+
+        if is_text {
+            if let Ok(mut f) = File::open(path) {
+                let mut buf = vec![0u8; CHUNK_BYTES];
+                match f.read(&mut buf) {
+                    Ok(0) => {
+                        eof_reached = true;
+                    }
+                    Ok(n) => {
+                        file_offset = n as u64;
+                        // Check if we hit EOF (read less than buffer)
+                        if n < CHUNK_BYTES {
+                            eof_reached = true;
+                        }
+                        // Parse lines from the chunk. If not EOF, the last
+                        // "line" may be a partial line — we back up file_offset
+                        // to re-read it on the next chunk.
+                        let chunk = &buf[..n];
+                        if let Ok(text) = std::str::from_utf8(chunk) {
+                            let mut iter = text.split('\n').peekable();
+                            while let Some(line) = iter.next() {
+                                if iter.peek().is_none() && !eof_reached {
+                                    // Last fragment before EOF unknown — back up
+                                    file_offset -= line.len() as u64;
+                                    break;
+                                }
+                                lines.push_back(line.to_string());
+                                total_lines_loaded += 1;
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        eof_reached = true;
+                    }
+                }
+            }
+        }
 
         FilePreview {
             path: path.to_string(),
@@ -1047,8 +1093,125 @@ impl App {
             type_description,
             is_text,
             lines,
+            first_line_number: 0,
+            total_lines_loaded,
+            file_offset,
+            eof_reached,
             scroll_offset: 0,
         }
+    }
+
+    /// Read the next chunk of lines from the file, appending to the deque.
+    /// Trims the front if the buffer exceeds MAX_BUFFER_LINES.
+    fn preview_load_more_lines(preview: &mut FilePreview) {
+        if preview.eof_reached || !preview.is_text {
+            return;
+        }
+
+        let Ok(mut f) = File::open(&preview.path) else {
+            preview.eof_reached = true;
+            return;
+        };
+        if f.seek(SeekFrom::Start(preview.file_offset)).is_err() {
+            preview.eof_reached = true;
+            return;
+        }
+
+        let mut reader = BufReader::with_capacity(CHUNK_BYTES, &mut f);
+        let mut bytes_read: u64 = 0;
+
+        loop {
+            let buf = match reader.fill_buf() {
+                Ok([]) => {
+                    preview.eof_reached = true;
+                    break;
+                }
+                Ok(buf) => buf,
+                Err(_) => {
+                    preview.eof_reached = true;
+                    break;
+                }
+            };
+
+            // Find lines within this buffer segment
+            if let Some(newline_pos) = buf.iter().position(|&b| b == b'\n') {
+                // We have a complete line
+                let line_bytes = &buf[..newline_pos];
+                let line = String::from_utf8_lossy(line_bytes).into_owned();
+                let consumed = newline_pos + 1; // include the newline
+                reader.consume(consumed);
+                bytes_read += consumed as u64;
+
+                preview.lines.push_back(line);
+                preview.total_lines_loaded += 1;
+
+                // Trim front if over budget
+                if preview.lines.len() > MAX_BUFFER_LINES {
+                    preview.lines.pop_front();
+                    preview.first_line_number += 1;
+                }
+
+                // Stop after reading ~CHUNK_BYTES
+                if bytes_read >= CHUNK_BYTES as u64 {
+                    break;
+                }
+            } else {
+                // No newline in buffer — could be a very long line or near EOF
+                let len = buf.len();
+                if len >= CHUNK_BYTES {
+                    // Very long line without newline — consume it all as one line
+                    let line = String::from_utf8_lossy(buf).into_owned();
+                    reader.consume(len);
+                    bytes_read += len as u64;
+
+                    preview.lines.push_back(line);
+                    preview.total_lines_loaded += 1;
+
+                    if preview.lines.len() > MAX_BUFFER_LINES {
+                        preview.lines.pop_front();
+                        preview.first_line_number += 1;
+                    }
+                    break;
+                } else {
+                    // Small remaining chunk with no newline — this is the last line (EOF)
+                    let line = String::from_utf8_lossy(buf).into_owned();
+                    reader.consume(len);
+                    bytes_read += len as u64;
+
+                    if !line.is_empty() {
+                        preview.lines.push_back(line);
+                        preview.total_lines_loaded += 1;
+
+                        if preview.lines.len() > MAX_BUFFER_LINES {
+                            preview.lines.pop_front();
+                            preview.first_line_number += 1;
+                        }
+                    }
+                    preview.eof_reached = true;
+                    break;
+                }
+            }
+        }
+
+        preview.file_offset += bytes_read;
+    }
+
+    /// Read forward in chunks until EOF, maintaining the sliding window.
+    fn preview_load_to_eof(preview: &mut FilePreview) {
+        while !preview.eof_reached {
+            Self::preview_load_more_lines(preview);
+        }
+    }
+
+    /// Reload the file preview from the beginning (for `g` after front eviction).
+    fn preview_reload_from_start(preview: &mut FilePreview) {
+        preview.lines.clear();
+        preview.first_line_number = 0;
+        preview.total_lines_loaded = 0;
+        preview.file_offset = 0;
+        preview.eof_reached = false;
+        preview.scroll_offset = 0;
+        Self::preview_load_more_lines(preview);
     }
 
     /// Move selection down in the active tree column and update preview.
@@ -1360,37 +1523,64 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     match key.code {
                         KeyCode::Char('j') | KeyCode::Down => {
                             if let Some(ref mut preview) = app.file_preview {
-                                if preview.scroll_offset + 1 < preview.lines.len() {
-                                    preview.scroll_offset += 1;
+                                preview.scroll_offset += 1;
+                                // Load more if we're near the end of loaded content
+                                let last_loaded = preview.first_line_number + preview.lines.len();
+                                if preview.scroll_offset + 40 >= last_loaded {
+                                    App::preview_load_more_lines(preview);
                                 }
+                                // Clamp to total loaded
+                                let max_offset = preview.total_lines_loaded.saturating_sub(1);
+                                preview.scroll_offset = preview.scroll_offset.min(max_offset);
                             }
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
                             if let Some(ref mut preview) = app.file_preview {
-                                preview.scroll_offset = preview.scroll_offset.saturating_sub(1);
+                                if preview.scroll_offset > 0 {
+                                    preview.scroll_offset -= 1;
+                                }
+                                // If scrolled before the buffer start, clamp
+                                if preview.scroll_offset < preview.first_line_number {
+                                    preview.scroll_offset = preview.first_line_number;
+                                }
                             }
                         }
                         KeyCode::Char('g') => {
                             if let Some(ref mut preview) = app.file_preview {
-                                preview.scroll_offset = 0;
+                                if preview.first_line_number > 0 {
+                                    // Front was evicted, reload from start
+                                    App::preview_reload_from_start(preview);
+                                } else {
+                                    preview.scroll_offset = 0;
+                                }
                             }
                         }
                         KeyCode::Char('G') => {
                             if let Some(ref mut preview) = app.file_preview {
-                                preview.scroll_offset = preview.lines.len().saturating_sub(1);
+                                App::preview_load_to_eof(preview);
+                                preview.scroll_offset = preview.total_lines_loaded.saturating_sub(1);
                             }
                         }
                         KeyCode::Char('d') => {
                             // Half-page down
                             if let Some(ref mut preview) = app.file_preview {
-                                preview.scroll_offset = (preview.scroll_offset + 20)
-                                    .min(preview.lines.len().saturating_sub(1));
+                                preview.scroll_offset += 20;
+                                // Load more if needed
+                                let last_loaded = preview.first_line_number + preview.lines.len();
+                                if preview.scroll_offset + 40 >= last_loaded && !preview.eof_reached {
+                                    App::preview_load_more_lines(preview);
+                                }
+                                let max_offset = preview.total_lines_loaded.saturating_sub(1);
+                                preview.scroll_offset = preview.scroll_offset.min(max_offset);
                             }
                         }
                         KeyCode::Char('u') => {
                             // Half-page up
                             if let Some(ref mut preview) = app.file_preview {
                                 preview.scroll_offset = preview.scroll_offset.saturating_sub(20);
+                                if preview.scroll_offset < preview.first_line_number {
+                                    preview.scroll_offset = preview.first_line_number;
+                                }
                             }
                         }
                         KeyCode::Esc | KeyCode::Left | KeyCode::Char('q') | KeyCode::Char(' ') => {
@@ -1784,22 +1974,26 @@ fn render_file_preview_pane(f: &mut Frame, app: &App, area: Rect) {
     text_lines.push(Line::from(""));
 
     if preview.is_text && !preview.lines.is_empty() {
-        // Show text content starting at scroll_offset
+        // Translate global scroll_offset to deque index
         let content_height = inner_height.saturating_sub(text_lines.len());
-        let start = preview.scroll_offset;
-        let end = (start + content_height).min(preview.lines.len());
+        let global_start = preview.scroll_offset.max(preview.first_line_number);
+        let deque_start = global_start - preview.first_line_number;
+        let deque_end = (deque_start + content_height).min(preview.lines.len());
 
-        for line in &preview.lines[start..end] {
-            text_lines.push(Line::from(Span::raw(format!("  {}", line))));
+        for i in deque_start..deque_end {
+            text_lines.push(Line::from(Span::raw(format!("  {}", &preview.lines[i]))));
         }
 
-        // Scroll indicator
-        if preview.lines.len() > content_height {
-            let pct = if preview.lines.len() <= 1 { 100 } else {
-                (start * 100) / (preview.lines.len().saturating_sub(content_height))
+        // Scroll indicator with global position and EOF status
+        let eof_indicator = if preview.eof_reached { "EOF" } else { "..." };
+        let total = preview.total_lines_loaded;
+        if total > content_height {
+            let max_scroll = total.saturating_sub(content_height);
+            let pct = if max_scroll == 0 { 100 } else {
+                (global_start * 100) / max_scroll
             };
             text_lines.push(Line::from(Span::styled(
-                format!("  ── {}% ({}/{} lines) ──", pct.min(100), start + 1, preview.lines.len()),
+                format!("  ── {}% ({}/{} lines) ({}) ──", pct.min(100), global_start + 1, total, eof_indicator),
                 Style::default().fg(Color::DarkGray),
             )));
         }
