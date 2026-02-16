@@ -673,6 +673,18 @@ impl App {
         };
         self.list_state.select(Some(i));
     }
+
+    fn select_first(&mut self) {
+        if !self.entries.is_empty() {
+            self.list_state.select(Some(0));
+        }
+    }
+
+    fn select_last(&mut self) {
+        if !self.entries.is_empty() {
+            self.list_state.select(Some(self.entries.len() - 1));
+        }
+    }
     
     fn enter_selected(&mut self) -> Result<()> {
         let Some(idx) = self.list_state.selected() else {
@@ -1216,6 +1228,30 @@ impl App {
         self.tree_update_preview()
     }
 
+    /// Jump to the first entry in the active tree column.
+    fn tree_select_first(&mut self) -> Result<()> {
+        if self.columns.is_empty() {
+            return Ok(());
+        }
+        let col = &mut self.columns[self.active_column];
+        if !col.entries.is_empty() {
+            col.list_state.select(Some(0));
+        }
+        self.tree_update_preview()
+    }
+
+    /// Jump to the last entry in the active tree column.
+    fn tree_select_last(&mut self) -> Result<()> {
+        if self.columns.is_empty() {
+            return Ok(());
+        }
+        let col = &mut self.columns[self.active_column];
+        if !col.entries.is_empty() {
+            col.list_state.select(Some(col.entries.len() - 1));
+        }
+        self.tree_update_preview()
+    }
+
     /// Move focus right into the preview column.
     fn tree_right(&mut self) -> Result<()> {
         if self.active_column + 1 < self.columns.len() {
@@ -1587,6 +1623,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                         ViewMode::List => match key.code {
                             KeyCode::Down | KeyCode::Char('j') => app.select_next(),
                             KeyCode::Up | KeyCode::Char('k') => app.select_prev(),
+                            KeyCode::Char('g') => app.select_first(),
+                            KeyCode::Char('G') => app.select_last(),
                             KeyCode::Enter | KeyCode::Right | KeyCode::Char(' ') => {
                                 if let Err(e) = app.enter_selected() {
                                     app.status = format!("Error: {}", e);
@@ -1607,6 +1645,16 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                             }
                             KeyCode::Up | KeyCode::Char('k') => {
                                 if let Err(e) = app.tree_select_prev() {
+                                    app.status = format!("Error: {}", e);
+                                }
+                            }
+                            KeyCode::Char('g') => {
+                                if let Err(e) = app.tree_select_first() {
+                                    app.status = format!("Error: {}", e);
+                                }
+                            }
+                            KeyCode::Char('G') => {
+                                if let Err(e) = app.tree_select_last() {
                                     app.status = format!("Error: {}", e);
                                 }
                             }
