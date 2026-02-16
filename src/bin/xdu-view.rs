@@ -17,7 +17,7 @@ use crossterm::{
 use duckdb::Connection;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
 use xdu::{format_bytes, parse_size, QueryFilters, SortMode};
@@ -2214,6 +2214,11 @@ fn render_tree_content(f: &mut Frame, app: &App, area: Rect) {
 
 /// Render the file preview pane (rightmost slot when a file is selected).
 fn render_file_preview_pane(f: &mut Frame, app: &App, area: Rect) {
+    // Clear stale content from previous preview before rendering new content.
+    // Without this, rows below the last text line can retain old characters
+    // because Paragraph only writes cells for its actual lines.
+    f.render_widget(Clear, area);
+
     let Some(ref preview) = app.file_preview else {
         // Empty placeholder pane
         let block = Block::default()
