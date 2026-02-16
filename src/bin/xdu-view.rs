@@ -414,6 +414,52 @@ enum ViewMode {
     Tree,
 }
 
+/// Strip ANSI escape sequences (CSI, OSC, and single-byte ESC sequences) from a string.
+/// Raw escapes corrupt ratatui's cell-width accounting and can bleed into other panes.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1B' {
+            match chars.peek() {
+                // CSI sequence: ESC [ ... final_byte
+                Some('[') => {
+                    chars.next();
+                    // Consume parameter bytes (0x30-0x3F), intermediate bytes (0x20-0x2F),
+                    // then the final byte (0x40-0x7E)
+                    while let Some(&ch) = chars.peek() {
+                        if ('\x40'..='\x7E').contains(&ch) {
+                            chars.next(); // consume final byte
+                            break;
+                        }
+                        chars.next();
+                    }
+                }
+                // OSC sequence: ESC ] ... ST (ST = ESC \ or BEL)
+                Some(']') => {
+                    chars.next();
+                    while let Some(ch) = chars.next() {
+                        if ch == '\x07' { break; } // BEL terminator
+                        if ch == '\x1B' {
+                            if chars.peek() == Some(&'\\') {
+                                chars.next(); // consume \
+                            }
+                            break;
+                        }
+                    }
+                }
+                // Two-byte ESC sequence: ESC + one character
+                Some(_) => { chars.next(); }
+                // Bare ESC at end of string
+                None => {}
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Maximum lines to keep in the sliding window buffer.
 const MAX_BUFFER_LINES: usize = 100_000;
 /// Chunk size for streaming reads (64KB).
@@ -1358,7 +1404,7 @@ impl App {
                                     file_offset -= line.len() as u64;
                                     break;
                                 }
-                                lines.push_back(line.to_string());
+                                lines.push_back(strip_ansi(line));
                                 total_lines_loaded += 1;
                             }
                         }
@@ -1424,7 +1470,7 @@ impl App {
                         }
                     }
 
-                    preview.lines.push_back(line_buf.clone());
+                    preview.lines.push_back(strip_ansi(&line_buf));
                     preview.total_lines_loaded += 1;
 
                     // Trim front if over budget
