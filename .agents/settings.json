@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build *)",
+      "Bash(cargo test *)",
+      "Bash(cargo clippy *)",
+      "Bash(cargo fmt *)",
+      "Bash(cargo run *)",
+      "Bash(cargo update *)",
+      "Bash(cargo doc *)",
+      "Bash(uv run --with pyyaml python .agents/factory/bin/*)",
+      "Bash(.agents/factory/bin/temp_index.sh *)",
+      "Bash(scdoc *)",
+      "Bash(gh run *)",
+      "Bash(gh release view *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr status *)",
+      "Bash(curl *)",
+      "Bash(tar tzf *)",
+      "Bash(sha256sum *)",
+      "Bash(shasum *)",
+      "Bash(git status *)",
+      "Bash(git branch *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git show *)",
+      "Bash(git rev-parse *)",
+      "Bash(git ls-files *)",
+      "Bash(git ls-tree *)",
+      "Bash(git fetch *)",
+      "Bash(git tag -l *)",
+      "Bash(seq *)",
+      "Bash(ls *)",
+      "Bash(head *)",
+      "Bash(tail *)"
+    ]
+  }
+}

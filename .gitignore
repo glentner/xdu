@@ -1,1 +1,6 @@
 /target
+# Generated release artifacts (man pages via scdoc + shell completions via gen-completions).
+# Authored source is doc/*.scd + src/cli.rs; share/ is rebuilt in CI and by xdu-release.
+/share/
+# Python bytecode cache from the factory FSM scripts (.agents/factory/bin/*.py under uv).
+__pycache__/
