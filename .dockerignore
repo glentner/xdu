@@ -1,0 +1,18 @@
+# Keep the Docker build context small and reproducible: only Cargo.toml/Cargo.lock/src +
+# rust-toolchain.toml are needed by the build stage (see Dockerfile). Everything else is noise.
+/target
+/share
+.git
+.github
+.agents
+.claude
+spec
+doc
+tests
+*.md
+build.sh
+cruft.sh
+install.sh
+Dockerfile
+.dockerignore
+.gitignore

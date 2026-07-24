@@ -1,0 +1,11 @@
+# Single source of truth for the Rust toolchain used to build, lint, and test xdu.
+# Both local `cargo`/`rustup` and CI (dtolnay/rust-toolchain reads this file) resolve the
+# toolchain from here — do not pass a `+toolchain` override or an action `toolchain:` input
+# on the side, or CI and local builds can silently diverge.
+#
+# edition 2024 + let-chains require Rust >= 1.88; `stable` satisfies this. If the pinned
+# stable ever regresses the crate, verify compilation on the intended stable separately
+# before changing this channel.
+[toolchain]
+channel = "stable"
+components = ["clippy", "rustfmt"]

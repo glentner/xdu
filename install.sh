@@ -144,6 +144,37 @@ main() {
         error "Failed to download ${DOWNLOAD_URL}"
     fi
 
+    # Verify the download against SHA256SUMS from the same release BEFORE extracting.
+    # Every release publishes a single SHA256SUMS covering all tarballs; abort on any
+    # mismatch (or if it cannot be fetched/verified) rather than extract untrusted bytes.
+    SUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
+    SUMS_PATH="${TMPDIR}/SHA256SUMS"
+
+    info "Downloading checksums ${SUMS_URL}"
+    if ! download "$SUMS_URL" "$SUMS_PATH"; then
+        error "Failed to download checksums ${SUMS_URL}"
+    fi
+
+    # Reduce SHA256SUMS to just our archive's line so the verify tool checks only it.
+    EXPECTED_PATH="${TMPDIR}/SHA256SUMS.expected"
+    if ! grep "${ARCHIVE_NAME}$" "$SUMS_PATH" > "$EXPECTED_PATH"; then
+        error "No checksum listed for ${ARCHIVE_NAME} in SHA256SUMS"
+    fi
+
+    info "Verifying checksum for ${ARCHIVE_NAME}"
+    # -c reads filenames relative to CWD; the archive and the reduced sums file share TMPDIR.
+    (
+        cd "$TMPDIR"
+        if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum -c "SHA256SUMS.expected"
+        elif command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 -c "SHA256SUMS.expected"
+        else
+            error "Neither sha256sum nor shasum found. Cannot verify download."
+        fi
+    ) || error "Checksum verification failed for ${ARCHIVE_NAME}"
+    success "Checksum verified"
+
     info "Extracting archive"
     tar -xzf "$ARCHIVE_PATH" -C "$TMPDIR"
 

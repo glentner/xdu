@@ -1,4 +1,4 @@
-name: CI
+name: Tests
 
 on:
   push:
@@ -6,42 +6,131 @@ on:
   pull_request:
     branches: [main]
 
+# Restrict the default GITHUB_TOKEN: nothing here needs more than repository read.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR) to save CI minutes.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-
+  # Format + lint gates run once (host-independent): fmt is deterministic and clippy denies
+  # all warnings, so a single Linux runner is enough.
+  lint:
+    name: Lint (fmt + clippy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          components: clippy
+          persist-credentials: false
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master pinned 2026-07-24 (reads rust-toolchain.toml)
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Format check
+        run: cargo fmt --all -- --check
 
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Build
-        run: cargo build --verbose
+  # Build + test on every supported host (Linux + macOS); fail-fast off so one host's
+  # failure still reports the other. RUSTFLAGS -D warnings turns any build warning into an
+  # error here too (clippy's -D warnings does not cover a plain `cargo build`).
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
-      - name: Run tests
-        run: cargo test --verbose
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master pinned 2026-07-24 (reads rust-toolchain.toml)
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Build
+        run: cargo build --locked --all-features
+
+      - name: Test
+        run: cargo test --locked --all-features
+
+  # Mirrors HyperShell's packaging-metadata job: regenerate the shipped artifacts and fail
+  # if any are missing. Because man pages come from doc/*.scd and completions come from
+  # src/cli.rs, this catches CLI <-> doc/scd drift at PR time (a new/renamed binary or a
+  # dropped man page shows up as a missing artifact).
+  packaging:
+    name: Packaging (man + completions generate)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master pinned 2026-07-24 (reads rust-toolchain.toml)
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Install scdoc
+        run: sudo apt-get update && sudo apt-get install -y scdoc
+
+      - name: Render man pages (doc/*.scd -> share/man/man1/*.1)
+        run: |
+          mkdir -p share/man/man1
+          for scd in doc/*.scd; do
+            name=$(basename "$scd" .1.scd)
+            scdoc < "$scd" > "share/man/man1/${name}.1"
+          done
+
+      - name: Generate shell completions
+        run: |
+          cargo build --release --locked --bin gen-completions
+          mkdir -p share/bash-completion/completions share/zsh/site-functions
+          ./target/release/gen-completions share/bash-completion/completions share/zsh/site-functions
+
+      - name: Assert all man pages + completions were produced
+        run: |
+          set -eu
+          missing=""
+          for f in \
+            share/man/man1/xdu.1 \
+            share/man/man1/xdu-find.1 \
+            share/man/man1/xdu-view.1 \
+            share/man/man1/xdu-rm.1 \
+            share/bash-completion/completions/xdu.bash \
+            share/bash-completion/completions/xdu-find.bash \
+            share/bash-completion/completions/xdu-view.bash \
+            share/bash-completion/completions/xdu-rm.bash \
+            share/zsh/site-functions/_xdu \
+            share/zsh/site-functions/_xdu-find \
+            share/zsh/site-functions/_xdu-view \
+            share/zsh/site-functions/_xdu-rm; do
+            if [ ! -s "$f" ]; then
+              missing="${missing} ${f}"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "MISSING generated packaging artifacts:${missing}" >&2
+            exit 1
+          fi
+          echo "OK: all four man pages and all bash+zsh completions present"

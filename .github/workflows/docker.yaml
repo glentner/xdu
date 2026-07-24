@@ -1,85 +1,249 @@
-name: Docker
+name: Publish Image
+
+# Build and publish the multi-arch container image to the GitHub Container Registry on every
+# release. Strategy is the 2026 best practice: build each architecture on its OWN native
+# runner (no QEMU emulation), push each by digest, then a merge job assembles the manifest
+# list with `docker buildx imagetools create`. The published index is then signed and gets a
+# SLSA build-provenance attestation.
+#
+# Platforms are linux/amd64 + linux/arm64 ONLY. The image compiles the four xdu Rust binaries
+# from source, and the bundled DuckDB C++ (the `duckdb` crate `bundled` feature) is a heavy
+# C++ build — QEMU-emulating a foreign arch would push each build well past the runner timeout,
+# hence the native per-arch split. Those are the only two Linux arches GitHub offers native
+# runners for; any other target would force cross-compilation or emulation back into the build.
+
+# Least privilege by default; jobs that push/sign elevate their own scopes below.
+permissions:
+  contents: read
 
 on:
   release:
-    types: [created]
-  # Manual trigger for testing
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Version tag to simulate (e.g., v0.1.1)'
-        required: true
-        default: 'v0.0.0-test'
+    types: [published]          # fires for stable AND prereleases, including releases
+                                # published from a draft (the `created` type SKIPS that)
+  workflow_dispatch:            # manual run from the Actions tab (publishes only sha-<short>
+                                # when dispatched from a branch — no semver ref to extract)
+  pull_request:                 # build-only guardrail: prove the Dockerfile still builds on
+    paths:                      # BOTH arches before a release, without pushing anything
+      - Dockerfile
+      - .dockerignore
+      - .github/workflows/docker.yaml
+      - Cargo.toml
+      - Cargo.lock
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ github.repository }}    # glentner/xdu (already lowercase)
 
-permissions:
-  contents: read
-  packages: write
+concurrency:
+  group: docker-${{ github.ref }}
+  # Never interrupt an in-flight release publish (a half-pushed manifest list is bad); do
+  # cancel superseded PR runs to save the (billed elsewhere, but finite) arm64 runner minutes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
-    name: Build and Push
-    runs-on: ubuntu-latest
-
+  # ---------------------------------------------------------------------------------------
+  # PR guardrail: build both arches natively without pushing. This is what surfaces an
+  # arch-specific failure — e.g. the bundled DuckDB C++ failing to compile on arm64, or a
+  # Cargo.lock that won't resolve for one target — at PR time (the whole reason the arch
+  # split exists) instead of mid-release.
+  # ---------------------------------------------------------------------------------------
+  validate:
+    name: Validate build (${{ matrix.platform }})
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Build (no push)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+  # ---------------------------------------------------------------------------------------
+  # Release/dispatch: build each arch on its native runner and push by digest (untagged).
+  # ---------------------------------------------------------------------------------------
+  build:
+    name: Build & push by digest (${{ matrix.platform }})
+    if: github.event_name != 'pull_request'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write             # push image blobs to ghcr via GITHUB_TOKEN
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Compute platform slug
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+
+      # Labels only here (per-arch child config). Tags/annotations are applied on the index
+      # in the merge job, so this step intentionally sets no `tags:`.
+      - name: Docker metadata (labels)
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from tag
-        id: version
-        run: |
-          # Use input tag for workflow_dispatch, otherwise use release tag
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag }}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-          fi
-          VERSION=${TAG#v}
-          MAJOR=$(echo $VERSION | cut -d. -f1)
-          MINOR=$(echo $VERSION | cut -d. -f2)
-          PATCH=$(echo $VERSION | cut -d. -f3)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "major=$MAJOR" >> $GITHUB_OUTPUT
-          echo "minor=$MINOR" >> $GITHUB_OUTPUT
-          echo "patch=$PATCH" >> $GITHUB_OUTPUT
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - name: Generate Docker metadata
+      # provenance/sbom OFF: BuildKit attestations would wrap each per-arch push in its own
+      # image index (with an unknown/unknown entry), which `imagetools create` would then nest
+      # and which would confuse cosign --recursive / gh attestation verify. The authoritative,
+      # signed provenance is produced on the final index by the merge job instead.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+
+      # The layers already live in the registry; the artifact only ferries the digest (as an
+      # empty file named by the digest) to the merge job.
+      - name: Export digest
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true            # tolerate a job re-run without an artifact-name collision
+
+  # ---------------------------------------------------------------------------------------
+  # Assemble the manifest list from the per-arch digests, then attest + sign the index.
+  # ---------------------------------------------------------------------------------------
+  merge:
+    name: Merge manifest, attest & sign
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write             # push the manifest list + cosign signature
+      id-token: write             # OIDC token for keyless cosign + provenance attestation
+      attestations: write         # write the signed SLSA provenance to the attestation store
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      # Full tag set for the index. type=semver derives the tags from the git tag on a release
+      # event; metadata-action suppresses {{major}}.{{minor}}, {{major}}, and :latest for a
+      # semver prerelease (e.g. v1.2.3-rc1 → only 1.2.3 + sha-<short>). `latest=auto` likewise
+      # keeps a branch workflow_dispatch (no semver ref, so a v0.0.0-test-style manual run)
+      # from clobbering :latest — such a dispatch publishes only sha-<short>.
+      - name: Docker metadata (tags + annotations)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # latest
-            type=raw,value=latest
-            # full version: 1.2.3
-            type=raw,value=${{ steps.version.outputs.version }}
-            # major.minor: 1.2
-            type=raw,value=${{ steps.version.outputs.major }}.${{ steps.version.outputs.minor }}
-            # major only: 1
-            type=raw,value=${{ steps.version.outputs.major }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+          flavor: |
+            latest=auto
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
 
-      - name: Build and push
-        uses: docker/build-push-action@v5
+      # `imagetools create` reads tags but NOT annotations from the metadata JSON, so the
+      # annotations are passed explicitly. readarray survives spaces in values (e.g. the
+      # image description).
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          readarray -t ANNOTATIONS < <(jq -cr '.annotations[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            "${ANNOTATIONS[@]/#/--annotation=}" \
+            $(printf "${REGISTRY}/${IMAGE_NAME}@sha256:%s " *)
+
+      - name: Inspect and capture index digest
+        id: digest
+        run: |
+          docker buildx imagetools inspect "${REGISTRY}/${IMAGE_NAME}:${{ steps.meta.outputs.version }}"
+          digest=$(docker buildx imagetools inspect \
+            "${REGISTRY}/${IMAGE_NAME}:${{ steps.meta.outputs.version }}" \
+            --format '{{.Manifest.Digest}}')
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      # GitHub-native, Rekor-logged SLSA provenance on the index digest. Verify with:
+      #   gh attestation verify oci://ghcr.io/glentner/xdu:<tag> -R glentner/xdu
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          push-to-registry: true
+
+      # Keyless cosign signature (OIDC → Fulcio → Rekor); --recursive covers the index and
+      # each per-arch child. cosign 3.x — keyless is default, no COSIGN_EXPERIMENTAL. Verify:
+      #   cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      #     --certificate-identity-regexp 'https://github.com/glentner/xdu/.*' \
+      #     ghcr.io/glentner/xdu@<digest>
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign the published image (keyless)
+        run: cosign sign --yes --recursive "${REGISTRY}/${IMAGE_NAME}@${{ steps.digest.outputs.digest }}"
