@@ -1,30 +1,33 @@
 ---
 slug: rm-limit-deterministic-order
-title: "Make xdu-rm --limit selection deterministic"
+title: Make xdu-rm --limit selection deterministic
 kind: fix
 appetite: small
-status: in_progress
+status: in_review
 branch: fix/rm-limit-deterministic-order
 base: main
-current_phase: P1
-last_updated: "2026-07-28"
+current_phase: done
+last_updated: '2026-07-28'
 phases:
-  - id: P1
-    name: "Deterministic ORDER BY for --limit (lib helper + wire-in + docs + tests)"
-    status: pending
-    satisfies: [R1, R2, R3, R4]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test"
+- id: P1
+  name: Deterministic ORDER BY for --limit (lib helper + wire-in + docs + tests)
+  status: done
+  satisfies:
+  - R1
+  - R2
+  - R3
+  - R4
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Make xdu-rm --limit selection deterministic
 
 The **context engine and finite-state machine** for building this fix. The YAML frontmatter above is
@@ -53,18 +56,18 @@ the per-phase checklist below is the work.
 `--dry-run` preview exactly equals the subsequent real deletion. One end-to-end vertical slice: the
 shared rule, the wire-in, the docs, and the tests that prove it.
 
-- [ ] Add `pub fn deterministic_limit_clause(limit: Option<usize>) -> String` to `src/lib.rs` —
+- [x] Add `pub fn deterministic_limit_clause(limit: Option<usize>) -> String` to `src/lib.rs` —
       returns `"ORDER BY path LIMIT {n}"` for `Some(n)`, `""` for `None`. Declarative comment stating
       *why* (bare `LIMIT` is non-deterministic; `path` is the unique key) — **no `R#`/`P#` ids in the
       comment** (invariant §13).
-- [ ] Add unit tests in `src/lib.rs` `#[cfg(test)]`: `None → ""`, `Some(5) → "ORDER BY path LIMIT 5"`.
-- [ ] In `src/bin/xdu-rm.rs`, replace the bare `limit_clause` block (lines ~58-68) with a call to
+- [x] Add unit tests in `src/lib.rs` `#[cfg(test)]`: `None → ""`, `Some(5) → "ORDER BY path LIMIT 5"`.
+- [x] In `src/bin/xdu-rm.rs`, replace the bare `limit_clause` block (lines ~58-68) with a call to
       `xdu::deterministic_limit_clause(args.limit)`; add it to the `use xdu::{…}` import. Leave the
       dry-run / confirm / `--force` / `--safe` / parallel-unlink paths untouched.
-- [ ] Update `doc/xdu-rm.1.scd` (the `-l, --limit` entry, ~lines 47-48): document that the N
+- [x] Update `doc/xdu-rm.1.scd` (the `-l, --limit` entry, ~lines 47-48): document that the N
       lexicographically-smallest paths are selected and that this makes `--dry-run` an exact preview
       of the real run.
-- [ ] Add/strengthen an integration test in `tests/rm_tests.rs` driving the real binaries: create ≥5
+- [x] Add/strengthen an integration test in `tests/rm_tests.rs` driving the real binaries: create ≥5
       known-named files in one partition; assert `--dry-run --limit 3` is (a) stable across two runs
       (R1) and (b) equals the 3 lexicographically-smallest paths (R3); then `--limit 3 --force` and
       assert exactly those 3 are gone, the rest remain (R2). Confirm an existing no-limit test still

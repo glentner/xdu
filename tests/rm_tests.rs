@@ -369,6 +369,53 @@ fn test_limit_option() {
 }
 
 // =============================================================================
+// Test: --limit selects a deterministic, stable set (dry-run == real run)
+// =============================================================================
+
+#[test]
+fn test_limit_deterministic_selection() {
+    let temp_dir = TempDir::new().unwrap();
+    let source = temp_dir.path().join("source");
+    let index = temp_dir.path().join("index");
+
+    // Five files with an unambiguous lexicographic order.
+    fs::create_dir_all(source.join("user1")).unwrap();
+    for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"] {
+        create_test_file(&source.join("user1").join(name), 100).unwrap();
+    }
+
+    build_index(&source, &index).unwrap();
+
+    // Two dry-runs with --limit 3 must produce byte-identical output (R1).
+    let (out1, _e1, ok1) =
+        run_xdu_rm(&["-i", index.to_str().unwrap(), "--limit", "3", "--dry-run"]).unwrap();
+    let (out2, _e2, ok2) =
+        run_xdu_rm(&["-i", index.to_str().unwrap(), "--limit", "3", "--dry-run"]).unwrap();
+    assert!(ok1 && ok2);
+    assert_eq!(out1, out2, "two --dry-run --limit runs diverged");
+
+    // The three lexicographically-smallest paths are selected (R3).
+    assert!(out1.contains("a.txt"));
+    assert!(out1.contains("b.txt"));
+    assert!(out1.contains("c.txt"));
+    assert!(!out1.contains("d.txt"));
+    assert!(!out1.contains("e.txt"));
+    assert!(out1.contains("3 file(s) would be deleted"));
+
+    // The real run deletes exactly what the dry-run previewed (R2).
+    let (out3, _e3, ok3) =
+        run_xdu_rm(&["-i", index.to_str().unwrap(), "--limit", "3", "--force"]).unwrap();
+    assert!(ok3);
+    assert!(out3.contains("Deleted: 3"));
+
+    assert!(!source.join("user1/a.txt").exists());
+    assert!(!source.join("user1/b.txt").exists());
+    assert!(!source.join("user1/c.txt").exists());
+    assert!(source.join("user1/d.txt").exists());
+    assert!(source.join("user1/e.txt").exists());
+}
+
+// =============================================================================
 // Test: Safe mode protects recently accessed files (CRITICAL TEST)
 // =============================================================================
 

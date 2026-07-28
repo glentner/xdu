@@ -45,7 +45,9 @@ be deleted without removing anything.
 	Delete only files accessed within _DAYS_ days.
 
 *-l*, *--limit* _N_
-	Limit the number of files to delete.
+	Delete at most _N_ files, selecting the _N_ whose paths sort first in
+	ascending lexicographic order. The selection is deterministic, so a
+	*--dry-run* preview lists exactly the files a subsequent real run deletes.
 
 *-n*, *--dry-run*
 	Show what would be deleted without actually deleting anything.
