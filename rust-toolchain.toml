@@ -3,9 +3,12 @@
 # toolchain from here — do not pass a `+toolchain` override or an action `toolchain:` input
 # on the side, or CI and local builds can silently diverge.
 #
-# edition 2024 + let-chains require Rust >= 1.88; `stable` satisfies this. If the pinned
-# stable ever regresses the crate, verify compilation on the intended stable separately
-# before changing this channel.
+# Pinned to an EXACT version, not `stable`: CI denies all warnings (clippy `-D warnings` and
+# RUSTFLAGS `-D warnings`), so a floating `stable` would break the build for unchanged code
+# every time a new Rust release adds a lint or nudges the rustfmt style. Pinning freezes the
+# lint/format set and makes builds reproducible. Upgrading is a DELIBERATE PR: bump this
+# version, then run `cargo fmt --all` + `cargo clippy --fix` and resolve any new lints in the
+# same change. edition 2024 + let-chains require Rust >= 1.88.
 [toolchain]
-channel = "stable"
+channel = "1.97.1"
 components = ["clippy", "rustfmt"]
