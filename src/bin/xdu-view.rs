@@ -3,16 +3,16 @@
 
 use std::collections::VecDeque;
 use std::fs::File;
-use std::io::{stdout, BufRead, BufReader, Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, stdout};
 use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
+    event::{self, Event, KeyCode, KeyEventKind},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use duckdb::Connection;
 use ratatui::{
@@ -20,7 +20,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
-use xdu::{format_bytes, parse_size, QueryFilters, SortMode};
+use xdu::{QueryFilters, SortMode, format_bytes, parse_size};
 
 /// Detect file type from magic bytes, shebangs, text content, and extension.
 ///
@@ -59,8 +59,10 @@ fn detect_file_type(sniff_buf: &[u8], file_path: &str) -> (String, bool) {
     // Mach-O enrichment (infer may not detect all variants)
     if sniff_buf.len() >= 8 {
         let magic = &sniff_buf[..4];
-        if magic == b"\xCF\xFA\xED\xFE" || magic == b"\xFE\xED\xFA\xCF"
-            || magic == b"\xCE\xFA\xED\xFE" || magic == b"\xFE\xED\xFA\xCE"
+        if magic == b"\xCF\xFA\xED\xFE"
+            || magic == b"\xFE\xED\xFA\xCF"
+            || magic == b"\xCE\xFA\xED\xFE"
+            || magic == b"\xFE\xED\xFA\xCE"
         {
             if let Some(desc) = describe_macho(sniff_buf) {
                 return (desc, false);
@@ -160,10 +162,10 @@ fn describe_macho(buf: &[u8]) -> Option<String> {
     }
     let magic = &buf[..4];
     let (class, le) = match magic {
-        b"\xCF\xFA\xED\xFE" => ("64-bit", true),   // MH_MAGIC_64 (LE)
-        b"\xFE\xED\xFA\xCF" => ("64-bit", false),  // MH_MAGIC_64 (BE)
-        b"\xCE\xFA\xED\xFE" => ("32-bit", true),   // MH_MAGIC (LE)
-        b"\xFE\xED\xFA\xCE" => ("32-bit", false),  // MH_MAGIC (BE)
+        b"\xCF\xFA\xED\xFE" => ("64-bit", true),  // MH_MAGIC_64 (LE)
+        b"\xFE\xED\xFA\xCF" => ("64-bit", false), // MH_MAGIC_64 (BE)
+        b"\xCE\xFA\xED\xFE" => ("32-bit", true),  // MH_MAGIC (LE)
+        b"\xFE\xED\xFA\xCE" => ("32-bit", false), // MH_MAGIC (BE)
         _ => return None,
     };
     let cpu_type = if le {
@@ -172,12 +174,12 @@ fn describe_macho(buf: &[u8]) -> Option<String> {
         u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]])
     };
     let arch = match cpu_type {
-        7 => "x86",                     // CPU_TYPE_X86
-        0x0100_0007 => "x86-64",        // CPU_TYPE_X86_64
-        12 => "ARM",                    // CPU_TYPE_ARM
-        0x0100_000C => "ARM64",         // CPU_TYPE_ARM64
-        18 => "PowerPC",                // CPU_TYPE_POWERPC
-        0x0100_0012 => "PowerPC64",     // CPU_TYPE_POWERPC64
+        7 => "x86",                 // CPU_TYPE_X86
+        0x0100_0007 => "x86-64",    // CPU_TYPE_X86_64
+        12 => "ARM",                // CPU_TYPE_ARM
+        0x0100_000C => "ARM64",     // CPU_TYPE_ARM64
+        18 => "PowerPC",            // CPU_TYPE_POWERPC
+        0x0100_0012 => "PowerPC64", // CPU_TYPE_POWERPC64
         _ => "unknown-arch",
     };
     // file_type at offset 12 (4 bytes)
@@ -207,7 +209,10 @@ fn describe_macho(buf: &[u8]) -> Option<String> {
 /// Parse a shebang line to identify the script type.
 fn describe_shebang(buf: &[u8]) -> Option<String> {
     // Find the end of the first line
-    let end = buf.iter().position(|&b| b == b'\n').unwrap_or(buf.len().min(256));
+    let end = buf
+        .iter()
+        .position(|&b| b == b'\n')
+        .unwrap_or(buf.len().min(256));
     let line = std::str::from_utf8(&buf[2..end]).ok()?.trim();
     if line.is_empty() {
         return None;
@@ -218,10 +223,7 @@ fn describe_shebang(buf: &[u8]) -> Option<String> {
         line.split_whitespace().last()?
     } else {
         // "/usr/bin/perl" -> "perl", "/bin/bash" -> "bash"
-        line.split_whitespace()
-            .next()?
-            .rsplit('/')
-            .next()?
+        line.split_whitespace().next()?.rsplit('/').next()?
     };
 
     let desc = match interpreter {
@@ -396,7 +398,9 @@ fn strip_ansi(s: &str) -> String {
                 Some(']') => {
                     chars.next();
                     while let Some(ch) = chars.next() {
-                        if ch == '\x07' { break; } // BEL terminator
+                        if ch == '\x07' {
+                            break;
+                        } // BEL terminator
                         if ch == '\x1B' {
                             if chars.peek() == Some(&'\\') {
                                 chars.next(); // consume \
@@ -406,7 +410,9 @@ fn strip_ansi(s: &str) -> String {
                     }
                 }
                 // Two-byte ESC sequence: ESC + one character
-                Some(_) => { chars.next(); }
+                Some(_) => {
+                    chars.next();
+                }
                 // Bare ESC at end of string
                 None => {}
             }
@@ -471,25 +477,25 @@ struct Column {
 struct App {
     conn: Connection,
     index_path: PathBuf,
-    
+
     /// Current absolute path prefix (the root path for the current partition)
     partition_root: String,
-    
+
     /// Current directory path (absolute, empty = partition list)
     current_path: String,
-    
+
     /// Current partition being viewed (None = viewing partition list)
     current_partition: Option<String>,
-    
+
     /// Entries in the current view
     entries: Vec<DirEntry>,
-    
+
     /// List selection state
     list_state: ListState,
-    
+
     /// Whether we're currently loading
     loading: bool,
-    
+
     /// Status message
     status: String,
 
@@ -553,21 +559,21 @@ impl App {
             file_preview: None,
             preview_focused: false,
         };
-        
+
         if let Some(partition) = initial_partition {
             app.current_partition = Some(partition);
             app.load_directory()?;
         } else {
             app.load_partitions()?;
         }
-        
+
         if !app.entries.is_empty() {
             app.list_state.select(Some(0));
         }
-        
+
         Ok(app)
     }
-    
+
     /// Query individual files from the __root__ partition.
     /// Returns DirEntry items with is_dir=false and file_count=1.
     fn query_root_files(&self) -> Result<Vec<DirEntry>> {
@@ -617,17 +623,14 @@ impl App {
         match sort_mode {
             SortMode::Name => {
                 // Directories first, then alphabetical by name
-                entries.sort_by(|a, b| {
-                    b.is_dir.cmp(&a.is_dir)
-                        .then_with(|| a.name.cmp(&b.name))
-                });
+                entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
             }
-            SortMode::SizeDesc => entries.sort_by(|a, b| b.total_size.cmp(&a.total_size)),
-            SortMode::SizeAsc => entries.sort_by(|a, b| a.total_size.cmp(&b.total_size)),
-            SortMode::CountDesc => entries.sort_by(|a, b| b.file_count.cmp(&a.file_count)),
-            SortMode::CountAsc => entries.sort_by(|a, b| a.file_count.cmp(&b.file_count)),
-            SortMode::AgeDesc => entries.sort_by(|a, b| a.latest_atime.cmp(&b.latest_atime)), // oldest first
-            SortMode::AgeAsc => entries.sort_by(|a, b| b.latest_atime.cmp(&a.latest_atime)),  // newest first
+            SortMode::SizeDesc => entries.sort_by_key(|a| std::cmp::Reverse(a.total_size)),
+            SortMode::SizeAsc => entries.sort_by_key(|a| a.total_size),
+            SortMode::CountDesc => entries.sort_by_key(|a| std::cmp::Reverse(a.file_count)),
+            SortMode::CountAsc => entries.sort_by_key(|a| a.file_count),
+            SortMode::AgeDesc => entries.sort_by_key(|a| a.latest_atime), // oldest first
+            SortMode::AgeAsc => entries.sort_by_key(|a| std::cmp::Reverse(a.latest_atime)), // newest first
         }
     }
 
@@ -635,21 +638,24 @@ impl App {
     fn load_partitions(&mut self) -> Result<()> {
         self.loading = true;
         let start = Instant::now();
-        
+
         // Use DuckDB's hive partitioning to get partition names directly from directory structure
         let glob = format!("{}/*/*.parquet", self.index_path.display());
-        
+
         // Build filter clause — exclude __root__ (its files are merged as individual entries)
         let filter_clause = self.filters.to_where_clause();
         let having_clause = if filter_clause.is_empty() {
-            format!("HAVING partition IS NOT NULL AND partition != '' AND partition != '{}'", ROOT_PARTITION)
+            format!(
+                "HAVING partition IS NOT NULL AND partition != '' AND partition != '{}'",
+                ROOT_PARTITION
+            )
         } else {
             format!(
                 "HAVING partition IS NOT NULL AND partition != '' AND partition != '{}' AND SUM(CASE WHEN {} THEN 1 ELSE 0 END) > 0",
                 ROOT_PARTITION, filter_clause
             )
         };
-        
+
         // Query using filename to extract partition from the parquet file path
         // The partition name is the directory containing the parquet file
         // When filters are active, only count/sum matching files
@@ -689,17 +695,17 @@ impl App {
                 order = self.sort_mode.to_partition_order_by()
             )
         };
-        
+
         self.entries.clear();
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt.query([])?;
-        
+
         while let Some(row) = rows.next()? {
             let name: String = row.get(0)?;
             let total_size: i64 = row.get(1)?;
             let latest_atime: i64 = row.get(2)?;
             let file_count: i64 = row.get(3)?;
-            
+
             self.entries.push(DirEntry {
                 name: name.clone(),
                 path: name,
@@ -716,25 +722,29 @@ impl App {
             self.entries.extend(root_files);
             Self::sort_entries(&mut self.entries, self.sort_mode);
         }
-        
-        self.status = format!("{} entries loaded in {:.2}s", self.entries.len(), start.elapsed().as_secs_f64());
+
+        self.status = format!(
+            "{} entries loaded in {:.2}s",
+            self.entries.len(),
+            start.elapsed().as_secs_f64()
+        );
         self.loading = false;
         Ok(())
     }
-    
+
     /// Discover the common root path for a partition
     fn discover_partition_root(&self, partition: &str) -> Result<String> {
         let glob = format!("{}/{}/*.parquet", self.index_path.display(), partition);
-        
+
         // Get the shortest path to find the common root
         let sql = format!(
             "SELECT path FROM read_parquet('{}') ORDER BY length(path) LIMIT 1",
             glob
         );
-        
+
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt.query([])?;
-        
+
         if let Some(row) = rows.next()? {
             let sample_path: String = row.get(0)?;
             // Find the directory containing this file
@@ -742,31 +752,31 @@ impl App {
                 return Ok(sample_path[..pos].to_string());
             }
         }
-        
+
         Ok(String::new())
     }
-    
+
     /// Load directory contents for the current path
     fn load_directory(&mut self) -> Result<()> {
         self.loading = true;
         let start = Instant::now();
-        
+
         let partition = self.current_partition.as_ref().unwrap();
         let glob = format!("{}/{}/*.parquet", self.index_path.display(), partition);
-        
+
         // If we don't have a partition root yet, discover it
         if self.partition_root.is_empty() {
             self.partition_root = self.discover_partition_root(partition)?;
             self.current_path = self.partition_root.clone();
         }
-        
+
         // Build the path prefix we're looking at (with trailing slash for LIKE)
         let prefix = format!("{}/", self.current_path);
-        
+
         // Query to get entries at this level
         // We extract the next path component after the current path prefix
         let prefix_len = prefix.len();
-        
+
         // Build filter conditions
         let filter_clause = self.filters.to_where_clause();
         let file_filter = if filter_clause.is_empty() {
@@ -774,9 +784,9 @@ impl App {
         } else {
             format!("path LIKE '{}%' AND {}", prefix, filter_clause)
         };
-        
+
         let order_by = self.sort_mode.to_order_by(self.sort_mode == SortMode::Name);
-        
+
         let sql = format!(
             r#"
             WITH files AS (
@@ -819,9 +829,9 @@ impl App {
             prefix_len = prefix_len,
             order_by = order_by
         );
-        
+
         self.entries.clear();
-        
+
         // Add parent entry (always show ".." to go back)
         self.entries.push(DirEntry {
             name: "..".to_string(),
@@ -831,17 +841,17 @@ impl App {
             file_count: 0,
             latest_atime: 0,
         });
-        
+
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt.query([])?;
-        
+
         while let Some(row) = rows.next()? {
             let component: String = row.get(0)?;
             let is_dir: bool = row.get(1)?;
             let total_size: i64 = row.get(2)?;
             let file_count: i64 = row.get(3)?;
             let latest_atime: i64 = row.get(4)?;
-            
+
             self.entries.push(DirEntry {
                 name: component.clone(),
                 path: format!("{}/{}", self.current_path, component),
@@ -851,10 +861,19 @@ impl App {
                 latest_atime,
             });
         }
-        
+
         let elapsed = start.elapsed().as_secs_f64();
-        let filter_info = if self.filters.is_active() { " (filtered)" } else { "" };
-        self.status = format!("{} entries in {:.2}s{}", self.entries.len(), elapsed, filter_info);
+        let filter_info = if self.filters.is_active() {
+            " (filtered)"
+        } else {
+            ""
+        };
+        self.status = format!(
+            "{} entries in {:.2}s{}",
+            self.entries.len(),
+            elapsed,
+            filter_info
+        );
         self.loading = false;
         Ok(())
     }
@@ -926,7 +945,7 @@ impl App {
     /// Confirm input and apply filter
     fn confirm_input(&mut self) -> Result<()> {
         let value = self.input_buffer.trim().to_string();
-        
+
         match self.input_mode {
             InputMode::Pattern => {
                 if value.is_empty() {
@@ -999,7 +1018,7 @@ impl App {
             }
             InputMode::Normal | InputMode::SortSelect => {}
         }
-        
+
         self.input_mode = InputMode::Normal;
         self.input_buffer.clear();
         self.reload()
@@ -1010,7 +1029,7 @@ impl App {
         self.filters.clear();
         self.reload()
     }
-    
+
     fn select_next(&mut self) {
         if self.entries.is_empty() {
             return;
@@ -1021,7 +1040,7 @@ impl App {
         };
         self.list_state.select(Some(i));
     }
-    
+
     fn select_prev(&mut self) {
         if self.entries.is_empty() {
             return;
@@ -1044,22 +1063,22 @@ impl App {
             self.list_state.select(Some(self.entries.len() - 1));
         }
     }
-    
+
     fn enter_selected(&mut self) -> Result<()> {
         let Some(idx) = self.list_state.selected() else {
             return Ok(());
         };
-        
+
         let entry = &self.entries[idx];
-        
+
         if !entry.is_dir {
             return Ok(());
         }
-        
+
         if entry.name == ".." {
             return self.go_up();
         }
-        
+
         // If we're at the partition list, enter the partition
         if self.current_partition.is_none() {
             self.current_partition = Some(entry.name.clone());
@@ -1071,17 +1090,17 @@ impl App {
             self.current_path = format!("{}/{}", self.current_path, entry.name);
             self.load_directory()?;
         }
-        
+
         self.list_state.select(Some(0));
         Ok(())
     }
-    
+
     fn go_up(&mut self) -> Result<()> {
         if self.current_partition.is_none() {
             // Already at root
             return Ok(());
         }
-        
+
         if self.current_path == self.partition_root || self.current_path.is_empty() {
             // Go back to partition list
             self.current_partition = None;
@@ -1097,11 +1116,11 @@ impl App {
             }
             self.load_directory()?;
         }
-        
+
         self.list_state.select(Some(0));
         Ok(())
     }
-    
+
     // ---- Tree (Miller columns) mode ----
 
     /// Create a Column for the partition list.
@@ -1110,7 +1129,10 @@ impl App {
         let filter_clause = self.filters.to_where_clause();
         // Exclude __root__ — its files are merged as individual entries
         let having_clause = if filter_clause.is_empty() {
-            format!("HAVING partition IS NOT NULL AND partition != '' AND partition != '{}'", ROOT_PARTITION)
+            format!(
+                "HAVING partition IS NOT NULL AND partition != '' AND partition != '{}'",
+                ROOT_PARTITION
+            )
         } else {
             format!(
                 "HAVING partition IS NOT NULL AND partition != '' AND partition != '{}' AND SUM(CASE WHEN {} THEN 1 ELSE 0 END) > 0",
@@ -1364,7 +1386,13 @@ impl App {
         };
 
         match action {
-            PreviewAction::Directory { is_partition_list, name, partition, partition_root, path } => {
+            PreviewAction::Directory {
+                is_partition_list,
+                name,
+                partition,
+                partition_root,
+                path,
+            } => {
                 let new_col = if is_partition_list {
                     self.make_partition_root_column(&name)?
                 } else {
@@ -1663,7 +1691,11 @@ impl App {
         let partition = partition.clone();
 
         // Select the matching partition in column 0
-        if let Some(idx) = self.columns[0].entries.iter().position(|e| e.name == partition) {
+        if let Some(idx) = self.columns[0]
+            .entries
+            .iter()
+            .position(|e| e.name == partition)
+        {
             self.columns[0].list_state.select(Some(idx));
         }
 
@@ -1680,7 +1712,9 @@ impl App {
                 // Select the matching entry in the current active column
                 let col = &self.columns[self.active_column];
                 if let Some(idx) = col.entries.iter().position(|e| e.name == *component) {
-                    self.columns[self.active_column].list_state.select(Some(idx));
+                    self.columns[self.active_column]
+                        .list_state
+                        .select(Some(idx));
                     self.tree_update_preview()?;
                     // Move into the newly expanded column
                     if self.active_column + 1 < self.columns.len() {
@@ -1712,7 +1746,9 @@ impl App {
         }
 
         let col = &self.columns[self.active_column];
-        let selected_name = col.list_state.selected()
+        let selected_name = col
+            .list_state
+            .selected()
             .and_then(|idx| col.entries.get(idx))
             .map(|e| e.name.clone());
 
@@ -1757,11 +1793,11 @@ impl App {
         if atime == 0 {
             return String::new();
         }
-        
+
         use std::time::{Duration, SystemTime, UNIX_EPOCH};
         let time = UNIX_EPOCH + Duration::from_secs(atime as u64);
         let now = SystemTime::now();
-        
+
         if let Ok(duration) = now.duration_since(time) {
             let days = duration.as_secs() / 86400;
             if days == 0 {
@@ -1793,15 +1829,16 @@ impl App {
 
 fn main() -> Result<()> {
     let args = XduViewArgs::parse();
-    
+
     // Resolve index path
-    let index_path = args.index.canonicalize()
+    let index_path = args
+        .index
+        .canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
-    
+
     // Parse sort mode
-    let sort_mode: SortMode = args.sort.parse()
-        .map_err(|e: String| anyhow::anyhow!(e))?;
-    
+    let sort_mode: SortMode = args.sort.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+
     // Build filters from CLI args
     let filters = QueryFilters::new()
         .with_pattern(args.pattern)
@@ -1811,38 +1848,38 @@ fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!(e))?
         .with_max_size(args.max_size.as_deref())
         .map_err(|e| anyhow::anyhow!(e))?;
-    
+
     // Connect to DuckDB
     let conn = Connection::open_in_memory()?;
-    
+
     // Initialize app
     let mut app = App::new(conn, index_path, args.partition, filters, sort_mode)?;
-    
+
     // Setup terminal
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
-    
+
     // Main loop
     let result = run_app(&mut terminal, &mut app);
-    
+
     // Restore terminal
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
-    
+
     result
 }
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> {
     loop {
         terminal.draw(|f| ui(f, app))?;
-        
+
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
-                
+
                 // Handle sort selection mode
                 if app.input_mode == InputMode::SortSelect {
                     match key.code {
@@ -1855,7 +1892,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                         KeyCode::Up | KeyCode::Char('k') | KeyCode::Left => {
                             app.sort_select_prev();
                         }
-                        KeyCode::Down | KeyCode::Char('j') | KeyCode::Right | KeyCode::Char('s') => {
+                        KeyCode::Down
+                        | KeyCode::Char('j')
+                        | KeyCode::Right
+                        | KeyCode::Char('s') => {
                             app.sort_select_next();
                         }
                         _ => {}
@@ -1882,7 +1922,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     }
                     continue;
                 }
-                
+
                 // Handle preview pager focus mode (tree view file preview)
                 if app.preview_focused {
                     match key.code {
@@ -1923,7 +1963,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                         KeyCode::Char('G') => {
                             if let Some(ref mut preview) = app.file_preview {
                                 App::preview_load_to_eof(preview);
-                                preview.scroll_offset = preview.total_lines_loaded.saturating_sub(1);
+                                preview.scroll_offset =
+                                    preview.total_lines_loaded.saturating_sub(1);
                             }
                         }
                         KeyCode::Char('d') => {
@@ -1932,7 +1973,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                                 preview.scroll_offset += 20;
                                 // Load more if needed
                                 let last_loaded = preview.first_line_number + preview.lines.len();
-                                if preview.scroll_offset + 40 >= last_loaded && !preview.eof_reached {
+                                if preview.scroll_offset + 40 >= last_loaded && !preview.eof_reached
+                                {
                                     App::preview_load_more_lines(preview);
                                 }
                                 let max_offset = preview.total_lines_loaded.saturating_sub(1);
@@ -2034,7 +2076,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                             }
                             _ => {}
                         },
-                    }
+                    },
                 }
             }
         }
@@ -2045,8 +2087,8 @@ fn ui(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(1),     // Content
-            Constraint::Length(1),  // Status bar
+            Constraint::Min(1),    // Content
+            Constraint::Length(1), // Status bar
         ])
         .split(f.area());
 
@@ -2078,7 +2120,10 @@ fn render_list_content(f: &mut Frame, app: &App, area: Rect) {
             ""
         };
         if app.loading {
-            format!(" {}{} (loading...){} ", partition, display_path, filter_suffix)
+            format!(
+                " {}{} (loading...){} ",
+                partition, display_path, filter_suffix
+            )
         } else {
             format!(" {}{}{} ", partition, display_path, filter_suffix)
         }
@@ -2091,42 +2136,61 @@ fn render_list_content(f: &mut Frame, app: &App, area: Rect) {
     };
 
     // Pre-compute formatted strings and find max widths dynamically
-    let formatted: Vec<(String, String, String, String)> = app.entries.iter().map(|entry| {
-        let prefix = if entry.is_dir && entry.name != ".." {
-            "▸ "
-        } else if entry.name == ".." {
-            "◂ "
-        } else {
-            "  "
-        };
+    let formatted: Vec<(String, String, String, String)> = app
+        .entries
+        .iter()
+        .map(|entry| {
+            let prefix = if entry.is_dir && entry.name != ".." {
+                "▸ "
+            } else if entry.name == ".." {
+                "◂ "
+            } else {
+                "  "
+            };
 
-        let name = format!("{}{}", prefix, entry.name);
+            let name = format!("{}{}", prefix, entry.name);
 
-        let size_str = if entry.name == ".." {
-            String::new()
-        } else {
-            format_bytes(entry.total_size as u64)
-        };
+            let size_str = if entry.name == ".." {
+                String::new()
+            } else {
+                format_bytes(entry.total_size as u64)
+            };
 
-        let count_str = if entry.name == ".." {
-            String::new()
-        } else {
-            format_file_count(entry.file_count)
-        };
+            let count_str = if entry.name == ".." {
+                String::new()
+            } else {
+                format_file_count(entry.file_count)
+            };
 
-        let atime_str = if entry.name == ".." {
-            String::new()
-        } else {
-            app.format_atime(entry.latest_atime)
-        };
+            let atime_str = if entry.name == ".." {
+                String::new()
+            } else {
+                app.format_atime(entry.latest_atime)
+            };
 
-        (name, size_str, count_str, atime_str)
-    }).collect();
+            (name, size_str, count_str, atime_str)
+        })
+        .collect();
 
     // Calculate dynamic column widths based on content (with minimum widths)
-    let size_width = formatted.iter().map(|(_, s, _, _)| s.len()).max().unwrap_or(0).max(10);
-    let count_width = formatted.iter().map(|(_, _, c, _)| c.len()).max().unwrap_or(0).max(8);
-    let atime_width = formatted.iter().map(|(_, _, _, a)| a.len()).max().unwrap_or(0).max(12);
+    let size_width = formatted
+        .iter()
+        .map(|(_, s, _, _)| s.len())
+        .max()
+        .unwrap_or(0)
+        .max(10);
+    let count_width = formatted
+        .iter()
+        .map(|(_, _, c, _)| c.len())
+        .max()
+        .unwrap_or(0)
+        .max(8);
+    let atime_width = formatted
+        .iter()
+        .map(|(_, _, _, a)| a.len())
+        .max()
+        .unwrap_or(0)
+        .max(12);
 
     // Calculate available width for names
     let area_width = area.width.saturating_sub(2) as usize; // Account for borders
@@ -2134,27 +2198,30 @@ fn render_list_content(f: &mut Frame, app: &App, area: Rect) {
     let name_width = area_width.saturating_sub(fixed_cols);
 
     // Entry list
-    let items: Vec<ListItem> = formatted.iter().map(|(name, size_str, count_str, atime_str)| {
-        let name_display = if name.len() > name_width {
-            format!("{}…", &name[..name_width.saturating_sub(1)])
-        } else {
-            name.clone()
-        };
+    let items: Vec<ListItem> = formatted
+        .iter()
+        .map(|(name, size_str, count_str, atime_str)| {
+            let name_display = if name.len() > name_width {
+                format!("{}…", &name[..name_width.saturating_sub(1)])
+            } else {
+                name.clone()
+            };
 
-        let line = format!(
-            "{:<name_width$}  {:>size_width$}  {:>count_width$}  {:>atime_width$}",
-            name_display,
-            size_str,
-            count_str,
-            atime_str,
-            name_width = name_width,
-            size_width = size_width,
-            count_width = count_width,
-            atime_width = atime_width
-        );
+            let line = format!(
+                "{:<name_width$}  {:>size_width$}  {:>count_width$}  {:>atime_width$}",
+                name_display,
+                size_str,
+                count_str,
+                atime_str,
+                name_width = name_width,
+                size_width = size_width,
+                count_width = count_width,
+                atime_width = atime_width
+            );
 
-        ListItem::new(line)
-    }).collect();
+            ListItem::new(line)
+        })
+        .collect();
 
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title(title))
@@ -2177,8 +2244,7 @@ fn render_tree_content(f: &mut Frame, app: &App, area: Rect) {
 
     // Determine whether the rightmost slot is a file preview or a directory column.
     // The preview pane occupies one slot regardless.
-    let has_preview_pane = app.file_preview.is_some()
-        || app.columns.len() > app.active_column + 1; // dir preview column exists
+    let has_preview_pane = app.file_preview.is_some() || app.columns.len() > app.active_column + 1; // dir preview column exists
     let need_extra_slot = app.file_preview.is_some(); // file preview needs its own slot
 
     // Total pane count: directory columns + (1 extra if file preview occupies a separate slot)
@@ -2193,7 +2259,8 @@ fn render_tree_content(f: &mut Frame, app: &App, area: Rect) {
     // Ensure the active column + its preview are visible
     let slots_after_active = if has_preview_pane { 2 } else { 1 };
     let start_idx = if app.active_column + slots_after_active > num_visible {
-        (app.active_column + slots_after_active).saturating_sub(num_visible)
+        (app.active_column + slots_after_active)
+            .saturating_sub(num_visible)
             .min(total_panes.saturating_sub(num_visible))
     } else {
         0
@@ -2242,47 +2309,71 @@ fn render_tree_content(f: &mut Frame, app: &App, area: Rect) {
         let highlight_width = 2;
         let content_width = col_inner_width.saturating_sub(highlight_width);
 
-        let formatted: Vec<(String, String, String, String)> = col.entries.iter().map(|entry| {
-            let prefix = if entry.is_dir { "▸ " } else { "  " };
-            let name = format!("{}{}", prefix, entry.name);
-            let size_str = format_bytes(entry.total_size as u64);
-            let count_str = format_file_count(entry.file_count);
-            let atime_str = app.format_atime(entry.latest_atime);
-            (name, size_str, count_str, atime_str)
-        }).collect();
+        let formatted: Vec<(String, String, String, String)> = col
+            .entries
+            .iter()
+            .map(|entry| {
+                let prefix = if entry.is_dir { "▸ " } else { "  " };
+                let name = format!("{}{}", prefix, entry.name);
+                let size_str = format_bytes(entry.total_size as u64);
+                let count_str = format_file_count(entry.file_count);
+                let atime_str = app.format_atime(entry.latest_atime);
+                (name, size_str, count_str, atime_str)
+            })
+            .collect();
 
-        let size_w = formatted.iter().map(|(_, s, _, _)| s.len()).max().unwrap_or(0).max(6);
-        let count_w = formatted.iter().map(|(_, _, c, _)| c.len()).max().unwrap_or(0).max(6);
-        let atime_w = formatted.iter().map(|(_, _, _, a)| a.len()).max().unwrap_or(0).max(6);
+        let size_w = formatted
+            .iter()
+            .map(|(_, s, _, _)| s.len())
+            .max()
+            .unwrap_or(0)
+            .max(6);
+        let count_w = formatted
+            .iter()
+            .map(|(_, _, c, _)| c.len())
+            .max()
+            .unwrap_or(0)
+            .max(6);
+        let atime_w = formatted
+            .iter()
+            .map(|(_, _, _, a)| a.len())
+            .max()
+            .unwrap_or(0)
+            .max(6);
         let stat_cols = size_w + count_w + atime_w + 6;
         let name_max = content_width.saturating_sub(stat_cols);
 
-        let items: Vec<ListItem> = formatted.iter().map(|(name, size_str, count_str, atime_str)| {
-            let name_display = if name.len() > name_max && name_max > 1 {
-                format!("{}…", &name[..name_max.saturating_sub(1)])
-            } else if name_max == 0 {
-                String::new()
-            } else {
-                name.clone()
-            };
+        let items: Vec<ListItem> = formatted
+            .iter()
+            .map(|(name, size_str, count_str, atime_str)| {
+                let name_display = if name.len() > name_max && name_max > 1 {
+                    format!("{}…", &name[..name_max.saturating_sub(1)])
+                } else if name_max == 0 {
+                    String::new()
+                } else {
+                    name.clone()
+                };
 
-            let line = format!(
-                "{:<name_w$}  {:>size_w$}  {:>count_w$}  {:>atime_w$}",
-                name_display,
-                size_str,
-                count_str,
-                atime_str,
-                name_w = name_max,
-                size_w = size_w,
-                count_w = count_w,
-                atime_w = atime_w
-            );
+                let line = format!(
+                    "{:<name_w$}  {:>size_w$}  {:>count_w$}  {:>atime_w$}",
+                    name_display,
+                    size_str,
+                    count_str,
+                    atime_str,
+                    name_w = name_max,
+                    size_w = size_w,
+                    count_w = count_w,
+                    atime_w = atime_w
+                );
 
-            ListItem::new(line)
-        }).collect();
+                ListItem::new(line)
+            })
+            .collect();
 
         let title_style = if is_active {
-            Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Blue)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::DarkGray)
         };
@@ -2292,7 +2383,7 @@ fn render_tree_content(f: &mut Frame, app: &App, area: Rect) {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(border_style)
-                    .title(Span::styled(format!(" {} ", col.title), title_style))
+                    .title(Span::styled(format!(" {} ", col.title), title_style)),
             )
             .highlight_symbol("▶ ")
             .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
@@ -2313,7 +2404,10 @@ fn render_file_preview_pane(f: &mut Frame, app: &App, area: Rect) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray))
-            .title(Span::styled(" Preview ", Style::default().fg(Color::DarkGray)));
+            .title(Span::styled(
+                " Preview ",
+                Style::default().fg(Color::DarkGray),
+            ));
         f.render_widget(block, area);
         return;
     };
@@ -2324,7 +2418,9 @@ fn render_file_preview_pane(f: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(Color::Cyan)
     };
     let title_style = if app.preview_focused {
-        Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Blue)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::Cyan)
     };
@@ -2363,7 +2459,7 @@ fn render_file_preview_pane(f: &mut Frame, app: &App, area: Rect) {
         let deque_end = (deque_start + content_height).min(preview.lines.len());
 
         for i in deque_start..deque_end {
-            text_lines.push(Line::from(Span::raw(format!("  {}", &preview.lines[i]))));
+            text_lines.push(Line::from(Span::raw(format!("  {}", preview.lines[i]))));
         }
 
         // Scroll indicator with global position and EOF status
@@ -2371,18 +2467,24 @@ fn render_file_preview_pane(f: &mut Frame, app: &App, area: Rect) {
         let total = preview.total_lines_loaded;
         if total > content_height {
             let max_scroll = total.saturating_sub(content_height);
-            let pct = if max_scroll == 0 { 100 } else {
-                (global_start * 100) / max_scroll
-            };
+            let pct = (global_start * 100).checked_div(max_scroll).unwrap_or(100);
             text_lines.push(Line::from(Span::styled(
-                format!("  ── {}% ({}/{} lines) ({}) ──", pct.min(100), global_start + 1, total, eof_indicator),
+                format!(
+                    "  ── {}% ({}/{} lines) ({}) ──",
+                    pct.min(100),
+                    global_start + 1,
+                    total,
+                    eof_indicator
+                ),
                 Style::default().fg(Color::DarkGray),
             )));
         }
     } else if !preview.is_text {
         text_lines.push(Line::from(Span::styled(
             "  (binary file — no preview)",
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
         )));
     }
 
@@ -2404,7 +2506,10 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
                 }
             })
             .collect();
-        format!(" Sort: {}  (s/→:next  ←:prev  Enter:apply  Esc:cancel)", options.join(""))
+        format!(
+            " Sort: {}  (s/→:next  ←:prev  Enter:apply  Esc:cancel)",
+            options.join("")
+        )
     } else if app.input_mode != InputMode::Normal {
         format!(" {}{}", app.input_mode.prompt(), app.input_buffer)
     } else if app.preview_focused {
@@ -2413,8 +2518,7 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
             let file_name = preview.path.rsplit('/').next().unwrap_or(&preview.path);
             format!(
                 " ▶ {} │ {} │ jk↑↓:scroll d/u:page g/G:top/bottom Esc/←/q/␣:back",
-                file_name,
-                preview.type_description
+                file_name, preview.type_description
             )
         } else {
             " Esc:back".to_string()
@@ -2429,7 +2533,9 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         // In tree mode, show breadcrumb and selected entry info
         let context_info = if app.view_mode == ViewMode::Tree && !app.columns.is_empty() {
             // Build breadcrumb from column titles
-            let breadcrumb: Vec<&str> = app.columns.iter()
+            let breadcrumb: Vec<&str> = app
+                .columns
+                .iter()
                 .take(app.active_column + 1)
                 .map(|c| c.title.as_str())
                 .collect();
@@ -2467,15 +2573,14 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 
         format!(
             " {}{} │ sort:{} mode:{} │ q:quit jk↑↓:nav ←→:cd /:pattern s:sort t:mode c:clear",
-            context_info,
-            filter_str,
-            app.sort_mode,
-            mode_indicator
+            context_info, filter_str, app.sort_mode, mode_indicator
         )
     };
 
     let status_style = if app.input_mode == InputMode::SortSelect {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
     } else if app.input_mode != InputMode::Normal {
         Style::default().add_modifier(Modifier::BOLD)
     } else {

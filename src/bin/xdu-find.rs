@@ -4,14 +4,16 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use duckdb::Connection;
 
-use xdu::cli::XduFindArgs;
 use xdu::QueryFilters;
+use xdu::cli::XduFindArgs;
 
 fn main() -> Result<()> {
     let args = XduFindArgs::parse();
 
     // Resolve index path
-    let index_path = args.index.canonicalize()
+    let index_path = args
+        .index
+        .canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
 
     // Build the glob pattern for Parquet files
@@ -168,13 +170,20 @@ fn main() -> Result<()> {
                     .replace('\n', "\\n")
                     .replace('\r', "\\r")
                     .replace('\t', "\\t");
-                write!(out, "  {{\"path\":\"{}\",\"size\":{},\"atime\":{}}}", escaped_path, size, atime)?;
+                write!(
+                    out,
+                    "  {{\"path\":\"{}\",\"size\":{},\"atime\":{}}}",
+                    escaped_path, size, atime
+                )?;
             }
             writeln!(out)?;
             writeln!(out, "]")?;
         }
         _ => {
-            anyhow::bail!("Unknown format: {}. Use: path, size, atime, csv, json", args.format);
+            anyhow::bail!(
+                "Unknown format: {}. Use: path, size, atime, csv, json",
+                args.format
+            );
         }
     }
 

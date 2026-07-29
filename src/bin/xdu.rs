@@ -2,7 +2,7 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::fs::{self, File};
-use std::io::{stderr, IsTerminal};
+use std::io::{IsTerminal, stderr};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -23,7 +23,7 @@ use parquet::file::properties::WriterProperties;
 use rayon::ThreadPoolBuilder;
 
 use xdu::cli::XduArgs;
-use xdu::{format_bytes, format_count, format_speed, get_schema, parse_size, FileRecord, SizeMode};
+use xdu::{FileRecord, SizeMode, format_bytes, format_count, format_speed, get_schema, parse_size};
 
 /// Special partition name for files directly in the top-level directory.
 const ROOT_PARTITION: &str = "__root__";
@@ -76,8 +76,12 @@ impl PartitionBuffer {
         let chunk_id = self.chunk_counter;
         self.chunk_counter += 1;
         let partition_dir = self.outdir.join(&self.partition);
-        fs::create_dir_all(&partition_dir)
-            .with_context(|| format!("Failed to create partition dir: {}", partition_dir.display()))?;
+        fs::create_dir_all(&partition_dir).with_context(|| {
+            format!(
+                "Failed to create partition dir: {}",
+                partition_dir.display()
+            )
+        })?;
 
         // Write to .partial file first
         let partial_path = partition_dir.join(format!("{:06}.parquet.partial", chunk_id));
@@ -125,8 +129,13 @@ impl PartitionBuffer {
         // Rename all .partial files to .parquet (atomic on POSIX)
         for partial_path in &self.partial_files {
             let final_path = partial_path.with_extension(""); // removes .partial, leaves .parquet
-            fs::rename(partial_path, &final_path)
-                .with_context(|| format!("Failed to rename {} to {}", partial_path.display(), final_path.display()))?;
+            fs::rename(partial_path, &final_path).with_context(|| {
+                format!(
+                    "Failed to rename {} to {}",
+                    partial_path.display(),
+                    final_path.display()
+                )
+            })?;
         }
 
         // Prune any stale chunks beyond what we just wrote
@@ -134,8 +143,9 @@ impl PartitionBuffer {
         for chunk_id in num_chunks.. {
             let stale_path = partition_dir.join(format!("{:06}.parquet", chunk_id));
             if stale_path.exists() {
-                fs::remove_file(&stale_path)
-                    .with_context(|| format!("Failed to remove stale chunk: {}", stale_path.display()))?;
+                fs::remove_file(&stale_path).with_context(|| {
+                    format!("Failed to remove stale chunk: {}", stale_path.display())
+                })?;
                 pruned += 1;
             } else {
                 break; // No more consecutive chunks
@@ -181,7 +191,7 @@ fn crawl(
         ThreadPoolBuilder::new()
             .num_threads(jobs)
             .build()
-            .context("Failed to build thread pool")?
+            .context("Failed to build thread pool")?,
     );
 
     // Enumerate top-level entries to build work queue
@@ -249,7 +259,12 @@ fn crawl(
     };
 
     if is_tty {
-        eprintln!("{:>12} {}{}", style("Indexing").green().bold(), top_dir.display(), filter_desc);
+        eprintln!(
+            "{:>12} {}{}",
+            style("Indexing").green().bold(),
+            top_dir.display(),
+            filter_desc
+        );
     } else {
         eprintln!("Indexing {}{}", top_dir.display(), filter_desc);
     }
@@ -270,10 +285,10 @@ fn crawl(
 
     // Global speed tracking (shared across drivers, protected by single Mutex)
     let global_speed_state = Arc::new(Mutex::new((
-        Instant::now(),  // last sample time
-        0_u64,           // last sample file count
-        0.0_f64,         // current speed
-        0.0_f64,         // peak speed
+        Instant::now(), // last sample time
+        0_u64,          // last sample file count
+        0.0_f64,        // current speed
+        0.0_f64,        // peak speed
     )));
 
     let num_drivers = jobs.min(num_items).max(1);
@@ -373,7 +388,8 @@ fn crawl(
                             let now = Instant::now();
                             if now.duration_since(last_bar_update) >= bar_interval {
                                 // Per-partition speed: 1-second rolling window
-                                let speed_elapsed = now.duration_since(speed_sample_time).as_secs_f64();
+                                let speed_elapsed =
+                                    now.duration_since(speed_sample_time).as_secs_f64();
                                 if speed_elapsed >= 1.0 {
                                     let delta = buffer.file_count - speed_sample_count;
                                     current_speed = delta as f64 / speed_elapsed;
@@ -521,11 +537,17 @@ fn main() -> Result<()> {
         SizeMode::DiskUsage
     };
 
-    let top_dir = args.dir.canonicalize()
+    let top_dir = args
+        .dir
+        .canonicalize()
         .with_context(|| format!("Failed to resolve directory: {}", args.dir.display()))?;
 
-    fs::create_dir_all(&args.outdir)
-        .with_context(|| format!("Failed to create output directory: {}", args.outdir.display()))?;
+    fs::create_dir_all(&args.outdir).with_context(|| {
+        format!(
+            "Failed to create output directory: {}",
+            args.outdir.display()
+        )
+    })?;
 
     let outdir = args.outdir.canonicalize()?;
 
@@ -539,7 +561,11 @@ fn main() -> Result<()> {
         for partition_name in pf {
             let partition_path = top_dir.join(partition_name);
             if !partition_path.is_dir() {
-                anyhow::bail!("Partition '{}' not found in {}", partition_name, top_dir.display());
+                anyhow::bail!(
+                    "Partition '{}' not found in {}",
+                    partition_name,
+                    top_dir.display()
+                );
             }
         }
     }
@@ -556,10 +582,15 @@ fn main() -> Result<()> {
     )?;
 
     let elapsed = start_time.elapsed();
-    let prune_info = if stats.pruned > 0 { format!(", pruned {} stale", stats.pruned) } else { String::new() };
+    let prune_info = if stats.pruned > 0 {
+        format!(", pruned {} stale", stats.pruned)
+    } else {
+        String::new()
+    };
 
     if is_tty {
-        eprintln!("{:>12} {} files ({}) in {:.2}s{}",
+        eprintln!(
+            "{:>12} {} files ({}) in {:.2}s{}",
             style("Completed").green().bold(),
             format_count(stats.files),
             format_bytes(stats.bytes),
@@ -567,7 +598,13 @@ fn main() -> Result<()> {
             prune_info
         );
     } else {
-        eprintln!("Completed {} files ({}) in {:.2}s{}", format_count(stats.files), format_bytes(stats.bytes), elapsed.as_secs_f64(), prune_info);
+        eprintln!(
+            "Completed {} files ({}) in {:.2}s{}",
+            format_count(stats.files),
+            format_bytes(stats.bytes),
+            elapsed.as_secs_f64(),
+            prune_info
+        );
     }
 
     Ok(())
