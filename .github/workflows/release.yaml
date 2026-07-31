@@ -40,8 +40,15 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
 
+      - name: Resolve toolchain from rust-toolchain.toml
+        id: rust
+        run: |
+          echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master pinned 2026-07-24 (reads rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # SHA-pinned action; toolchain version comes from rust-toolchain.toml (single source)
+        with:
+          toolchain: ${{ steps.rust.outputs.channel }}
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -101,9 +108,15 @@ jobs:
           # branch — otherwise the tarball contents drift from what the tag points at.
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
 
+      - name: Resolve toolchain from rust-toolchain.toml
+        id: rust
+        run: |
+          echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master pinned 2026-07-24 (reads rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # SHA-pinned action; toolchain version comes from rust-toolchain.toml (single source)
         with:
+          toolchain: ${{ steps.rust.outputs.channel }}
           targets: ${{ matrix.target }}
 
       - name: Cache cargo build
