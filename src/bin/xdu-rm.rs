@@ -10,7 +10,7 @@ use duckdb::Connection;
 use rayon::prelude::*;
 
 use xdu::cli::XduRmArgs;
-use xdu::{parse_size, QueryFilters};
+use xdu::{QueryFilters, parse_size};
 
 /// File info from the index query
 #[allow(dead_code)]
@@ -30,7 +30,9 @@ fn main() -> Result<()> {
         .ok(); // Ignore error if pool already initialized
 
     // Resolve index path
-    let index_path = args.index.canonicalize()
+    let index_path = args
+        .index
+        .canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
 
     // Build the glob pattern for Parquet files
@@ -115,7 +117,9 @@ fn main() -> Result<()> {
         .as_secs() as i64;
 
     let atime_threshold = args.older_than.map(|days| now - (days as i64 * 86400));
-    let max_size_bytes = args.max_size.as_deref()
+    let max_size_bytes = args
+        .max_size
+        .as_deref()
         .map(parse_size)
         .transpose()
         .map_err(|e| anyhow::anyhow!(e))?;

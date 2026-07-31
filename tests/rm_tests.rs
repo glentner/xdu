@@ -81,18 +81,17 @@ fn build_index(source: &Path, index: &Path) -> std::io::Result<()> {
 
     if !output.status.success() {
         eprintln!("xdu stderr: {}", String::from_utf8_lossy(&output.stderr));
-        return Err(std::io::Error::other(
-            format!("xdu failed: {}", String::from_utf8_lossy(&output.stderr)),
-        ));
+        return Err(std::io::Error::other(format!(
+            "xdu failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
     }
     Ok(())
 }
 
 /// Run xdu-rm and return (stdout, stderr, success).
 fn run_xdu_rm(args: &[&str]) -> std::io::Result<(String, String, bool)> {
-    let output = Command::new(binary_path("xdu-rm"))
-        .args(args)
-        .output()?;
+    let output = Command::new(binary_path("xdu-rm")).args(args).output()?;
 
     Ok((
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -120,10 +119,8 @@ fn test_dry_run_lists_files_without_deleting() {
     build_index(&source, &index).unwrap();
 
     // Run dry-run
-    let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--dry-run",
-    ]).unwrap();
+    let (stdout, _stderr, success) =
+        run_xdu_rm(&["-i", index.to_str().unwrap(), "--dry-run"]).unwrap();
 
     assert!(success);
     assert!(stdout.contains("file1.txt"));
@@ -156,10 +153,8 @@ fn test_force_delete_removes_files() {
     assert!(source.join("user1/delete_me.txt").exists());
 
     // Run with --force to skip confirmation
-    let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--force",
-    ]).unwrap();
+    let (stdout, _stderr, success) =
+        run_xdu_rm(&["-i", index.to_str().unwrap(), "--force"]).unwrap();
 
     assert!(success);
     assert!(stdout.contains("Deleted: 1"));
@@ -189,10 +184,13 @@ fn test_pattern_filter_deletes_matching_files() {
 
     // Delete only .log files
     let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--pattern", "\\.log$",
+        "-i",
+        index.to_str().unwrap(),
+        "--pattern",
+        "\\.log$",
         "--force",
-    ]).unwrap();
+    ])
+    .unwrap();
 
     assert!(success);
     assert!(stdout.contains("Deleted: 2"));
@@ -222,11 +220,8 @@ fn test_min_size_filter() {
     build_index(&source, &index).unwrap();
 
     // Delete only files >= 1K
-    let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--min-size", "1K",
-        "--force",
-    ]).unwrap();
+    let (stdout, _stderr, success) =
+        run_xdu_rm(&["-i", index.to_str().unwrap(), "--min-size", "1K", "--force"]).unwrap();
 
     assert!(success);
     assert!(stdout.contains("Deleted: 1"));
@@ -251,11 +246,8 @@ fn test_max_size_filter() {
     build_index(&source, &index).unwrap();
 
     // Delete only files <= 1K
-    let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--max-size", "1K",
-        "--force",
-    ]).unwrap();
+    let (stdout, _stderr, success) =
+        run_xdu_rm(&["-i", index.to_str().unwrap(), "--max-size", "1K", "--force"]).unwrap();
 
     assert!(success);
     assert!(stdout.contains("Deleted: 1"));
@@ -289,10 +281,13 @@ fn test_older_than_filter() {
 
     // Delete only files older than 30 days
     let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--older-than", "30",
+        "-i",
+        index.to_str().unwrap(),
+        "--older-than",
+        "30",
         "--force",
-    ]).unwrap();
+    ])
+    .unwrap();
 
     assert!(success);
     assert!(stdout.contains("Deleted: 1"));
@@ -323,10 +318,13 @@ fn test_partition_filter() {
 
     // Delete only alice's files
     let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--partition", "alice",
+        "-i",
+        index.to_str().unwrap(),
+        "--partition",
+        "alice",
         "--force",
-    ]).unwrap();
+    ])
+    .unwrap();
 
     assert!(success);
     assert!(stdout.contains("Deleted: 1"));
@@ -356,11 +354,8 @@ fn test_limit_option() {
     build_index(&source, &index).unwrap();
 
     // Delete only 1 file
-    let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--limit", "1",
-        "--force",
-    ]).unwrap();
+    let (stdout, _stderr, success) =
+        run_xdu_rm(&["-i", index.to_str().unwrap(), "--limit", "1", "--force"]).unwrap();
 
     assert!(success);
     assert!(stdout.contains("Deleted: 1"));
@@ -401,12 +396,15 @@ fn test_safe_mode_protects_recently_accessed_files() {
     // Without --safe, the file would be deleted because the INDEX shows it as old
     // With --safe, the file should be PROTECTED because its CURRENT atime is recent
     let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--older-than", "30",
+        "-i",
+        index.to_str().unwrap(),
+        "--older-than",
+        "30",
         "--safe",
         "--force",
         "--verbose",
-    ]).unwrap();
+    ])
+    .unwrap();
 
     assert!(success);
 
@@ -449,12 +447,15 @@ fn test_safe_mode_protects_files_that_grew() {
     // Without --safe, it would try to delete (index shows 100 bytes)
     // With --safe, it should skip because current size is > 1K
     let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--max-size", "1K",
+        "-i",
+        index.to_str().unwrap(),
+        "--max-size",
+        "1K",
         "--safe",
         "--force",
         "--verbose",
-    ]).unwrap();
+    ])
+    .unwrap();
 
     assert!(success);
 
@@ -489,11 +490,8 @@ fn test_handles_missing_files_gracefully() {
     fs::remove_file(source.join("user1/will_be_gone.txt")).unwrap();
 
     // Run xdu-rm
-    let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--force",
-        "--verbose",
-    ]).unwrap();
+    let (stdout, _stderr, success) =
+        run_xdu_rm(&["-i", index.to_str().unwrap(), "--force", "--verbose"]).unwrap();
 
     assert!(success);
     assert!(stdout.contains("Missing: 1"));
@@ -519,11 +517,8 @@ fn test_verbose_output() {
     build_index(&source, &index).unwrap();
 
     // Run with verbose
-    let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--force",
-        "--verbose",
-    ]).unwrap();
+    let (stdout, _stderr, success) =
+        run_xdu_rm(&["-i", index.to_str().unwrap(), "--force", "--verbose"]).unwrap();
 
     assert!(success);
     assert!(stdout.contains("DELETE:"));
@@ -550,10 +545,13 @@ fn test_no_matching_files() {
 
     // Search for non-existent pattern
     let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--pattern", "\\.nonexistent$",
+        "-i",
+        index.to_str().unwrap(),
+        "--pattern",
+        "\\.nonexistent$",
         "--force",
-    ]).unwrap();
+    ])
+    .unwrap();
 
     assert!(success);
     assert!(stdout.contains("No matching files found"));
@@ -592,12 +590,17 @@ fn test_combined_filters() {
 
     // Delete only files that are: .log AND older than 30 days AND >= 1K
     let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--pattern", "\\.log$",
-        "--older-than", "30",
-        "--min-size", "1K",
+        "-i",
+        index.to_str().unwrap(),
+        "--pattern",
+        "\\.log$",
+        "--older-than",
+        "30",
+        "--min-size",
+        "1K",
         "--force",
-    ]).unwrap();
+    ])
+    .unwrap();
 
     assert!(success);
     assert!(stdout.contains("Deleted: 1"));
@@ -628,11 +631,8 @@ fn test_safe_mode_without_relevant_filter_still_deletes() {
 
     // Run with --safe but no --older-than or --max-size
     // Safe mode has nothing to check, so deletion proceeds
-    let (stdout, _stderr, success) = run_xdu_rm(&[
-        "-i", index.to_str().unwrap(),
-        "--safe",
-        "--force",
-    ]).unwrap();
+    let (stdout, _stderr, success) =
+        run_xdu_rm(&["-i", index.to_str().unwrap(), "--safe", "--force"]).unwrap();
 
     assert!(success);
     assert!(stdout.contains("Deleted: 1"));

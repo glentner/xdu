@@ -75,7 +75,9 @@ pub fn parse_size(s: &str) -> Result<i64, String> {
         (s.as_str(), 1)
     };
 
-    let num: f64 = num.trim().parse()
+    let num: f64 = num
+        .trim()
+        .parse()
         .map_err(|_| format!("Invalid size: {}", s))?;
     Ok((num * mult as f64) as i64)
 }
@@ -148,8 +150,8 @@ impl SortMode {
             SortMode::SizeAsc => "total_size ASC",
             SortMode::CountDesc => "file_count DESC",
             SortMode::CountAsc => "file_count ASC",
-            SortMode::AgeDesc => "latest_atime ASC",   // oldest first = smallest atime
-            SortMode::AgeAsc => "latest_atime DESC",   // newest first = largest atime
+            SortMode::AgeDesc => "latest_atime ASC", // oldest first = smallest atime
+            SortMode::AgeAsc => "latest_atime DESC", // newest first = largest atime
         }
     }
 
@@ -161,8 +163,8 @@ impl SortMode {
             SortMode::SizeAsc => "total_size ASC",
             SortMode::CountDesc => "file_count DESC",
             SortMode::CountAsc => "file_count ASC",
-            SortMode::AgeDesc => "latest_atime ASC",   // oldest first
-            SortMode::AgeAsc => "latest_atime DESC",   // newest first
+            SortMode::AgeDesc => "latest_atime ASC", // oldest first
+            SortMode::AgeAsc => "latest_atime DESC", // newest first
         }
     }
 }
@@ -193,7 +195,10 @@ impl FromStr for SortMode {
             "count-asc" => Ok(SortMode::CountAsc),
             "age-desc" | "age" | "oldest" => Ok(SortMode::AgeDesc),
             "age-asc" | "newest" => Ok(SortMode::AgeAsc),
-            _ => Err(format!("Invalid sort mode: {}. Use: name, size-desc, size-asc, count-desc, count-asc, age-desc, age-asc", s)),
+            _ => Err(format!(
+                "Invalid sort mode: {}. Use: name, size-desc, size-asc, count-desc, count-asc, age-desc, age-asc",
+                s
+            )),
         }
     }
 }
@@ -496,13 +501,19 @@ mod tests {
     #[test]
     fn test_format_bytes_gib() {
         assert_eq!(format_bytes(1024 * 1024 * 1024), "1.00 GiB");
-        assert_eq!(format_bytes(1024 * 1024 * 1024 * 3 + 1024 * 1024 * 512), "3.50 GiB");
+        assert_eq!(
+            format_bytes(1024 * 1024 * 1024 * 3 + 1024 * 1024 * 512),
+            "3.50 GiB"
+        );
     }
 
     #[test]
     fn test_format_bytes_tib() {
         assert_eq!(format_bytes(1024_u64 * 1024 * 1024 * 1024), "1.00 TiB");
-        assert_eq!(format_bytes(1024_u64 * 1024 * 1024 * 1024 * 2 + 1024_u64 * 1024 * 1024 * 512), "2.50 TiB");
+        assert_eq!(
+            format_bytes(1024_u64 * 1024 * 1024 * 1024 * 2 + 1024_u64 * 1024 * 1024 * 512),
+            "2.50 TiB"
+        );
     }
 
     #[test]
@@ -706,7 +717,10 @@ mod tests {
         assert_eq!("size-desc".parse::<SortMode>().unwrap(), SortMode::SizeDesc);
         assert_eq!("size".parse::<SortMode>().unwrap(), SortMode::SizeDesc);
         assert_eq!("size-asc".parse::<SortMode>().unwrap(), SortMode::SizeAsc);
-        assert_eq!("count-desc".parse::<SortMode>().unwrap(), SortMode::CountDesc);
+        assert_eq!(
+            "count-desc".parse::<SortMode>().unwrap(),
+            SortMode::CountDesc
+        );
         assert_eq!("count".parse::<SortMode>().unwrap(), SortMode::CountDesc);
         assert_eq!("count-asc".parse::<SortMode>().unwrap(), SortMode::CountAsc);
         assert_eq!("age-desc".parse::<SortMode>().unwrap(), SortMode::AgeDesc);
@@ -734,7 +748,10 @@ mod tests {
 
     #[test]
     fn test_sort_mode_order_by() {
-        assert_eq!(SortMode::Name.to_order_by(true), "bool_or(is_dir) DESC, component");
+        assert_eq!(
+            SortMode::Name.to_order_by(true),
+            "bool_or(is_dir) DESC, component"
+        );
         assert_eq!(SortMode::Name.to_order_by(false), "component");
         assert_eq!(SortMode::SizeDesc.to_order_by(true), "total_size DESC");
         assert_eq!(SortMode::SizeAsc.to_order_by(false), "total_size ASC");
@@ -762,8 +779,10 @@ mod tests {
     #[test]
     fn test_query_filters_size() {
         let filters = QueryFilters::new()
-            .with_min_size(Some("1M")).unwrap()
-            .with_max_size(Some("1G")).unwrap();
+            .with_min_size(Some("1M"))
+            .unwrap()
+            .with_max_size(Some("1G"))
+            .unwrap();
         assert!(filters.is_active());
         let clause = filters.to_where_clause();
         assert!(clause.contains("size >= 1048576"));
@@ -774,7 +793,8 @@ mod tests {
     fn test_query_filters_combined() {
         let filters = QueryFilters::new()
             .with_pattern(Some("test".to_string()))
-            .with_min_size(Some("1K")).unwrap();
+            .with_min_size(Some("1K"))
+            .unwrap();
         let clause = filters.to_where_clause();
         assert!(clause.contains("AND"));
         assert!(clause.contains("regexp_matches"));
@@ -785,7 +805,8 @@ mod tests {
     fn test_query_filters_clear() {
         let mut filters = QueryFilters::new()
             .with_pattern(Some("test".to_string()))
-            .with_min_size(Some("1K")).unwrap();
+            .with_min_size(Some("1K"))
+            .unwrap();
         assert!(filters.is_active());
         filters.clear();
         assert!(!filters.is_active());
@@ -793,8 +814,7 @@ mod tests {
 
     #[test]
     fn test_query_filters_full_where_clause() {
-        let filters = QueryFilters::new()
-            .with_min_size(Some("1M")).unwrap();
+        let filters = QueryFilters::new().with_min_size(Some("1M")).unwrap();
         let clause = filters.to_full_where_clause();
         assert!(clause.starts_with("WHERE "));
     }

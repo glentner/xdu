@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use clap::CommandFactory;
-use clap_complete::aot::{generate_to, Bash, Zsh};
+use clap_complete::aot::{Bash, Zsh, generate_to};
 
 use xdu::cli::{XduArgs, XduFindArgs, XduRmArgs, XduViewArgs};
 

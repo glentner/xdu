@@ -6,8 +6,8 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use jwalk::{Parallelism, WalkDir};
 use std::sync::Mutex;
@@ -25,7 +25,9 @@ struct TestBuffer {
 
 impl TestBuffer {
     fn new() -> Self {
-        Self { records: Vec::new() }
+        Self {
+            records: Vec::new(),
+        }
     }
 
     fn add(&mut self, record: FileRecord) {
@@ -203,7 +205,7 @@ fn test_crawl_directory_adds_records_to_buffer() {
 fn test_extract_partition_with_subdirectory() {
     let top_dir = Path::new("/data/scratch");
     let file_path = Path::new("/data/scratch/alice/projects/file.txt");
-    
+
     let partition = extract_partition(file_path, top_dir);
     assert_eq!(partition, Some("alice".to_string()));
 }
@@ -212,7 +214,7 @@ fn test_extract_partition_with_subdirectory() {
 fn test_extract_partition_root_level_file() {
     let top_dir = Path::new("/data/scratch");
     let file_path = Path::new("/data/scratch/readme.txt");
-    
+
     let partition = extract_partition(file_path, top_dir);
     assert_eq!(partition, Some(ROOT_PARTITION.to_string()));
 }
@@ -221,7 +223,7 @@ fn test_extract_partition_root_level_file() {
 fn test_extract_partition_deeply_nested() {
     let top_dir = Path::new("/data/scratch");
     let file_path = Path::new("/data/scratch/bob/projects/2024/january/report.pdf");
-    
+
     let partition = extract_partition(file_path, top_dir);
     assert_eq!(partition, Some("bob".to_string()));
 }
@@ -304,7 +306,9 @@ fn test_full_crawl_processes_multiple_partitions() {
 
     // Verify partition detection works
     let buf = buffer.lock().unwrap();
-    let mut partitions: Vec<String> = buf.records().iter()
+    let mut partitions: Vec<String> = buf
+        .records()
+        .iter()
         .filter_map(|r| extract_partition(Path::new(&r.path), base))
         .collect();
     partitions.sort();
