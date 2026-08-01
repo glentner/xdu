@@ -3,7 +3,7 @@ slug: rm-limit-deterministic-order
 title: Make xdu-rm --limit selection deterministic
 kind: fix
 appetite: small
-status: in_review
+status: done
 branch: fix/rm-limit-deterministic-order
 base: main
 current_phase: done
