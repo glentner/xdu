@@ -10,7 +10,7 @@ use duckdb::Connection;
 use rayon::prelude::*;
 
 use xdu::cli::XduRmArgs;
-use xdu::{QueryFilters, parse_size};
+use xdu::{QueryFilters, deterministic_limit_clause, parse_size};
 
 /// File info from the index query
 #[allow(dead_code)]
@@ -57,11 +57,10 @@ fn main() -> Result<()> {
 
     let where_clause = filters.to_full_where_clause();
 
-    let limit_clause = if let Some(n) = args.limit {
-        format!("LIMIT {}", n)
-    } else {
-        String::new()
-    };
+    // A LIMIT without a deterministic ORDER BY returns an arbitrary subset, so --dry-run and
+    // the real run could delete different files. Pair the limit with `ORDER BY path` (the
+    // unique key) so the preview and the real deletion always select identical rows.
+    let limit_clause = deterministic_limit_clause(args.limit);
 
     // Query for matching files
     let sql = format!(

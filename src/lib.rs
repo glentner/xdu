@@ -372,6 +372,20 @@ impl QueryFilters {
     }
 }
 
+/// Build the deterministic `ORDER BY path LIMIT n` tail for a capped query.
+///
+/// A bare `LIMIT` returns an arbitrary, unstable subset, so ordering and limiting are
+/// inseparable: whenever a limit is present the query orders by `path` — the unique key of
+/// the index — so a `--dry-run` preview and the subsequent real deletion select identical
+/// rows. With no limit the tail is empty: every match is acted on regardless of order, and
+/// ordering the whole match set would be wasted work.
+pub fn deterministic_limit_clause(limit: Option<usize>) -> String {
+    match limit {
+        Some(n) => format!("ORDER BY path LIMIT {n}"),
+        None => String::new(),
+    }
+}
+
 /// Returns the Arrow schema for file metadata records.
 pub fn get_schema() -> Arc<Schema> {
     Arc::new(Schema::new(vec![
@@ -817,5 +831,17 @@ mod tests {
         let filters = QueryFilters::new().with_min_size(Some("1M")).unwrap();
         let clause = filters.to_full_where_clause();
         assert!(clause.starts_with("WHERE "));
+    }
+
+    // deterministic_limit_clause() tests
+    #[test]
+    fn test_deterministic_limit_clause_none() {
+        assert_eq!(deterministic_limit_clause(None), "");
+    }
+
+    #[test]
+    fn test_deterministic_limit_clause_some() {
+        assert_eq!(deterministic_limit_clause(Some(1)), "ORDER BY path LIMIT 1");
+        assert_eq!(deterministic_limit_clause(Some(5)), "ORDER BY path LIMIT 5");
     }
 }
