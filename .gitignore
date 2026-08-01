@@ -4,3 +4,5 @@
 /share/
 # Python bytecode cache from the factory FSM scripts (.agents/factory/bin/*.py under uv).
 __pycache__/
+# JetBrains IDE project files (per-developer, not part of the build).
+/.idea/
