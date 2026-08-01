@@ -7,7 +7,7 @@ status: in_review
 branch: fix/rm-limit-deterministic-order
 base: main
 current_phase: done
-last_updated: '2026-07-28'
+last_updated: '2026-07-31'
 phases:
 - id: P1
   name: Deterministic ORDER BY for --limit (lib helper + wire-in + docs + tests)
@@ -23,10 +23,10 @@ phases:
   hill: uphill
   verify: cargo test
 review:
-  last_reviewed_commit: ''
-  verdict: none
+  last_reviewed_commit: 77e257d0520fd0e46dda06bc6f5e267478fe6213
+  verdict: approved
   blocked_reason: ''
-  cycle: 0
+  cycle: 1
 ---
 # TECH.md — Make xdu-rm --limit selection deterministic
 
