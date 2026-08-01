@@ -83,11 +83,18 @@ pub struct WorkItem {
 }
 
 /// Statistics returned from a crawl operation.
+///
+/// `vanished` counts benign skips (a file that disappeared between walk and stat —
+/// an `ENOENT` race, common on a live filesystem); `errors` counts hard failures
+/// (permission/I/O, or a directory read that hid a whole subtree) that make the run
+/// exit non-zero unless `--allow-errors` is set.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CrawlStats {
     pub files: u64,
     pub bytes: u64,
     pub pruned: usize,
+    pub vanished: u64,
+    pub errors: u64,
 }
 
 impl CrawlStats {
@@ -96,6 +103,31 @@ impl CrawlStats {
         self.files += other.files;
         self.bytes += other.bytes;
         self.pruned += other.pruned;
+        self.vanished += other.vanished;
+        self.errors += other.errors;
+    }
+}
+
+/// How a per-entry crawl error should be handled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EntryError {
+    /// The entry vanished between walk and stat (`ENOENT` race) — benign; skip and
+    /// keep the run's exit status clean.
+    Vanished,
+    /// A hard error (permission denied, I/O, a directory read that hid a subtree, or a
+    /// non-I/O walk error such as a symlink loop) — report it and fail the run.
+    Hard,
+}
+
+/// Classify an I/O error encountered while walking or stat-ing an entry.
+///
+/// `kind` is `None` when a walk error carries no underlying `io::Error` (a symlink
+/// loop or a busy thread-pool); those are treated as hard. Only `NotFound` (the file
+/// raced away) is benign — every other kind hides data and must fail the run.
+pub fn classify_io_error(kind: Option<std::io::ErrorKind>) -> EntryError {
+    match kind {
+        Some(std::io::ErrorKind::NotFound) => EntryError::Vanished,
+        _ => EntryError::Hard,
     }
 }
 
@@ -324,29 +356,28 @@ mod tests {
     #[test]
     fn test_crawl_stats_merge_folds_totals() {
         let mut total = CrawlStats::default();
-        assert_eq!(
-            total,
-            CrawlStats {
-                files: 0,
-                bytes: 0,
-                pruned: 0
-            }
-        );
+        assert_eq!(total, CrawlStats::default());
 
         total.merge(&CrawlStats {
             files: 3,
             bytes: 300,
             pruned: 1,
+            vanished: 2,
+            errors: 1,
         });
         total.merge(&CrawlStats {
             files: 2,
             bytes: 200,
             pruned: 0,
+            vanished: 0,
+            errors: 0,
         });
         total.merge(&CrawlStats {
             files: 5,
             bytes: 500,
             pruned: 4,
+            vanished: 3,
+            errors: 2,
         });
 
         assert_eq!(
@@ -354,9 +385,27 @@ mod tests {
             CrawlStats {
                 files: 10,
                 bytes: 1000,
-                pruned: 5
+                pruned: 5,
+                vanished: 5,
+                errors: 3,
             }
         );
+    }
+
+    #[test]
+    fn test_classify_io_error() {
+        use std::io::ErrorKind;
+        assert_eq!(
+            classify_io_error(Some(ErrorKind::NotFound)),
+            EntryError::Vanished
+        );
+        assert_eq!(
+            classify_io_error(Some(ErrorKind::PermissionDenied)),
+            EntryError::Hard
+        );
+        assert_eq!(classify_io_error(Some(ErrorKind::Other)), EntryError::Hard);
+        // A walk error with no underlying io::Error (loop / busy pool) is hard.
+        assert_eq!(classify_io_error(None), EntryError::Hard);
     }
 
     // ---- build_work_queue ---------------------------------------------------

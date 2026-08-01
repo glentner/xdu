@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: feature/crawl-hardening
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-07-31'
 phases:
 - id: P1
@@ -24,7 +24,7 @@ phases:
   verify: cargo test
 - id: P2
   name: Fail loud on walk/stat errors; add --allow-errors opt-in
-  status: pending
+  status: done
   satisfies:
   - R2
   - R3
@@ -169,18 +169,24 @@ planning); this phase acts on its "extract testable seams" recommendation.
 **Goal:** The headline correctness fix — an unreadable subtree must no longer silently vanish while the
 run exits 0 ([research/01](research/01-concurrency-audit.md) #1, #4).
 
-- [ ] Replace the two silent `Err(_) => continue` sites (jwalk iterator ~355-359; `fs::metadata`
-      ~365-368) with an error classifier: **benign vanished-file race** (`ErrorKind::NotFound` between
-      walk and stat) → count as "vanished" + skip + does **not** fail the run; **hard error**
-      (`PermissionDenied`/IO/other, incl. a jwalk directory-read `Err` that hides a whole subtree) →
-      count, report `path: errno` to **stderr**, and make the run exit **non-zero**.
-- [ ] Track per-partition and global skip/error counts (thread the counts through `CrawlStats` /
-      atomics); surface them in the summary line (stderr) and set the process exit code from whether any
-      hard error occurred.
-- [ ] Add `--allow-errors` (bool) to `XduArgs` in `src/cli.rs`: when set, hard errors are downgraded to
-      warn-and-continue (exit 0). Default (unset) = fail loud. Document in `doc/xdu.1.scd` (new OPTION +
-      a note that the crawl fails non-zero on unreadable regions unless this is passed).
-- [ ] Keep all diagnostics on **stderr** (clean pipeable stdout, §13).
+- [x] Replace the silent `Err(_) => continue` sites with an error classifier
+      (`crawl::classify_io_error(Option<ErrorKind>) -> EntryError`): **benign vanished-file race**
+      (`ErrorKind::NotFound` between walk and stat) → count as "vanished" + skip + does **not** fail the
+      run; **hard error** (`PermissionDenied`/IO/other) → count, report `path: errno` to **stderr**, and
+      make the run exit **non-zero**. *(Amendment: the audit/plan named **two** sites, but jwalk 0.8 does
+      NOT surface a failed directory read as an iterator `Err` — it attaches it to the parent entry's
+      `read_children_error` and yields the directory as `Ok`. So there are **three** sites: the iterator
+      `Err` (per-entry construction failures), `entry.read_children_error` (the load-bearing
+      whole-subtree loss, finding #1), and the `fs::metadata` re-stat. Verified against jwalk-0.8.1
+      `dir_entry_iter.rs`.)*
+- [x] Track per-partition and global skip/error counts (global `AtomicU64`s folded into `CrawlStats`
+      `vanished`/`errors`); surface them in the per-partition `Finished` line and the final `Completed`
+      summary (stderr); `main` exits non-zero when `errors > 0` unless `--allow-errors`.
+- [x] Add `--allow-errors` (bool) to `XduArgs` in `src/cli.rs`: when set, hard errors are downgraded to
+      warn-and-continue (exit 0). Default (unset) = fail loud. Documented in `doc/xdu.1.scd` (new OPTION,
+      SYNOPSIS entry, and an EXIT STATUS section).
+- [x] Keep all diagnostics on **stderr** (clean pipeable stdout, §13) — TTY runs route them through
+      `MultiProgress::println` (above the bars); non-TTY runs `eprintln!`.
 - **Verify:** `cargo test` — new `crawl_tests` cases: build a tree with an unreadable subtree
       (`std::fs::set_permissions` 0o000 on a subdir, skip if running as root), crawl → assert **non-zero
       exit** + stderr names the dir + index omits only that subtree; with `--allow-errors` → exit 0,

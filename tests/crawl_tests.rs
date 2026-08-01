@@ -8,7 +8,7 @@
 mod common;
 
 use std::fs;
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::{PermissionsExt, symlink};
 
 use tempfile::TempDir;
 
@@ -348,4 +348,92 @@ fn test_buffsize_chunking() {
         count_chunks(&index, "p")
     );
     assert_eq!(count_partials(&index), 0);
+}
+
+// =============================================================================
+// An unreadable subtree fails the run loud by default (the headline correctness fix)
+// =============================================================================
+
+#[test]
+fn test_unreadable_subtree_fails_loud_by_default() {
+    // Root bypasses permission bits, so this scenario cannot be reproduced as root.
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping: running as root bypasses permission checks");
+        return;
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("data/readable.txt"), 100).unwrap();
+    create_test_file(&source.join("data/secret/hidden.txt"), 100).unwrap();
+
+    let secret = source.join("data/secret");
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let (_out, err, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    // Restore perms before asserting so the TempDir can always be cleaned up.
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(!ok, "crawl must exit non-zero on an unreadable subtree");
+    assert!(
+        err.contains("secret"),
+        "stderr must name the unreadable directory, got: {err}"
+    );
+    // The reachable file was still indexed; the hidden subtree was omitted.
+    assert_eq!(find_count(&index, &["-u", "data"]), 1);
+}
+
+// =============================================================================
+// --allow-errors downgrades the hard error to a warning and exits 0
+// =============================================================================
+
+#[test]
+fn test_unreadable_subtree_allow_errors_continues() {
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping: running as root bypasses permission checks");
+        return;
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("data/readable.txt"), 100).unwrap();
+    create_test_file(&source.join("data/secret/hidden.txt"), 100).unwrap();
+
+    let secret = source.join("data/secret");
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let (_out, err, ok) = run_xdu(&[
+        "--apparent-size",
+        "--allow-errors",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(
+        ok,
+        "with --allow-errors the crawl must exit 0, stderr: {err}"
+    );
+    // The error is still reported (a non-zero count) and reachable files still indexed.
+    assert!(
+        err.contains("secret"),
+        "stderr should still report the skipped path: {err}"
+    );
+    assert!(
+        err.contains("errors"),
+        "summary should still report the error count: {err}"
+    );
+    assert_eq!(find_count(&index, &["-u", "data"]), 1);
 }

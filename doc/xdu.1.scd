@@ -6,7 +6,7 @@ xdu - build a distributed file metadata index in Parquet format
 
 # SYNOPSIS
 
-*xdu* _DIR_ *-o* _OUTDIR_ \[*-j* _N_] \[*-B* _N_] \[*--apparent-size*] \[*-k* _SIZE_] \[*-p* _NAMES_]
+*xdu* _DIR_ *-o* _OUTDIR_ \[*-j* _N_] \[*-B* _N_] \[*--apparent-size*] \[*-k* _SIZE_] \[*-p* _NAMES_] \[*--allow-errors*]
 
 # DESCRIPTION
 
@@ -50,6 +50,10 @@ _DIR_
 	Index only specific partitions (top-level subdirectory names,
 	comma-separated). Useful for incremental re-indexing.
 
+*--allow-errors*
+	Continue past unreadable files or directories (permission or I/O
+	errors) instead of failing the run. See _EXIT STATUS_.
+
 *-h*, *--help*
 	Print help information.
 
@@ -92,6 +96,20 @@ Each Parquet file contains three columns:
 
 Files are written atomically using a .partial suffix, then renamed on
 completion. Stale chunks from previous runs are automatically pruned.
+
+# EXIT STATUS
+
+*xdu* exits *0* on success. If the crawl cannot read a file or directory
+(a permission or I/O error — for example an unreadable subtree that would
+otherwise be silently omitted), it reports the offending path and error to
+standard error and exits *non-zero*, so a partial index is never presented as
+complete. Files that vanish between being listed and being stat'd (an ENOENT
+race on a live filesystem) are counted and skipped without failing the run.
+
+Pass *--allow-errors* to downgrade the hard errors to warnings: the crawl then
+indexes every reachable file and exits *0*. The per-path diagnostics and the
+skipped/error counts in the summary are printed either way, and all such
+diagnostics go to standard error so piped output on standard output stays clean.
 
 # SEE ALSO
 

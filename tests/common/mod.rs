@@ -13,15 +13,18 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Get the path to a built binary (release if present, else debug).
+/// Path to a binary built for *this* test invocation.
+///
+/// `CARGO_BIN_EXE_<name>` is set by Cargo to the binary compiled for the current test
+/// profile, so the tests never accidentally exercise a stale `target/release` artifact
+/// left over from an earlier build.
 pub fn binary_path(name: &str) -> PathBuf {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("target");
-    let release_path = path.join("release").join(name);
-    if release_path.exists() {
-        return release_path;
+    match name {
+        "xdu" => env!("CARGO_BIN_EXE_xdu").into(),
+        "xdu-find" => env!("CARGO_BIN_EXE_xdu-find").into(),
+        "xdu-rm" => env!("CARGO_BIN_EXE_xdu-rm").into(),
+        other => panic!("unknown test binary: {other}"),
     }
-    path.join("debug").join(name)
 }
 
 /// Create a test file of a specific byte size, making parent dirs as needed.

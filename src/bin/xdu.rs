@@ -17,7 +17,10 @@ use jwalk::{Parallelism, WalkDir};
 use rayon::ThreadPoolBuilder;
 
 use xdu::cli::XduArgs;
-use xdu::crawl::{CrawlStats, PartitionBuffer, TopEntry, build_work_queue, record_from_metadata};
+use xdu::crawl::{
+    CrawlStats, EntryError, PartitionBuffer, TopEntry, build_work_queue, classify_io_error,
+    record_from_metadata,
+};
 use xdu::{SizeMode, format_bytes, format_count, format_speed, get_schema, parse_size};
 
 /// Crawl a directory tree using concurrent per-partition walks with a shared thread pool.
@@ -113,6 +116,10 @@ fn crawl(
     let global_files = Arc::new(AtomicU64::new(0));
     let global_bytes = Arc::new(AtomicU64::new(0));
     let global_pruned = Arc::new(AtomicUsize::new(0));
+    // Benign vanished-file races vs. hard (permission/IO) errors. A hard error fails
+    // the run unless --allow-errors; both are surfaced in the summary (all on stderr).
+    let global_vanished = Arc::new(AtomicU64::new(0));
+    let global_errors = Arc::new(AtomicU64::new(0));
 
     // Global speed tracking (shared across drivers, protected by single Mutex)
     let global_speed_state = Arc::new(Mutex::new((
@@ -132,6 +139,8 @@ fn crawl(
                 let global_files = global_files.clone();
                 let global_bytes = global_bytes.clone();
                 let global_pruned = global_pruned.clone();
+                let global_vanished = global_vanished.clone();
+                let global_errors = global_errors.clone();
                 let global_speed_state = global_speed_state.clone();
                 let schema = schema.clone();
                 let mp_ref = &mp;
@@ -145,6 +154,16 @@ fn crawl(
                     let bar = mp_ref.insert_before(global_bar_ref, ProgressBar::new_spinner());
                     bar.set_style(bar_style);
                     bar.enable_steady_tick(Duration::from_millis(100));
+
+                    // Emit a diagnostic to stderr, coordinating with the progress bars in
+                    // TTY mode (stdout stays clean and pipeable).
+                    let report = |msg: &str| {
+                        if is_tty {
+                            let _ = mp_ref.println(msg);
+                        } else {
+                            eprintln!("{}", msg);
+                        }
+                    };
 
                     loop {
                         let item = {
@@ -183,11 +202,61 @@ fn crawl(
                         let mut current_speed: f64 = 0.0;
                         let mut peak_speed: f64 = 0.0;
 
+                        // Per-partition skip/error tallies (folded into the globals below).
+                        let mut part_vanished: u64 = 0;
+                        let mut part_errors: u64 = 0;
+
                         for entry in walker {
                             let entry = match entry {
                                 Ok(e) => e,
-                                Err(_) => continue,
+                                // A jwalk error stands in for a whole unreadable subtree: a
+                                // failed directory read yields one Err in place of all its
+                                // children. Never drop it silently.
+                                Err(err) => {
+                                    let kind = err.io_error().map(|e| e.kind());
+                                    match classify_io_error(kind) {
+                                        EntryError::Vanished => part_vanished += 1,
+                                        EntryError::Hard => {
+                                            part_errors += 1;
+                                            let path = err.path().unwrap_or(item.path.as_path());
+                                            let detail = err
+                                                .io_error()
+                                                .map(|e| e.to_string())
+                                                .unwrap_or_else(|| err.to_string());
+                                            report(&format!(
+                                                "error: {}: {}",
+                                                path.display(),
+                                                detail
+                                            ));
+                                        }
+                                    }
+                                    continue;
+                                }
                             };
+
+                            // A directory jwalk could not descend into (e.g. permission
+                            // denied) is yielded as an Ok entry with the read failure attached
+                            // here — NOT as an iterator Err. This is the load-bearing check
+                            // that turns a silently-dropped subtree into a counted, reported,
+                            // run-failing error.
+                            if let Some(err) = entry.read_children_error.as_ref() {
+                                let kind = err.io_error().map(|e| e.kind());
+                                match classify_io_error(kind) {
+                                    EntryError::Vanished => part_vanished += 1,
+                                    EntryError::Hard => {
+                                        part_errors += 1;
+                                        let detail = err
+                                            .io_error()
+                                            .map(|e| e.to_string())
+                                            .unwrap_or_else(|| err.to_string());
+                                        let path = err
+                                            .path()
+                                            .map(|p| p.display().to_string())
+                                            .unwrap_or_else(|| entry.path().display().to_string());
+                                        report(&format!("error: {}: {}", path, detail));
+                                    }
+                                }
+                            }
 
                             if !entry.file_type.is_file() {
                                 continue;
@@ -196,7 +265,18 @@ fn crawl(
                             let path = entry.path();
                             let metadata = match fs::metadata(&path) {
                                 Ok(m) => m,
-                                Err(_) => continue,
+                                // The file raced away (ENOENT) or became unreadable between
+                                // the walk and this stat: benign race vs. hard error.
+                                Err(err) => {
+                                    match classify_io_error(Some(err.kind())) {
+                                        EntryError::Vanished => part_vanished += 1,
+                                        EntryError::Hard => {
+                                            part_errors += 1;
+                                            report(&format!("error: {}: {}", path.display(), err));
+                                        }
+                                    }
+                                    continue;
+                                }
                             };
 
                             let record = record_from_metadata(&path, &metadata, size_mode);
@@ -280,12 +360,20 @@ fn crawl(
                         buffer.flush()?;
                         let pruned = buffer.finalize()?;
                         global_pruned.fetch_add(pruned, Ordering::Relaxed);
+                        global_vanished.fetch_add(part_vanished, Ordering::Relaxed);
+                        global_errors.fetch_add(part_errors, Ordering::Relaxed);
 
-                        let prune_info = if pruned > 0 {
+                        let mut status_info = if pruned > 0 {
                             format!(", pruned {} stale", pruned)
                         } else {
                             String::new()
                         };
+                        if part_vanished > 0 {
+                            status_info.push_str(&format!(", {} vanished", part_vanished));
+                        }
+                        if part_errors > 0 {
+                            status_info.push_str(&format!(", {} errors", part_errors));
+                        }
 
                         if is_tty {
                             mp_ref.println(format!(
@@ -294,7 +382,7 @@ fn crawl(
                                 item.partition,
                                 format_count(buffer.file_count),
                                 format_bytes(buffer.byte_count),
-                                prune_info,
+                                status_info,
                             ))?;
                         } else {
                             eprintln!(
@@ -302,7 +390,7 @@ fn crawl(
                                 item.partition,
                                 format_count(buffer.file_count),
                                 format_bytes(buffer.byte_count),
-                                prune_info,
+                                status_info,
                             );
                         }
                     }
@@ -344,6 +432,8 @@ fn crawl(
         files: global_files.load(Ordering::Relaxed),
         bytes: global_bytes.load(Ordering::Relaxed),
         pruned: global_pruned.load(Ordering::Relaxed),
+        vanished: global_vanished.load(Ordering::Relaxed),
+        errors: global_errors.load(Ordering::Relaxed),
     })
 }
 
@@ -407,11 +497,17 @@ fn main() -> Result<()> {
     )?;
 
     let elapsed = start_time.elapsed();
-    let prune_info = if stats.pruned > 0 {
+    let mut summary_info = if stats.pruned > 0 {
         format!(", pruned {} stale", stats.pruned)
     } else {
         String::new()
     };
+    if stats.vanished > 0 {
+        summary_info.push_str(&format!(", {} vanished", stats.vanished));
+    }
+    if stats.errors > 0 {
+        summary_info.push_str(&format!(", {} errors", stats.errors));
+    }
 
     if is_tty {
         eprintln!(
@@ -420,7 +516,7 @@ fn main() -> Result<()> {
             format_count(stats.files),
             format_bytes(stats.bytes),
             elapsed.as_secs_f64(),
-            prune_info
+            summary_info
         );
     } else {
         eprintln!(
@@ -428,7 +524,18 @@ fn main() -> Result<()> {
             format_count(stats.files),
             format_bytes(stats.bytes),
             elapsed.as_secs_f64(),
-            prune_info
+            summary_info
+        );
+    }
+
+    // Fail loud: an unreadable region was skipped, so the index is incomplete. The
+    // reachable files were still written and the offending paths already reported;
+    // --allow-errors opts into indexing what is reachable and exiting 0 instead.
+    if stats.errors > 0 && !args.allow_errors {
+        anyhow::bail!(
+            "encountered {} unreadable path(s); the index is incomplete — \
+             re-run with --allow-errors to index reachable files and exit 0",
+            stats.errors
         );
     }
 
