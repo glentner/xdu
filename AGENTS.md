@@ -87,6 +87,7 @@ share/           # GENERATED (man + completions); git-ignored; built in CI / by 
 build.sh install.sh cruft.sh Dockerfile   # packaging / ops scripts
 .agents/         # the spec-driven "software factory" (see below)
 spec/{slug}/     # committed, dated per-feature design records the factory produces (retained on merge)
+ROADMAP.md       # forward-looking feature roadmap — prose intentions that seed future /xdu-feature
 ```
 
 Two repo-level trees sit outside `src/`: **`.agents/`** — the software factory (the
