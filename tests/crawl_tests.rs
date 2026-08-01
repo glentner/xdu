@@ -1,400 +1,351 @@
-//! Integration tests for xdu crawl functionality.
+//! Integration tests for the `xdu` index-build crawl.
 //!
-//! These tests create temporary directory structures and verify that
-//! crawling produces correct file counts, sizes, and records.
+//! These drive the **real** `xdu` binary against throwaway `tempfile` trees and assert
+//! concrete post-conditions via `xdu-find` (row counts, per-partition counts, paths
+//! present-or-absent, exit status) — never by reimplementing the crawler. Sizes use
+//! `--apparent-size` so they are exact and filesystem-independent.
 
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+mod common;
 
-use jwalk::{Parallelism, WalkDir};
-use std::sync::Mutex;
+use std::fs;
+use std::os::unix::fs::symlink;
+
 use tempfile::TempDir;
 
-use xdu::{FileRecord, SizeMode};
+use common::{
+    build_index, count_chunks, count_partials, create_test_file, find_count, find_paths, run_xdu,
+};
 
-/// Special partition name for files directly in the top-level directory.
-const ROOT_PARTITION: &str = "__root__";
-
-/// Simple buffer that collects FileRecords for testing.
-struct TestBuffer {
-    records: Vec<FileRecord>,
+/// Parse the leading size column of an `xdu-find -f size` line ("<size>\t<path>").
+fn parse_first_size(out: &str) -> i64 {
+    let line = out.lines().next().expect("no size output");
+    line.split('\t')
+        .next()
+        .unwrap()
+        .parse()
+        .expect("size column not an integer")
 }
 
-impl TestBuffer {
-    fn new() -> Self {
-        Self {
-            records: Vec::new(),
-        }
+// =============================================================================
+// Basic counts, per-partition
+// =============================================================================
+
+#[test]
+fn test_basic_and_per_partition_counts() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("alice/f1.txt"), 100).unwrap();
+    create_test_file(&source.join("alice/f2.txt"), 200).unwrap();
+    create_test_file(&source.join("bob/f3.txt"), 300).unwrap();
+
+    build_index(&source, &index);
+
+    assert_eq!(find_count(&index, &[]), 3);
+    assert_eq!(find_count(&index, &["-u", "alice"]), 2);
+    assert_eq!(find_count(&index, &["-u", "bob"]), 1);
+}
+
+// =============================================================================
+// __root__: loose top-level files are their own partition; nested files are not
+// =============================================================================
+
+#[test]
+fn test_root_partition_holds_only_loose_files() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("root.txt"), 10).unwrap(); // loose -> __root__
+    create_test_file(&source.join("sub/nested.txt"), 20).unwrap(); // -> partition "sub"
+
+    build_index(&source, &index);
+
+    assert_eq!(find_count(&index, &[]), 2);
+    assert_eq!(find_count(&index, &["-u", "__root__"]), 1);
+    assert_eq!(find_count(&index, &["-u", "sub"]), 1);
+
+    // The nested file must not leak into __root__.
+    let root_paths = {
+        let (out, _e, ok) = common::run_find(&[
+            "-i",
+            index.to_str().unwrap(),
+            "-u",
+            "__root__",
+            "-f",
+            "path",
+        ]);
+        assert!(ok);
+        out
+    };
+    assert!(root_paths.contains("root.txt"));
+    assert!(!root_paths.contains("nested.txt"));
+}
+
+// =============================================================================
+// Deeply nested files are all captured under their top-level partition
+// =============================================================================
+
+#[test]
+fn test_deeply_nested_files_counted() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("p/top.txt"), 10).unwrap();
+    create_test_file(&source.join("p/a/b/c/deep.txt"), 20).unwrap();
+
+    build_index(&source, &index);
+
+    assert_eq!(find_count(&index, &[]), 2);
+    assert_eq!(find_count(&index, &["-u", "p"]), 2);
+}
+
+// =============================================================================
+// --partition filter selects a subset; an absent partition is a validation error
+// =============================================================================
+
+#[test]
+fn test_partition_filter_and_absent_partition_error() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("alice/f.txt"), 100).unwrap();
+    create_test_file(&source.join("bob/f.txt"), 100).unwrap();
+
+    // Index only alice.
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        "-p",
+        "alice",
+        source.to_str().unwrap(),
+    ]);
+    assert!(ok, "xdu -p alice failed: {e}");
+    assert_eq!(find_count(&index, &[]), 1);
+    assert_eq!(find_count(&index, &["-u", "alice"]), 1);
+
+    // An absent partition name is rejected before crawling.
+    let index2 = tmp.path().join("index2");
+    let (_o2, e2, ok2) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index2.to_str().unwrap(),
+        "-p",
+        "ghost",
+        source.to_str().unwrap(),
+    ]);
+    assert!(!ok2, "xdu should fail for an absent partition");
+    assert!(
+        e2.contains("Partition 'ghost' not found"),
+        "stderr should name the missing partition, got: {e2}"
+    );
+}
+
+// =============================================================================
+// Size modes: apparent-size is exact; block-rounded rounds up
+// =============================================================================
+
+#[test]
+fn test_size_modes() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+
+    create_test_file(&source.join("p/file.bin"), 100).unwrap();
+
+    // Apparent size is exact.
+    let idx_apparent = tmp.path().join("apparent");
+    build_index(&source, &idx_apparent);
+    let (out, _e, ok) = common::run_find(&["-i", idx_apparent.to_str().unwrap(), "-f", "size"]);
+    assert!(ok);
+    assert_eq!(parse_first_size(&out), 100);
+
+    // Block-rounded: 100 bytes rounds up to a full 4096-byte block.
+    let idx_rounded = tmp.path().join("rounded");
+    let (_o, e, ok) = run_xdu(&[
+        "-k",
+        "4096",
+        "-o",
+        idx_rounded.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+    assert!(ok, "xdu -k 4096 failed: {e}");
+    let (out, _e, ok) = common::run_find(&["-i", idx_rounded.to_str().unwrap(), "-f", "size"]);
+    assert!(ok);
+    assert_eq!(parse_first_size(&out), 4096);
+}
+
+// =============================================================================
+// An empty tree fails loud with a clear diagnostic
+// =============================================================================
+
+#[test]
+fn test_empty_tree_fails_with_no_partitions() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+    fs::create_dir_all(&source).unwrap();
+
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+    assert!(!ok, "empty tree should not succeed");
+    assert!(
+        e.contains("No partitions found"),
+        "stderr should explain the empty tree, got: {e}"
+    );
+}
+
+// =============================================================================
+// Re-indexing a shrunken tree drops stale rows (finalize prunes stale chunks)
+// =============================================================================
+
+#[test]
+fn test_reindex_prunes_stale_rows() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"] {
+        create_test_file(&source.join("p").join(name), 100).unwrap();
     }
 
-    fn add(&mut self, record: FileRecord) {
-        self.records.push(record);
+    // Small buffsize => several chunks (ceil(5/2) = 3).
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-B",
+        "2",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+    assert!(ok, "initial index failed: {e}");
+    assert_eq!(find_count(&index, &[]), 5);
+    assert!(count_chunks(&index, "p") >= 2);
+
+    // Shrink the tree, then re-index the same directory.
+    for name in ["c.txt", "d.txt", "e.txt"] {
+        fs::remove_file(source.join("p").join(name)).unwrap();
+    }
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-B",
+        "2",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+    assert!(ok, "re-index failed: {e}");
+
+    assert_eq!(find_count(&index, &[]), 2, "stale rows were not pruned");
+    assert_eq!(count_chunks(&index, "p"), 1, "stale chunks were not pruned");
+    assert_eq!(count_partials(&index), 0);
+}
+
+// =============================================================================
+// A successful crawl leaves no *.partial files behind
+// =============================================================================
+
+#[test]
+fn test_no_partial_files_after_success() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("alice/f1.txt"), 100).unwrap();
+    create_test_file(&source.join("bob/f2.txt"), 100).unwrap();
+    create_test_file(&source.join("loose.txt"), 100).unwrap();
+
+    build_index(&source, &index);
+
+    assert_eq!(find_count(&index, &[]), 3);
+    assert_eq!(count_partials(&index), 0, "found leftover .partial files");
+}
+
+// =============================================================================
+// Symlinks are excluded; only the regular file is indexed
+// =============================================================================
+
+#[test]
+fn test_symlinks_excluded() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("p/real.txt"), 100).unwrap();
+    symlink(source.join("p/real.txt"), source.join("p/link.txt")).unwrap();
+
+    build_index(&source, &index);
+
+    // Only the regular file is counted; the symlink is skipped.
+    assert_eq!(find_count(&index, &[]), 1);
+    let paths = find_paths(&index);
+    assert!(paths.iter().any(|p| p.ends_with("real.txt")));
+    assert!(!paths.iter().any(|p| p.ends_with("link.txt")));
+}
+
+// =============================================================================
+// Determinism: two independent crawls of the same tree agree exactly
+// =============================================================================
+
+#[test]
+fn test_crawl_is_deterministic() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+
+    create_test_file(&source.join("alice/f1.txt"), 100).unwrap();
+    create_test_file(&source.join("alice/f2.txt"), 200).unwrap();
+    create_test_file(&source.join("bob/data.bin"), 500).unwrap();
+    create_test_file(&source.join("charlie/notes.md"), 150).unwrap();
+    create_test_file(&source.join("loose.txt"), 50).unwrap();
+
+    let index1 = tmp.path().join("index1");
+    let index2 = tmp.path().join("index2");
+    build_index(&source, &index1);
+    build_index(&source, &index2);
+
+    assert_eq!(find_count(&index1, &[]), 5);
+    assert_eq!(find_count(&index2, &[]), 5);
+    assert_eq!(find_paths(&index1), find_paths(&index2));
+}
+
+// =============================================================================
+// Buffsize chunking: a small -B splits a partition into multiple chunks
+// =============================================================================
+
+#[test]
+fn test_buffsize_chunking() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"] {
+        create_test_file(&source.join("p").join(name), 100).unwrap();
     }
 
-    fn records(&self) -> &[FileRecord] {
-        &self.records
-    }
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-B",
+        "2",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+    assert!(ok, "chunked index failed: {e}");
 
-    fn total_size(&self) -> i64 {
-        self.records.iter().map(|r| r.size).sum()
-    }
-}
-
-/// Create a test file with specific content size.
-fn create_test_file(path: &PathBuf, size: usize) -> std::io::Result<()> {
-    let mut file = File::create(path)?;
-    file.write_all(&vec![b'x'; size])?;
-    Ok(())
-}
-
-/// Extract partition name from path, mirroring the logic in xdu.rs
-fn extract_partition(path: &Path, top_dir: &Path) -> Option<String> {
-    let relative = path.strip_prefix(top_dir).ok()?;
-    let mut components = relative.components();
-    let first = components.next()?;
-    if components.next().is_some() {
-        Some(first.as_os_str().to_string_lossy().to_string())
-    } else {
-        Some(ROOT_PARTITION.to_string())
-    }
-}
-
-/// Helper to crawl a directory using jwalk and collect records into a TestBuffer.
-fn crawl_directory_for_test(
-    top_dir: &Path,
-    buffer: &Arc<Mutex<TestBuffer>>,
-    size_mode: SizeMode,
-    file_count: &AtomicU64,
-    byte_count: &AtomicU64,
-) {
-    let walker = WalkDir::new(top_dir)
-        .parallelism(Parallelism::Serial)
-        .skip_hidden(false)
-        .follow_links(false);
-
-    for entry in walker {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        if !entry.file_type().is_file() {
-            continue;
-        }
-
-        let path = entry.path();
-        let metadata = match fs::metadata(&path) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-
-        // Use apparent size for testing (st_blocks not reliable in tests)
-        let file_size = size_mode.calculate(metadata.len(), metadata.len());
-        let record = FileRecord {
-            path: path.to_string_lossy().to_string(),
-            size: file_size as i64,
-            atime: 0, // Not testing atime
-        };
-        buffer.lock().unwrap().add(record);
-
-        file_count.fetch_add(1, Ordering::Relaxed);
-        byte_count.fetch_add(file_size, Ordering::Relaxed);
-    }
-}
-
-// =============================================================================
-// Test: crawl_directory correctly accumulates file counts and sizes
-// =============================================================================
-
-#[test]
-fn test_crawl_directory_accumulates_counts_and_sizes() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    // Create test files
-    create_test_file(&base.join("file1.txt"), 100).unwrap();
-    create_test_file(&base.join("file2.txt"), 200).unwrap();
-    create_test_file(&base.join("file3.txt"), 300).unwrap();
-
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
+    // All five files are present despite chunking...
+    assert_eq!(find_count(&index, &[]), 5);
+    // ...and they landed across more than one chunk file.
+    assert!(
+        count_chunks(&index, "p") >= 2,
+        "expected multiple chunks with -B 2, got {}",
+        count_chunks(&index, "p")
     );
-
-    // Verify counts
-    assert_eq!(file_count.load(Ordering::Relaxed), 3);
-    assert_eq!(byte_count.load(Ordering::Relaxed), 600);
-
-    // Verify buffer has all records
-    let buf = buffer.lock().unwrap();
-    assert_eq!(buf.records().len(), 3);
-    assert_eq!(buf.total_size(), 600);
-}
-
-#[test]
-fn test_crawl_directory_with_nested_subdirectories() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    // Create nested structure
-    fs::create_dir_all(base.join("subdir1/nested")).unwrap();
-    fs::create_dir_all(base.join("subdir2")).unwrap();
-
-    create_test_file(&base.join("root.txt"), 50).unwrap();
-    create_test_file(&base.join("subdir1/file1.txt"), 100).unwrap();
-    create_test_file(&base.join("subdir1/nested/deep.txt"), 150).unwrap();
-    create_test_file(&base.join("subdir2/file2.txt"), 200).unwrap();
-
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
-    );
-
-    assert_eq!(file_count.load(Ordering::Relaxed), 4);
-    assert_eq!(byte_count.load(Ordering::Relaxed), 500);
-}
-
-#[test]
-fn test_crawl_directory_adds_records_to_buffer() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    create_test_file(&base.join("test.txt"), 1024).unwrap();
-
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
-    );
-
-    let buf = buffer.lock().unwrap();
-    assert_eq!(buf.records().len(), 1);
-    let record = &buf.records()[0];
-    assert!(record.path.ends_with("test.txt"));
-    assert_eq!(record.size, 1024);
-}
-
-// =============================================================================
-// Test: Partition extraction logic
-// =============================================================================
-
-#[test]
-fn test_extract_partition_with_subdirectory() {
-    let top_dir = Path::new("/data/scratch");
-    let file_path = Path::new("/data/scratch/alice/projects/file.txt");
-
-    let partition = extract_partition(file_path, top_dir);
-    assert_eq!(partition, Some("alice".to_string()));
-}
-
-#[test]
-fn test_extract_partition_root_level_file() {
-    let top_dir = Path::new("/data/scratch");
-    let file_path = Path::new("/data/scratch/readme.txt");
-
-    let partition = extract_partition(file_path, top_dir);
-    assert_eq!(partition, Some(ROOT_PARTITION.to_string()));
-}
-
-#[test]
-fn test_extract_partition_deeply_nested() {
-    let top_dir = Path::new("/data/scratch");
-    let file_path = Path::new("/data/scratch/bob/projects/2024/january/report.pdf");
-
-    let partition = extract_partition(file_path, top_dir);
-    assert_eq!(partition, Some("bob".to_string()));
-}
-
-#[test]
-fn test_crawl_with_partition_structure() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    // Create partition-like structure
-    fs::create_dir_all(base.join("alice")).unwrap();
-    fs::create_dir_all(base.join("bob/projects")).unwrap();
-
-    create_test_file(&base.join("alice/file1.txt"), 100).unwrap();
-    create_test_file(&base.join("bob/file2.txt"), 200).unwrap();
-    create_test_file(&base.join("bob/projects/file3.txt"), 300).unwrap();
-
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
-    );
-
-    // All files should be crawled
-    assert_eq!(file_count.load(Ordering::Relaxed), 3);
-    assert_eq!(byte_count.load(Ordering::Relaxed), 600);
-
-    // Verify partition extraction works for collected records
-    let buf = buffer.lock().unwrap();
-    for record in buf.records() {
-        let path = Path::new(&record.path);
-        let partition = extract_partition(path, base);
-        assert!(partition.is_some());
-        let p = partition.unwrap();
-        assert!(p == "alice" || p == "bob");
-    }
-}
-
-// =============================================================================
-// Test: Full crawl mode correctly processes multiple partitions
-// =============================================================================
-
-#[test]
-fn test_full_crawl_processes_multiple_partitions() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    // Create partition directories
-    fs::create_dir_all(base.join("alice")).unwrap();
-    fs::create_dir_all(base.join("bob")).unwrap();
-    fs::create_dir_all(base.join("charlie")).unwrap();
-
-    create_test_file(&base.join("alice/file1.txt"), 100).unwrap();
-    create_test_file(&base.join("alice/file2.txt"), 200).unwrap();
-    create_test_file(&base.join("bob/data.bin"), 500).unwrap();
-    create_test_file(&base.join("charlie/notes.md"), 150).unwrap();
-
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    // Single crawl over entire directory tree
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
-    );
-
-    // Verify totals
-    assert_eq!(file_count.load(Ordering::Relaxed), 4);
-    assert_eq!(byte_count.load(Ordering::Relaxed), 950);
-
-    // Verify partition detection works
-    let buf = buffer.lock().unwrap();
-    let mut partitions: Vec<String> = buf
-        .records()
-        .iter()
-        .filter_map(|r| extract_partition(Path::new(&r.path), base))
-        .collect();
-    partitions.sort();
-    partitions.dedup();
-    assert_eq!(partitions, vec!["alice", "bob", "charlie"]);
-}
-
-#[test]
-fn test_crawl_accumulates_across_partitions() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    // Create two partitions
-    fs::create_dir_all(base.join("part1")).unwrap();
-    fs::create_dir_all(base.join("part2")).unwrap();
-
-    create_test_file(&base.join("part1/a.txt"), 1000).unwrap();
-    create_test_file(&base.join("part2/b.txt"), 2000).unwrap();
-    create_test_file(&base.join("part2/c.txt"), 3000).unwrap();
-
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
-    );
-
-    // Verify totals from both partitions
-    assert_eq!(file_count.load(Ordering::Relaxed), 3);
-    assert_eq!(byte_count.load(Ordering::Relaxed), 6000);
-}
-
-// =============================================================================
-// Test: SizeMode with crawl
-// =============================================================================
-
-#[test]
-fn test_crawl_with_block_rounded_size_mode() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    // Create a small file that should round up to 4K
-    create_test_file(&base.join("small.txt"), 100).unwrap();
-
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::BlockRounded(4096),
-        &file_count,
-        &byte_count,
-    );
-
-    // 100 bytes should round up to 4096
-    assert_eq!(byte_count.load(Ordering::Relaxed), 4096);
-
-    let buf = buffer.lock().unwrap();
-    assert_eq!(buf.records()[0].size, 4096);
-}
-
-#[test]
-fn test_crawl_empty_directory() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    // Empty directory
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
-    );
-
-    assert_eq!(file_count.load(Ordering::Relaxed), 0);
-    assert_eq!(buffer.lock().unwrap().records().len(), 0);
+    assert_eq!(count_partials(&index), 0);
 }

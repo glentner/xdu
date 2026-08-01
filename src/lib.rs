@@ -1,6 +1,7 @@
 //! Shared types and utilities for xdu tools.
 
 pub mod cli;
+pub mod crawl;
 
 use std::fmt;
 use std::str::FromStr;

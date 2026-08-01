@@ -1,181 +1,39 @@
 #![allow(clippy::too_many_arguments)]
 
-use std::collections::{HashSet, VecDeque};
-use std::fs::{self, File};
+use std::collections::HashSet;
+use std::fs;
 use std::io::{IsTerminal, stderr};
-use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use arrow::array::{Int64Array, StringBuilder};
 use arrow::datatypes::Schema;
-use arrow::record_batch::RecordBatch;
 use clap::Parser;
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use jwalk::{Parallelism, WalkDir};
-use parquet::arrow::ArrowWriter;
-use parquet::basic::Compression;
-use parquet::file::properties::WriterProperties;
 use rayon::ThreadPoolBuilder;
 
 use xdu::cli::XduArgs;
-use xdu::{FileRecord, SizeMode, format_bytes, format_count, format_speed, get_schema, parse_size};
-
-/// Special partition name for files directly in the top-level directory.
-const ROOT_PARTITION: &str = "__root__";
-
-/// Per-partition buffer that accumulates records and flushes to Parquet.
-struct PartitionBuffer {
-    partition: String,
-    outdir: PathBuf,
-    records: Vec<FileRecord>,
-    buffsize: usize,
-    chunk_counter: usize,
-    schema: Arc<Schema>,
-    /// Track all .partial files written for atomic finalization
-    partial_files: Vec<PathBuf>,
-    /// Track statistics for this partition
-    file_count: u64,
-    byte_count: u64,
-}
-
-impl PartitionBuffer {
-    fn new(partition: String, outdir: PathBuf, buffsize: usize, schema: Arc<Schema>) -> Self {
-        Self {
-            partition,
-            outdir,
-            records: Vec::with_capacity(buffsize),
-            buffsize,
-            chunk_counter: 0,
-            schema,
-            partial_files: Vec::new(),
-            file_count: 0,
-            byte_count: 0,
-        }
-    }
-
-    fn add(&mut self, record: FileRecord) -> Result<()> {
-        self.file_count += 1;
-        self.byte_count += record.size as u64;
-        self.records.push(record);
-        if self.records.len() >= self.buffsize {
-            self.flush()?;
-        }
-        Ok(())
-    }
-
-    fn flush(&mut self) -> Result<()> {
-        if self.records.is_empty() {
-            return Ok(());
-        }
-
-        let chunk_id = self.chunk_counter;
-        self.chunk_counter += 1;
-        let partition_dir = self.outdir.join(&self.partition);
-        fs::create_dir_all(&partition_dir).with_context(|| {
-            format!(
-                "Failed to create partition dir: {}",
-                partition_dir.display()
-            )
-        })?;
-
-        // Write to .partial file first
-        let partial_path = partition_dir.join(format!("{:06}.parquet.partial", chunk_id));
-
-        let mut path_builder = StringBuilder::new();
-        let mut size_builder = Vec::with_capacity(self.records.len());
-        let mut atime_builder = Vec::with_capacity(self.records.len());
-
-        for record in &self.records {
-            path_builder.append_value(&record.path);
-            size_builder.push(record.size);
-            atime_builder.push(record.atime);
-        }
-
-        let batch = RecordBatch::try_new(
-            self.schema.clone(),
-            vec![
-                Arc::new(path_builder.finish()),
-                Arc::new(Int64Array::from(size_builder)),
-                Arc::new(Int64Array::from(atime_builder)),
-            ],
-        )?;
-
-        let file = File::create(&partial_path)
-            .with_context(|| format!("Failed to create file: {}", partial_path.display()))?;
-
-        let props = WriterProperties::builder()
-            .set_compression(Compression::SNAPPY)
-            .build();
-
-        let mut writer = ArrowWriter::try_new(file, self.schema.clone(), Some(props))?;
-        writer.write(&batch)?;
-        writer.close()?;
-
-        self.partial_files.push(partial_path);
-        self.records.clear();
-        Ok(())
-    }
-
-    /// Atomically finalize all .partial files by renaming them and pruning stale chunks.
-    fn finalize(&self) -> Result<usize> {
-        let partition_dir = self.outdir.join(&self.partition);
-        let num_chunks = self.partial_files.len();
-
-        // Rename all .partial files to .parquet (atomic on POSIX)
-        for partial_path in &self.partial_files {
-            let final_path = partial_path.with_extension(""); // removes .partial, leaves .parquet
-            fs::rename(partial_path, &final_path).with_context(|| {
-                format!(
-                    "Failed to rename {} to {}",
-                    partial_path.display(),
-                    final_path.display()
-                )
-            })?;
-        }
-
-        // Prune any stale chunks beyond what we just wrote
-        let mut pruned = 0;
-        for chunk_id in num_chunks.. {
-            let stale_path = partition_dir.join(format!("{:06}.parquet", chunk_id));
-            if stale_path.exists() {
-                fs::remove_file(&stale_path).with_context(|| {
-                    format!("Failed to remove stale chunk: {}", stale_path.display())
-                })?;
-                pruned += 1;
-            } else {
-                break; // No more consecutive chunks
-            }
-        }
-
-        Ok(pruned)
-    }
-}
-
-/// A unit of work for a driver thread: one partition to crawl.
-struct WorkItem {
-    path: PathBuf,
-    partition: String,
-    max_depth: Option<usize>,
-}
-
-/// Statistics returned from a crawl operation.
-struct CrawlStats {
-    files: u64,
-    bytes: u64,
-    pruned: usize,
-}
+use xdu::crawl::{CrawlStats, PartitionBuffer, TopEntry, build_work_queue, record_from_metadata};
+use xdu::{SizeMode, format_bytes, format_count, format_speed, get_schema, parse_size};
 
 /// Crawl a directory tree using concurrent per-partition walks with a shared thread pool.
 ///
-/// Architecture: A shared rayon thread pool (N threads) handles directory reads across all
-/// active walkers. C driver threads (std::threads) each pull partitions from a work queue
-/// and iterate their walker. Rayon work-stealing naturally balances load across all active
-/// walkers. Thread budget: N pool + C drivers + 1 main.
+/// Concurrency contract (must be preserved):
+/// - A single shared rayon thread pool (N threads) backs *all* jwalk walkers, so
+///   work-stealing balances directory reads across active partitions and one huge
+///   partition can't starve the rest.
+/// - C driver threads (`std::thread`s, joined by `thread::scope`) each pull partitions
+///   from the `Mutex<VecDeque>` work queue and consume their walker serially.
+/// - `thread::scope` propagates the first driver `Err` (or panic under unwind) as the
+///   run's error. Thread budget: N pool + C drivers + 1 main.
+///
+/// The pure classification/ordering (`build_work_queue`), per-file record building
+/// (`record_from_metadata`), and Parquet finalization (`PartitionBuffer`) live in
+/// `xdu::crawl` so they are unit-testable; this function is the orchestrator.
 fn crawl(
     top_dir: &Path,
     outdir: &Path,
@@ -194,55 +52,28 @@ fn crawl(
             .context("Failed to build thread pool")?,
     );
 
-    // Enumerate top-level entries to build work queue
-    let mut partition_items: Vec<WorkItem> = Vec::new();
-    let mut has_root_files = false;
-
+    // Enumerate top-level entries. The directory I/O stays here; the pure classification
+    // and ordering decision (partition vs loose file, --partition filter, __root__-first,
+    // sort, empty-check) lives in `build_work_queue` so it can be unit-tested.
+    let mut entries: Vec<TopEntry> = Vec::new();
     for entry in fs::read_dir(top_dir)
         .with_context(|| format!("Failed to read directory: {}", top_dir.display()))?
     {
         let entry = entry?;
         let path = entry.path();
         let ft = entry.file_type()?;
-
-        if ft.is_dir() {
-            let name = path.file_name().unwrap().to_string_lossy().to_string();
-            if let Some(pf) = partition_filter
-                && !pf.contains(&name)
-            {
-                continue;
-            }
-            partition_items.push(WorkItem {
-                path,
-                partition: name,
-                max_depth: None,
-            });
-        } else if ft.is_file() || ft.is_symlink() {
-            has_root_files = true;
-        }
-    }
-
-    // Sort for deterministic output order
-    partition_items.sort_by(|a, b| a.partition.cmp(&b.partition));
-
-    // Build work queue: root files first (depth-limited), then partition subdirectories
-    let mut work_queue: VecDeque<WorkItem> = VecDeque::with_capacity(partition_items.len() + 1);
-
-    if has_root_files {
-        work_queue.push_back(WorkItem {
-            path: top_dir.to_path_buf(),
-            partition: ROOT_PARTITION.to_string(),
-            max_depth: Some(1),
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        entries.push(TopEntry {
+            path,
+            name,
+            is_dir: ft.is_dir(),
+            is_file: ft.is_file(),
+            is_symlink: ft.is_symlink(),
         });
     }
-    for item in partition_items {
-        work_queue.push_back(item);
-    }
 
+    let work_queue = build_work_queue(entries, top_dir, partition_filter)?;
     let num_items = work_queue.len();
-    if num_items == 0 {
-        anyhow::bail!("No partitions found in {}", top_dir.display());
-    }
 
     // Progress display
     let mp = MultiProgress::new();
@@ -362,21 +193,14 @@ fn crawl(
                                 continue;
                             }
 
-                            let metadata = match fs::metadata(entry.path()) {
+                            let path = entry.path();
+                            let metadata = match fs::metadata(&path) {
                                 Ok(m) => m,
                                 Err(_) => continue,
                             };
 
-                            let disk_usage = metadata.blocks() * 512;
-                            let file_len = metadata.len();
-                            let atime = metadata.atime();
-                            let file_size = size_mode.calculate(disk_usage, file_len);
-
-                            let record = FileRecord {
-                                path: entry.path().to_string_lossy().to_string(),
-                                size: file_size as i64,
-                                atime,
-                            };
+                            let record = record_from_metadata(&path, &metadata, size_mode);
+                            let file_size = record.size as u64;
 
                             buffer.add(record)?;
 
@@ -499,6 +323,7 @@ fn crawl(
                         first_error = Some(e);
                     }
                 }
+                // Reachable only under unwind (tests/debug); release sets panic="abort".
                 Err(_) => {
                     if first_error.is_none() {
                         first_error = Some(anyhow::anyhow!("Driver thread panicked"));

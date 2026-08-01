@@ -1,75 +1,96 @@
 ---
 slug: crawl-hardening
-title: "Harden & optimize the index-build crawl"
+title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
 status: in_progress
 branch: feature/crawl-hardening
 base: main
-current_phase: P1
-last_updated: "2026-07-31"
+current_phase: P2
+last_updated: '2026-07-31'
 phases:
-  - id: P1
-    name: "Extract lib::crawl + replace the fake crawler tests with a real-binary suite (behavior-preserving)"
-    status: pending
-    satisfies: [R1, R6, R10]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test"
-  - id: P2
-    name: "Fail loud on walk/stat errors; add --allow-errors opt-in"
-    status: pending
-    satisfies: [R2, R3, R7]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test"
-  - id: P3
-    name: "Run-level completion marker + __root__ collision guard + cancel-on-first-error"
-    status: pending
-    satisfies: [R2, R3]
-    depends_on: [P2]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test"
-  - id: P4
-    name: "Benchmark harness (bench/) + committed baseline.json + HPC protocol"
-    status: pending
-    satisfies: [R4, R9]
-    depends_on: [P3]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "sh bench/run.sh smoke && test -f bench/results/baseline.json"
-  - id: P5
-    name: "Perf: relocate stat into process_read_dir (L1) + direct-to-Arrow builders (L2), measured vs baseline"
-    status: pending
-    satisfies: [R5, R10]
-    depends_on: [P4]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test"
-  - id: P6
-    name: "Wider cleanups: lib::index_glob dedup across readers + tests/common + assessment & follow-ups"
-    status: pending
-    satisfies: [R8]
-    depends_on: [P5]
-    parallel: false
-    hammerable: true
-    hill: uphill
-    verify: "cargo test && .agents/factory/bin/temp_index.sh sh -c 'xdu-find -i \"$XDU_INDEX\" --count'"
+- id: P1
+  name: Extract lib::crawl + replace the fake crawler tests with a real-binary suite
+    (behavior-preserving)
+  status: done
+  satisfies:
+  - R1
+  - R6
+  - R10
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test
+- id: P2
+  name: Fail loud on walk/stat errors; add --allow-errors opt-in
+  status: pending
+  satisfies:
+  - R2
+  - R3
+  - R7
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test
+- id: P3
+  name: Run-level completion marker + __root__ collision guard + cancel-on-first-error
+  status: pending
+  satisfies:
+  - R2
+  - R3
+  depends_on:
+  - P2
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test
+- id: P4
+  name: Benchmark harness (bench/) + committed baseline.json + HPC protocol
+  status: pending
+  satisfies:
+  - R4
+  - R9
+  depends_on:
+  - P3
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: sh bench/run.sh smoke && test -f bench/results/baseline.json
+- id: P5
+  name: 'Perf: relocate stat into process_read_dir (L1) + direct-to-Arrow builders
+    (L2), measured vs baseline'
+  status: pending
+  satisfies:
+  - R5
+  - R10
+  depends_on:
+  - P4
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test
+- id: P6
+  name: 'Wider cleanups: lib::index_glob dedup across readers + tests/common + assessment
+    & follow-ups'
+  status: pending
+  satisfies:
+  - R8
+  depends_on:
+  - P5
+  parallel: false
+  hammerable: true
+  hill: uphill
+  verify: cargo test && .agents/factory/bin/temp_index.sh sh -c 'xdu-find -i "$XDU_INDEX"
+    --count'
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Harden & optimize the index-build crawl
 
 The **context engine and finite-state machine** for building this work. The YAML frontmatter above is
@@ -106,28 +127,31 @@ suite — **behavior byte-identical**. This is the safety net every later phase 
 artifact is [`research/01-concurrency-audit.md`](research/01-concurrency-audit.md) (produced during
 planning); this phase acts on its "extract testable seams" recommendation.
 
-- [ ] Add `pub mod crawl;` to `src/lib.rs` (new file `src/crawl.rs` or inline module — keep readers
+- [x] Add `pub mod crawl;` to `src/lib.rs` (new file `src/crawl.rs` or inline module — keep readers
       from pulling it in). Move, **unchanged in behavior**: `PartitionBuffer` (whole:
       `add`/`flush`/`finalize`, records→Arrow→Parquet + rename+prune), `WorkItem`, `CrawlStats`.
-- [ ] Extract `build_work_queue(entries, top_dir, filter) -> Result<VecDeque<WorkItem>>` — pure
+- [x] Extract `build_work_queue(entries, top_dir, filter) -> Result<VecDeque<WorkItem>>` — pure
       decision/ordering: classify dir vs loose file, apply `--partition` filter, sort partitions asc,
       push `__root__` first iff a loose top-level **regular file** exists, empty-check→`bail`. The
-      `fs::read_dir` I/O stays in the bin and feeds `(name, is_dir, is_file)` tuples in. **Preserve the
+      `fs::read_dir` I/O stays in the bin and feeds classified `TopEntry` values in. **Preserve the
       current `is_file()||is_symlink()` root trigger here for now** (P3 fixes the symlink quirk) — this
-      phase changes no behavior.
-- [ ] Extract `record_from_metadata(path, &Metadata, SizeMode) -> FileRecord` and chunk-name helpers
+      phase changes no behavior. *(Amendment: the input carries a `TopEntry {path, name, is_dir,
+      is_file, is_symlink}` struct rather than a `(name, is_dir, is_file)` tuple — `path` preserves the
+      real (possibly non-UTF-8) directory bytes and `is_symlink` preserves the exact legacy root
+      trigger, both required to change no behavior.)*
+- [x] Extract `record_from_metadata(path, &Metadata, SizeMode) -> FileRecord` and chunk-name helpers
       `chunk_partial_name(id)`/`chunk_final_name(id)`. Keep the thin `MetadataExt` read in the caller.
-- [ ] Reduce `crawl()` in `src/bin/xdu.rs` to an orchestrator that calls the extracted units; **leave
+- [x] Reduce `crawl()` in `src/bin/xdu.rs` to an orchestrator that calls the extracted units; **leave
       the pool build, `Mutex<VecDeque>` queue, `thread::scope` spawn/join + first-error propagation,
       and all progress-bar/speed churn byte-identical** (§7). Add declarative comments stating the
       concurrency contract (single shared pool; drivers pull partitions; work-stealing; scope
       propagates first error) — no `R#`/`P#` ids.
-- [ ] Unit tests in `lib::crawl` `#[cfg(test)]`: `finalize` against a `tempfile` dir (N `.partial`→N
+- [x] Unit tests in `lib::crawl` `#[cfg(test)]`: `finalize` against a `tempfile` dir (N `.partial`→N
       `.parquet`; stale `NNNNNN+` tail pruned; prune stops at first gap; `pruned` count exact);
       `build_work_queue` (`__root__` first; partitions sorted; filter excludes; empty→err; `__root__`
       `max_depth==Some(1)`, partitions `None`); `record_from_metadata` (disk-usage vs `--apparent-size`
       vs block-rounded); `CrawlStats` fold.
-- [ ] **Delete `tests/crawl_tests.rs`**; add `tests/common/mod.rs` (shared `binary_path` /
+- [x] **Delete `tests/crawl_tests.rs`**; add `tests/common/mod.rs` (shared `binary_path` /
       `build_index` / `create_test_file`, mirroring `rm_tests.rs`) and `tests/crawl_tests.rs` rewritten
       to drive the **real `xdu` binary** (`std::process::Command` + `tempfile`), asserting via
       `xdu-find --count`: basic counts + per-partition; `__root__` (loose file counted, nested not);
