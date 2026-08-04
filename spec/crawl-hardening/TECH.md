@@ -6,8 +6,8 @@ appetite: big
 status: in_progress
 branch: feature/crawl-hardening
 base: main
-current_phase: P3
-last_updated: '2026-07-31'
+current_phase: P4
+last_updated: '2026-08-04'
 phases:
 - id: P1
   name: Extract lib::crawl + replace the fake crawler tests with a real-binary suite
@@ -37,7 +37,7 @@ phases:
   verify: cargo test
 - id: P3
   name: Run-level completion marker + __root__ collision guard + cancel-on-first-error
-  status: pending
+  status: done
   satisfies:
   - R2
   - R3
@@ -201,25 +201,44 @@ run exits 0 ([research/01](research/01-concurrency-audit.md) #1, #4).
 **Goal:** A partial/failed run is never presentable as complete, and the `__root__` collision can no
 longer silently corrupt ([research/01](research/01-concurrency-audit.md) #2, #3, #7, #10).
 
-- [ ] **Completion marker:** at crawl start, remove any existing `<index>/.xdu-complete`; after **all**
+- [x] **Completion marker:** at crawl start, remove any existing `<index>/.xdu-complete`; after **all**
       drivers return `Ok` (and only then), write it (contents: `xdu` version + run summary). Readers
       glob `*/*.parquet`, so a top-level dotfile is never a partition — confirm no reader globs it.
       Declarative comment on why (run-level completeness can't be expressed by per-file finalize, §2).
-- [ ] **`__root__` collision guard** in `build_work_queue`: if a real top-level subdir is literally
+      *(Amendment: the write condition is **tightened** to the run's whole success path — all drivers
+      `Ok` **and** the `--allow-errors` gate passed — so a default-policy run that hits a hard error
+      leaves the index unmarked rather than marked-but-incomplete. Verified no reader enumerates the
+      index root: `xdu-find`/`xdu-rm` build one `*/*.parquet` glob and `xdu-view` globs
+      `*/*.parquet` or `<partition>/*.parquet`; none `read_dir`s it.)*
+- [x] **`__root__` collision guard** in `build_work_queue`: if a real top-level subdir is literally
       named `__root__` (the `ROOT_PARTITION` reserved name), return a clear error; assert no two
-      `WorkItem`s share a partition name.
-- [ ] **Minor correctness:** gate the root trigger on `is_file()` only (drop `is_symlink()`, #7) so a
+      `WorkItem`s share a partition name. *(The duplicate-name check is a real guard, not an assert:
+      two distinct non-UTF-8 directory names can collapse onto one lossy partition key — audit #5.)*
+- [x] **Minor correctness:** gate the root trigger on `is_file()` only (drop `is_symlink()`, #7) so a
       symlink-only root no longer spawns an empty `__root__`; add an `AtomicBool` cancel flag checked at
       the driver loop top so a first hard error stops other drivers enlarging the on-disk partial index
       (#10); comment the `thread::scope` join-`Err` "panicked" arm as reachable only under
-      `unwind`/test builds (`panic="abort"` aborts release, #6).
-- [ ] **Non-UTF-8:** count + report (stderr) files whose path underwent lossy UTF-8 conversion so an
+      `unwind`/test builds (`panic="abort"` aborts release, #6). *(The join-`Err` comment already
+      landed with the P1 extraction; left as-is. The cancel flag fires on a driver `Err` only — a
+      counted hard **entry** error is not a driver failure, and is still surveyed to the end so the
+      operator gets the full list of unreadable paths in one run. The check sits at the partition-pull
+      loop top, so a partition is always either fully crawled+finalized or never started.)*
+- [x] **Non-UTF-8:** count + report (stderr) files whose path underwent lossy UTF-8 conversion so an
       operator knows those rows won't round-trip to `xdu-rm`; note in `doc/xdu.1.scd` that a true fix
       needs a schema change (out of scope — follow-up). *(No behavior change beyond the warning.)*
+      *(`record_from_metadata` now returns `(FileRecord, bool)` — it owns the conversion, so it is the
+      honest place to report lossiness; the driver reports the first per partition and counts the rest
+      so a mojibake tree can't bury the hard errors.)*
 - **Verify:** `cargo test` — cases: `__root__`-named subdir + loose file → clear non-zero error (also
       at `-j 1`); a clean run → `.xdu-complete` present and **no `*.partial`**; a forced mid-run driver
       error (e.g. an unwritable partition target, or fill a small tmpfs) → **marker absent** + non-zero
       exit; symlink-only root → no empty `__root__` partition.
+      *(Result: green — 59 lib + 17 crawl + 16 rm tests, fmt/clippy clean. All four cases also driven
+      through the release binaries: clean run → marker holding `files=4`, readers unchanged (4/2/1);
+      sabotaged partition dir → exit 1, marker gone even though a prior run had left one; `__root__`
+      collision → exit 1 with the naming diagnostic and an empty index dir. The non-UTF-8 integration
+      test **skips on APFS/HFS+**, which reject such filenames — it runs on the Linux CI leg; the
+      classification itself is unit-tested filesystem-independently.)*
 - **Touches:** `src/bin/xdu.rs`, `src/lib.rs` (`crawl` guard + marker helpers), `doc/xdu.1.scd`,
   `tests/crawl_tests.rs`.
 

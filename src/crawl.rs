@@ -7,6 +7,7 @@
 //! finalizes them atomically. The concurrency scaffold (shared rayon pool, driver
 //! threads, `thread::scope` error propagation) stays in `src/bin/xdu.rs`.
 
+use std::borrow::Cow;
 use std::collections::{HashSet, VecDeque};
 use std::fs::{self, File, Metadata};
 use std::os::unix::fs::MetadataExt;
@@ -26,8 +27,66 @@ use crate::{FileRecord, SizeMode};
 /// Special partition name for files directly in the top-level directory.
 ///
 /// Reserved: a real top-level subdirectory of this name would collide with the
-/// synthetic depth-1 partition holding loose root files (guarded against later).
+/// synthetic depth-1 partition holding loose root files, so `build_work_queue`
+/// rejects one rather than letting two work items clobber the same chunk ids.
 pub const ROOT_PARTITION: &str = "__root__";
+
+/// Run-level completion marker written at the root of a finished index.
+///
+/// Per-chunk `partial`→`rename` finalization is atomic for one file but cannot
+/// express whether the *run* finished: when one driver fails, the partitions that
+/// already succeeded remain on disk as real `.parquet` chunks, indistinguishable
+/// from a complete index. The marker is removed when a run starts and written only
+/// when it succeeds, so its presence attests to the whole run. Readers glob
+/// `*/*.parquet`, so a top-level dotfile is never mistaken for a partition.
+pub const COMPLETION_MARKER: &str = ".xdu-complete";
+
+/// Location of the completion marker for an index directory.
+pub fn completion_marker_path(index: &Path) -> PathBuf {
+    index.join(COMPLETION_MARKER)
+}
+
+/// Drop any existing completion marker at the start of a run.
+///
+/// A run in progress must never carry the previous run's attestation: if this one
+/// dies before finishing, the index is left markerless. A missing marker is not an
+/// error — most runs start against a fresh or already-markerless directory.
+pub fn clear_completion_marker(index: &Path) -> Result<()> {
+    let path = completion_marker_path(index);
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err).with_context(|| {
+            format!(
+                "Failed to remove stale completion marker: {}",
+                path.display()
+            )
+        }),
+    }
+}
+
+/// The marker body: the crawler version and this run's totals, one `key=value` per
+/// line. The counts are recorded so a tolerated-error run (`--allow-errors`) still
+/// says how much it skipped.
+pub fn completion_marker_contents(stats: &CrawlStats, completed_at: u64) -> String {
+    format!(
+        "xdu={}\ncompleted_at={}\nfiles={}\nbytes={}\nvanished={}\nerrors={}\nlossy_paths={}\n",
+        env!("CARGO_PKG_VERSION"),
+        completed_at,
+        stats.files,
+        stats.bytes,
+        stats.vanished,
+        stats.errors,
+        stats.lossy_paths,
+    )
+}
+
+/// Write the completion marker. Only ever called on a run's success path.
+pub fn write_completion_marker(index: &Path, contents: &str) -> Result<()> {
+    let path = completion_marker_path(index);
+    fs::write(&path, contents)
+        .with_context(|| format!("Failed to write completion marker: {}", path.display()))
+}
 
 /// The chunk filename that is written first, before atomic finalization.
 ///
@@ -46,17 +105,35 @@ pub fn chunk_final_name(id: usize) -> String {
 ///
 /// The `MetadataExt` reads (`blocks()`×512 for disk usage, `atime()`) are Unix-only.
 /// The caller performs the `stat` syscall and passes the borrowed `Metadata` in.
-pub fn record_from_metadata(path: &Path, metadata: &Metadata, size_mode: SizeMode) -> FileRecord {
+///
+/// The second return value reports whether the path needed lossy UTF-8 conversion.
+/// The schema's `path` column is UTF-8, so a filename carrying invalid bytes is
+/// stored with U+FFFD replacements: the row no longer names a real file and cannot
+/// be unlinked by `xdu-rm`. The caller counts and reports those rows — storing the
+/// raw bytes would require an index-format change.
+pub fn record_from_metadata(
+    path: &Path,
+    metadata: &Metadata,
+    size_mode: SizeMode,
+) -> (FileRecord, bool) {
     let disk_usage = metadata.blocks() * 512;
     let file_len = metadata.len();
     let atime = metadata.atime();
     let file_size = size_mode.calculate(disk_usage, file_len);
 
-    FileRecord {
-        path: path.to_string_lossy().to_string(),
-        size: file_size as i64,
-        atime,
-    }
+    let (path, lossy) = match path.to_string_lossy() {
+        Cow::Borrowed(valid) => (valid.to_string(), false),
+        Cow::Owned(replaced) => (replaced, true),
+    };
+
+    (
+        FileRecord {
+            path,
+            size: file_size as i64,
+            atime,
+        },
+        lossy,
+    )
 }
 
 /// A top-level entry under the indexed root, classified by the crawler's `read_dir`
@@ -87,7 +164,8 @@ pub struct WorkItem {
 /// `vanished` counts benign skips (a file that disappeared between walk and stat —
 /// an `ENOENT` race, common on a live filesystem); `errors` counts hard failures
 /// (permission/I/O, or a directory read that hid a whole subtree) that make the run
-/// exit non-zero unless `--allow-errors` is set.
+/// exit non-zero unless `--allow-errors` is set; `lossy_paths` counts rows whose
+/// path was stored with U+FFFD replacements and so cannot round-trip.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CrawlStats {
     pub files: u64,
@@ -95,6 +173,7 @@ pub struct CrawlStats {
     pub pruned: usize,
     pub vanished: u64,
     pub errors: u64,
+    pub lossy_paths: u64,
 }
 
 impl CrawlStats {
@@ -105,6 +184,7 @@ impl CrawlStats {
         self.pruned += other.pruned;
         self.vanished += other.vanished;
         self.errors += other.errors;
+        self.lossy_paths += other.lossy_paths;
     }
 }
 
@@ -138,8 +218,9 @@ pub fn classify_io_error(kind: Option<std::io::ErrorKind>) -> EntryError {
 /// `__root__` item is pushed **first** iff any loose top-level file exists. An empty
 /// result is an error — there is nothing to index.
 ///
-/// The `is_file() || is_symlink()` root trigger matches the original behavior exactly;
-/// the symlink half is a known quirk corrected separately.
+/// The root trigger is `is_file()` only: the walk excludes symlinks, so a root whose
+/// only loose entries are symlinks would otherwise spawn a `__root__` partition that
+/// indexes nothing.
 pub fn build_work_queue(
     entries: Vec<TopEntry>,
     top_dir: &Path,
@@ -150,6 +231,20 @@ pub fn build_work_queue(
 
     for entry in entries {
         if entry.is_dir {
+            // A real subdirectory of the reserved name would write into the same
+            // partition directory as the synthetic loose-file partition: both start
+            // at chunk id 0, so their chunks overwrite each other and each one's
+            // finalize prunes the other's tail. Reject instead of corrupting — the
+            // check is unconditional because the collision is with what is already
+            // on disk, not with what this run happens to select.
+            if entry.name == ROOT_PARTITION {
+                anyhow::bail!(
+                    "top-level directory '{}' in {} uses the partition name reserved \
+                     for loose top-level files; rename it before indexing",
+                    ROOT_PARTITION,
+                    top_dir.display()
+                );
+            }
             if let Some(pf) = partition_filter
                 && !pf.contains(&entry.name)
             {
@@ -160,7 +255,7 @@ pub fn build_work_queue(
                 partition: entry.name,
                 max_depth: None,
             });
-        } else if entry.is_file || entry.is_symlink {
+        } else if entry.is_file {
             has_root_files = true;
         }
     }
@@ -184,6 +279,22 @@ pub fn build_work_queue(
 
     if work_queue.is_empty() {
         anyhow::bail!("No partitions found in {}", top_dir.display());
+    }
+
+    // Two work items sharing a partition name would clobber each other's chunks. The
+    // names come from distinct directory entries, but a name carrying invalid UTF-8
+    // is lossily converted, so two different directories can still collapse onto one
+    // key here — a real guard, not a redundant assertion.
+    let mut seen: HashSet<&str> = HashSet::with_capacity(work_queue.len());
+    for item in &work_queue {
+        if !seen.insert(item.partition.as_str()) {
+            anyhow::bail!(
+                "two top-level directories in {} map to the same partition name '{}' \
+                 (a non-UTF-8 name is stored lossily); rename one before indexing",
+                top_dir.display(),
+                item.partition
+            );
+        }
     }
 
     Ok(work_queue)
@@ -364,6 +475,7 @@ mod tests {
             pruned: 1,
             vanished: 2,
             errors: 1,
+            lossy_paths: 1,
         });
         total.merge(&CrawlStats {
             files: 2,
@@ -371,6 +483,7 @@ mod tests {
             pruned: 0,
             vanished: 0,
             errors: 0,
+            lossy_paths: 0,
         });
         total.merge(&CrawlStats {
             files: 5,
@@ -378,6 +491,7 @@ mod tests {
             pruned: 4,
             vanished: 3,
             errors: 2,
+            lossy_paths: 6,
         });
 
         assert_eq!(
@@ -388,6 +502,7 @@ mod tests {
                 pruned: 5,
                 vanished: 5,
                 errors: 3,
+                lossy_paths: 7,
             }
         );
     }
@@ -453,24 +568,84 @@ mod tests {
     }
 
     #[test]
-    fn test_build_work_queue_symlink_triggers_root() {
-        // A loose top-level symlink triggers __root__ today (preserved quirk).
-        let entries = vec![TopEntry {
+    fn test_build_work_queue_symlink_does_not_trigger_root() {
+        let link = TopEntry {
             path: Path::new("/data/link").to_path_buf(),
             name: "link".to_string(),
             is_dir: false,
             is_file: false,
             is_symlink: true,
-        }];
-        let queue = build_work_queue(entries, Path::new("/data"), None).unwrap();
+        };
+
+        // Symlinks are never indexed, so a loose one must not spawn an empty
+        // __root__ partition alongside the real ones.
+        let queue =
+            build_work_queue(vec![top_dir("alpha", true), link], Path::new("/data"), None).unwrap();
         let names: Vec<&str> = queue.iter().map(|w| w.partition.as_str()).collect();
-        assert_eq!(names, vec![ROOT_PARTITION]);
+        assert_eq!(names, vec!["alpha"]);
+
+        // A root holding nothing but symlinks has nothing to index at all.
+        let only_link = TopEntry {
+            path: Path::new("/data/link").to_path_buf(),
+            name: "link".to_string(),
+            is_dir: false,
+            is_file: false,
+            is_symlink: true,
+        };
+        let err = build_work_queue(vec![only_link], Path::new("/data"), None).unwrap_err();
+        assert!(err.to_string().contains("No partitions found"));
     }
 
     #[test]
     fn test_build_work_queue_empty_errors() {
         let err = build_work_queue(Vec::new(), Path::new("/data"), None).unwrap_err();
         assert!(err.to_string().contains("No partitions found"));
+    }
+
+    #[test]
+    fn test_build_work_queue_rejects_reserved_root_directory() {
+        // A real __root__ subdirectory collides with the reserved loose-file partition.
+        let entries = vec![
+            top_dir("alpha", true),
+            top_dir(ROOT_PARTITION, true),
+            top_dir("loose.txt", false),
+        ];
+        let err = build_work_queue(entries, Path::new("/data"), None).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains(ROOT_PARTITION),
+            "message should name it: {msg}"
+        );
+        assert!(
+            msg.contains("reserved"),
+            "message should explain why: {msg}"
+        );
+
+        // It is rejected even when no loose file would create the synthetic item and
+        // even when a --partition filter would have excluded it: the collision is
+        // with the on-disk layout, not with this run's selection.
+        let filter: HashSet<String> = ["alpha".to_string()].into_iter().collect();
+        let entries = vec![top_dir("alpha", true), top_dir(ROOT_PARTITION, true)];
+        assert!(build_work_queue(entries, Path::new("/data"), Some(&filter)).is_err());
+    }
+
+    #[test]
+    fn test_build_work_queue_rejects_duplicate_partition_names() {
+        // Two distinct directories whose non-UTF-8 names both convert to the same
+        // lossy string would write into one partition directory.
+        let dup = |path: &str| TopEntry {
+            path: PathBuf::from(path),
+            name: "a\u{FFFD}b".to_string(),
+            is_dir: true,
+            is_file: false,
+            is_symlink: false,
+        };
+        let entries = vec![dup("/data/a\u{FFFD}b-one"), dup("/data/a\u{FFFD}b-two")];
+        let err = build_work_queue(entries, Path::new("/data"), None).unwrap_err();
+        assert!(
+            err.to_string().contains("same partition name"),
+            "message should explain the collapse: {err}"
+        );
     }
 
     // ---- record_from_metadata ----------------------------------------------
@@ -485,16 +660,74 @@ mod tests {
         }
         let meta = fs::metadata(&path).unwrap();
 
-        let apparent = record_from_metadata(&path, &meta, SizeMode::ApparentSize);
+        let (apparent, lossy) = record_from_metadata(&path, &meta, SizeMode::ApparentSize);
         assert_eq!(apparent.size, 5000);
         assert_eq!(apparent.path, path.to_string_lossy());
         assert_eq!(apparent.atime, meta.atime());
+        assert!(!lossy, "a UTF-8 path converts exactly");
 
-        let disk = record_from_metadata(&path, &meta, SizeMode::DiskUsage);
+        let (disk, _) = record_from_metadata(&path, &meta, SizeMode::DiskUsage);
         assert_eq!(disk.size, (meta.blocks() * 512) as i64);
 
-        let rounded = record_from_metadata(&path, &meta, SizeMode::BlockRounded(4096));
+        let (rounded, _) = record_from_metadata(&path, &meta, SizeMode::BlockRounded(4096));
         assert_eq!(rounded.size, 8192); // 5000 rounds up to two 4096 blocks
+    }
+
+    #[test]
+    fn test_record_from_metadata_flags_lossy_path() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let real = dir.path().join("f.bin");
+        File::create(&real).unwrap();
+        let meta = fs::metadata(&real).unwrap();
+
+        // The path and the metadata are independent inputs, so an invalid-UTF-8 name
+        // can be exercised without a filesystem that permits one.
+        let bad = PathBuf::from(OsStr::from_bytes(b"/data/bad\xffname"));
+        let (record, lossy) = record_from_metadata(&bad, &meta, SizeMode::ApparentSize);
+        assert!(lossy, "invalid UTF-8 bytes must be flagged");
+        assert!(record.path.contains('\u{FFFD}'));
+    }
+
+    // ---- completion marker --------------------------------------------------
+
+    #[test]
+    fn test_completion_marker_lifecycle() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let index = dir.path();
+        let marker = completion_marker_path(index);
+        assert!(marker.ends_with(COMPLETION_MARKER));
+
+        // Clearing an index that has no marker is a no-op, not an error.
+        clear_completion_marker(index).unwrap();
+        assert!(!marker.exists());
+
+        let stats = CrawlStats {
+            files: 7,
+            bytes: 4096,
+            pruned: 0,
+            vanished: 1,
+            errors: 2,
+            lossy_paths: 3,
+        };
+        let contents = completion_marker_contents(&stats, 1_700_000_000);
+        write_completion_marker(index, &contents).unwrap();
+        assert!(marker.exists());
+
+        let body = fs::read_to_string(&marker).unwrap();
+        assert!(body.contains(&format!("xdu={}", env!("CARGO_PKG_VERSION"))));
+        assert!(body.contains("completed_at=1700000000"));
+        assert!(body.contains("files=7"));
+        assert!(body.contains("bytes=4096"));
+        assert!(body.contains("vanished=1"));
+        assert!(body.contains("errors=2"));
+        assert!(body.contains("lossy_paths=3"));
+
+        // A new run clears it again, leaving the index unattested until it finishes.
+        clear_completion_marker(index).unwrap();
+        assert!(!marker.exists());
     }
 
     // ---- PartitionBuffer::finalize -----------------------------------------

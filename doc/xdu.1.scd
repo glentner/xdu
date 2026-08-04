@@ -86,7 +86,11 @@ Index with block size rounding for NFS:
 # OUTPUT FORMAT
 
 The index is structured as _OUTDIR_/<partition>/<chunk>.parquet, where
-partitions correspond to top-level subdirectories of _DIR_.
+partitions correspond to top-level subdirectories of _DIR_. Files lying
+directly in _DIR_ are indexed under the reserved partition name *__root__*.
+A real top-level subdirectory of that name would write into the same
+partition directory and clobber its chunks, so *xdu* rejects it with an
+error rather than corrupting the index; rename the directory to index it.
 
 Each Parquet file contains three columns:
 
@@ -97,14 +101,28 @@ Each Parquet file contains three columns:
 Files are written atomically using a .partial suffix, then renamed on
 completion. Stale chunks from previous runs are automatically pruned.
 
+On success *xdu* writes a run-level completion marker, _OUTDIR_/.xdu-complete,
+holding the version and this run's totals. The marker is removed when a run
+starts and written only once every partition has been walked and finalized, so
+an index left behind by a failed or interrupted run carries no marker. Readers
+glob _OUTDIR_/*/*.parquet, so the marker is never mistaken for a partition.
+
+Paths are stored as UTF-8. A filename containing invalid UTF-8 is stored with
+replacement characters, so that row no longer names a real file and cannot be
+removed with *xdu-rm*(1). *xdu* reports the first such path in each partition
+and counts the remainder in its summary; storing the raw bytes would require an
+index format change and is not done here.
+
 # EXIT STATUS
 
 *xdu* exits *0* on success. If the crawl cannot read a file or directory
 (a permission or I/O error — for example an unreadable subtree that would
 otherwise be silently omitted), it reports the offending path and error to
 standard error and exits *non-zero*, so a partial index is never presented as
-complete. Files that vanish between being listed and being stat'd (an ENOENT
-race on a live filesystem) are counted and skipped without failing the run.
+complete. A failing run also leaves no completion marker (see _OUTPUT FORMAT_),
+and the remaining threads stop taking on new partitions once one has failed.
+Files that vanish between being listed and being stat'd (an ENOENT race on a
+live filesystem) are counted and skipped without failing the run.
 
 Pass *--allow-errors* to downgrade the hard errors to warnings: the crawl then
 indexes every reachable file and exits *0*. The per-path diagnostics and the

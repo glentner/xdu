@@ -54,3 +54,18 @@
   file-existence/content `verify:` (e.g. `test -f …`) instead of a CLI drive; flag it so `xdu-review`
   grades it by inspecting the artifact, not by driving a binary.
 - **Confidence:** med · **Effort:** small
+
+## F3 — A self-skipping test reports `ok`, so a green `cargo test` can hide an unrun case
+`origin=xdu-build:P3 severity=low category=missing-guidance status=open target=.claude/skills/xdu-build/SKILL.md`
+- **What happened:** P3's non-UTF-8 case can't run on the dev box (APFS/HFS+ reject such filenames), so
+  the test early-returns — and prints `... ok` like every other test. The `verify:` gate was fully green
+  while one of the phase's four listed cases had never executed. I only found out by re-running with
+  `--nocapture`. The same shape already exists in this repo's P2 tests (`geteuid() == 0` root skips).
+- **Skill cause:** Step 4's "exit 0 is necessary but not sufficient" is aimed at the *command's* exit
+  status; it has no guidance for a green suite whose individual cases silently opted out. The gate reads
+  as fully satisfied when it isn't.
+- **Recommended fix:** Add to Step 4: when a phase's verify is `cargo test` and any case is
+  platform-conditional, re-run the relevant test with `--nocapture` (or `-- --include-ignored`) to
+  confirm it actually executed, and state in the final report which cases skipped and where they *do*
+  run (e.g. the Linux CI leg). Strengthens the gate; weakens nothing.
+- **Confidence:** high · **Effort:** small

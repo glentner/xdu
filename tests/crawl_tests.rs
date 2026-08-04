@@ -16,6 +16,9 @@ use common::{
     build_index, count_chunks, count_partials, create_test_file, find_count, find_paths, run_xdu,
 };
 
+/// The run-level completion marker `xdu` writes at the index root on success.
+const COMPLETION_MARKER: &str = ".xdu-complete";
+
 /// Parse the leading size column of an `xdu-find -f size` line ("<size>\t<path>").
 fn parse_first_size(out: &str) -> i64 {
     let line = out.lines().next().expect("no size output");
@@ -266,6 +269,166 @@ fn test_no_partial_files_after_success() {
 
     assert_eq!(find_count(&index, &[]), 3);
     assert_eq!(count_partials(&index), 0, "found leftover .partial files");
+}
+
+// =============================================================================
+// A real __root__ subdirectory collides with the reserved partition and is rejected
+// =============================================================================
+
+#[test]
+fn test_reserved_root_partition_name_is_rejected() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+
+    // A real top-level subdirectory of the reserved name, alongside a loose file
+    // that would create the synthetic __root__ partition: both would write chunk
+    // 000000 into the same directory.
+    create_test_file(&source.join("__root__/inner.txt"), 100).unwrap();
+    create_test_file(&source.join("loose.txt"), 100).unwrap();
+    create_test_file(&source.join("p/f.txt"), 100).unwrap();
+
+    // Serialized (-j 1) the two work items would still collide via finalize's prune.
+    for jobs in ["4", "1"] {
+        let index = tmp.path().join(format!("index-j{jobs}"));
+        let (_o, e, ok) = run_xdu(&[
+            "--apparent-size",
+            "-j",
+            jobs,
+            "-o",
+            index.to_str().unwrap(),
+            source.to_str().unwrap(),
+        ]);
+
+        assert!(!ok, "a __root__ collision must fail the run (-j {jobs})");
+        assert!(
+            e.contains("__root__"),
+            "stderr must name the colliding partition (-j {jobs}), got: {e}"
+        );
+        // Rejected before any crawling: nothing was written to the index.
+        assert!(
+            !index.join(COMPLETION_MARKER).exists(),
+            "a rejected run must not be marked complete"
+        );
+        assert_eq!(count_chunks(&index, "p"), 0);
+        assert_eq!(count_partials(&index), 0);
+    }
+}
+
+// =============================================================================
+// The completion marker attests to a whole run: written on success, gone on failure
+// =============================================================================
+
+#[test]
+fn test_completion_marker_written_on_success_and_cleared_on_failure() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("p/f1.txt"), 100).unwrap();
+    create_test_file(&source.join("q/f2.txt"), 100).unwrap();
+
+    build_index(&source, &index);
+
+    let marker = index.join(COMPLETION_MARKER);
+    assert!(
+        marker.exists(),
+        "a successful crawl must write the completion marker"
+    );
+    let body = fs::read_to_string(&marker).unwrap();
+    assert!(
+        body.contains("files=2"),
+        "marker should record the run totals, got: {body}"
+    );
+    assert_eq!(find_count(&index, &[]), 2);
+    assert_eq!(count_partials(&index), 0);
+
+    // The marker is a top-level dotfile, never a partition: the readers still see
+    // exactly the two indexed files.
+    assert_eq!(find_count(&index, &["-u", "p"]), 1);
+
+    // Sabotage one partition's output — a regular file where its directory belongs
+    // makes that driver fail when it flushes.
+    fs::remove_dir_all(index.join("p")).unwrap();
+    fs::write(index.join("p"), b"not a directory").unwrap();
+
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    assert!(!ok, "a driver failure must fail the run, stderr: {e}");
+    assert!(
+        !marker.exists(),
+        "a failed run must not leave the previous run's completion marker behind"
+    );
+}
+
+// =============================================================================
+// A loose top-level symlink is not a root file: no empty __root__ partition
+// =============================================================================
+
+#[test]
+fn test_loose_symlink_does_not_create_root_partition() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("p/real.txt"), 100).unwrap();
+    // The walk never indexes symlinks, so a loose one has nothing to contribute.
+    symlink(source.join("p/real.txt"), source.join("link.txt")).unwrap();
+
+    build_index(&source, &index);
+
+    assert_eq!(find_count(&index, &[]), 1);
+    assert!(
+        !index.join("__root__").exists(),
+        "a loose symlink must not spawn an empty __root__ partition"
+    );
+}
+
+// =============================================================================
+// A non-UTF-8 path is indexed lossily, but counted and reported (never fatal)
+// =============================================================================
+
+#[test]
+fn test_non_utf8_path_is_counted_and_reported() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("p/ok.txt"), 100).unwrap();
+
+    // Filesystems that enforce UTF-8 filenames (APFS/HFS+) reject this name outright;
+    // where raw bytes are allowed (ext4, XFS, Lustre) the warning path is exercised.
+    let bad = source.join("p").join(OsStr::from_bytes(b"bad\xffname.txt"));
+    if create_test_file(&bad, 50).is_err() {
+        eprintln!("skipping: this filesystem rejects non-UTF-8 filenames");
+        return;
+    }
+
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    assert!(ok, "a non-UTF-8 path must not fail the run, stderr: {e}");
+    // Both files are indexed; the lossy one just cannot round-trip.
+    assert_eq!(find_count(&index, &[]), 2);
+    assert!(
+        e.contains("non-UTF-8"),
+        "stderr must report the lossy path, got: {e}"
+    );
+    assert!(
+        index.join(COMPLETION_MARKER).exists(),
+        "lossy paths are counted, not fatal — the run still completes"
+    );
 }
 
 // =============================================================================
