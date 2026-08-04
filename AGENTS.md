@@ -197,12 +197,20 @@ kept **in lockstep** with this section (this file wins if they drift). The `xdu-
 - `lib.rs` carries strong pure-function unit tests (parse_size, SizeMode, SortMode, QueryFilters,
   formatters, get_schema). Keep new logic in `lib` so it is testable.
 - Integration tests in `tests/` drive the **real binaries** (`std::process::Command`) against real
-  temp indexes (`tempfile` + `libc` dev-deps; `rm_tests.rs` backdates atimes via `utimensat`). Prefer
-  this over reimplementing production logic in a test (the current `crawl_tests.rs` reimplements the
-  crawler — a known gap to fix, not a pattern to copy).
+  temp indexes (`tempfile` + `libc` dev-deps; `rm_tests.rs` backdates atimes via `utimensat`;
+  `tests/common/mod.rs` holds the shared helpers). Never reimplement production logic in a test.
+  Some cases self-skip where the platform can't host them (running as root; APFS rejecting non-UTF-8
+  filenames) — a skipping test still prints `ok`, so check with `--nocapture` before trusting a green
+  suite to mean a case actually ran.
 - **Verify by driving the CLI, not just tests.** Use `.agents/factory/bin/temp_index.sh` so a drive
   hits a throwaway index, never a real one. Exit 0 is necessary but not sufficient — assert a concrete
   post-condition (row count, a stdout token, files actually gone/kept).
+- **Performance work is measured, not asserted.** `bench/` holds the crawl benchmark: `gen_tree.py`
+  (sparse synthetic trees — full `stat` cost, ~0 disk), `run.sh` (the runner; emits one JSON document
+  per invocation), `scenarios.md` (the shape table + comparability rules), `HPC-PROTOCOL.md` (the
+  protocol community operators run on real Lustre/GPFS/ZFS), and the committed
+  `results/baseline.json` reference. `sh bench/run.sh smoke` is the fast non-rot check and asserts the
+  index holds exactly the generated files. Compare two builds via a `git worktree`, never a stash.
 
 ## Packaging & release
 

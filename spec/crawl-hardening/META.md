@@ -22,6 +22,9 @@
   premise error (the "double stat" — jwalk 0.8 does one serial stat, not two), and the digest step's
   "resolve cross-brief contradictions" mandate is exactly where it got caught and corrected before it
   could mislead the perf design.
+- `xdu-build` Step 4's "exit 0 is necessary but not sufficient" directly shaped P4's `smoke` gate: it
+  became "the index holds *exactly* the generated files, and a completion marker exists" rather than
+  "the script ran". That check is what caught the generator defect in F4 below.
 
 ## Friction findings
 
@@ -69,3 +72,18 @@
   confirm it actually executed, and state in the final report which cases skipped and where they *do*
   run (e.g. the Linux CI leg). Strengthens the gate; weakens nothing.
 - **Confidence:** high · **Effort:** small
+
+## F4 — Research briefs carry unlabelled code sketches a build phase is invited to transcribe
+`origin=xdu-build:P4 severity=low category=template status=open target=.agents/factory/templates/ (research brief) + .claude/skills/xdu-plan/SKILL.md`
+- **What happened:** `research/03-benchmark-design.md` contains a ready-looking `gen_tree.py`, and P4's
+  checklist says to build that generator. Its leaf-path expression (`d{lvl}_{di%4}`) collapses
+  `dirs_per_part` onto four directories, so files silently overwrite each other while the script prints
+  the count it *intended* to create. Transcribed as-is, the whole benchmark — the artifact P4 exists to
+  produce — would have measured a tree several times smaller than the one it reported.
+- **Skill cause:** research code blocks are presented in the same register as the verified findings
+  around them, with nothing marking them as unrun illustrations. A build phase reading "the detail
+  behind the checklist" has no signal that this particular detail was never executed.
+- **Recommended fix:** have `xdu-plan` label code in research briefs as an unverified sketch (a one-line
+  banner above such blocks, or a template convention), and add a line to `xdu-build` Step 2: research
+  code is a design sketch to re-derive, not source to transcribe.
+- **Confidence:** med · **Effort:** small

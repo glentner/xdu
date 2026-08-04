@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: feature/crawl-hardening
 base: main
-current_phase: P4
+current_phase: P5
 last_updated: '2026-08-04'
 phases:
 - id: P1
@@ -49,7 +49,7 @@ phases:
   verify: cargo test
 - id: P4
   name: Benchmark harness (bench/) + committed baseline.json + HPC protocol
-  status: pending
+  status: done
   satisfies:
   - R4
   - R9
@@ -247,21 +247,47 @@ longer silently corrupt ([research/01](research/01-concurrency-audit.md) #2, #3,
 **Goal:** A reproducible synthetic baseline (taken on the post-correctness code, the reference for
 P5's measured-win gate) and a written HPC protocol ([research/03](research/03-benchmark-design.md)).
 
-- [ ] New top-level `bench/`: `gen_tree.py` (sparse-file generator — `os.ftruncate`, ~0 disk cost, full
+- [x] New top-level `bench/`: `gen_tree.py` (sparse-file generator — `os.ftruncate`, ~0 disk cost, full
       stat cost), `scenarios.md` (S1 deep-narrow, S2 flat-wide, S3 many-parts, S4 skewed, S5 mixed with
       a `--scale` knob), `run.sh` (the measurement runner: builds release `xdu` if absent, runs a
       scenario, emits one JSON row — wall from xdu's own `Completed…in T.TTs`, files/sec, peak RSS via
       `/usr/bin/time`, and `strace -c` stat counts where available; a `smoke` arg runs the smallest
       scenario in a throwaway dir and asserts it executes).
-- [ ] Capture and **commit `bench/results/baseline.json`** (records git commit, CPU/RAM/FS/kernel,
+      *(Amendments: (a) the research sketch's generator had a real defect — its `d{lvl}_{di%4}` path
+      collapsed `dirs_per_part` onto 4 leaves, so files overwrote each other and the printed count was
+      wrong; the leaf path now encodes the directory index in base-`branch` across the levels, giving a
+      genuine tree of the requested depth with distinct leaves. (b) Base params are sized so `--scale 1`
+      is a dev-box run and the shape is preserved as `--scale` grows (s2 base is 200k, not 1M).
+      (c) `strace` profiling is **opt-in** (`--syscalls`) rather than automatic: it costs 10–50× and is
+      Linux-only, so the JSON records an explicit null-with-reason elsewhere. (d) The runner emits one
+      JSON **document** per invocation (env + N runs) rather than a bare row, which is exactly the
+      `baseline.json` shape and lets one invocation sweep `-j` over a single generated tree.
+      (e) Beyond the checklist: every configuration is checked with `xdu-find --count` and the run
+      **fails** if the index lost files — a crawl that is fast because it dropped rows is not faster.)*
+- [x] Capture and **commit `bench/results/baseline.json`** (records git commit, CPU/RAM/FS/kernel,
       tree params, `-j`/`-B`); git-ignore `bench/results/*.log`.
-- [ ] `bench/HPC-PROTOCOL.md` (R9): purpose; tree-characteristic inputs to report; environment fields
+      *(Amendment: the ignore is the superset `bench/results/*` + `!bench/results/baseline.json`, so an
+      ad-hoc local run cannot dirty the tree and block the next `xdu-build` pre-flight. Verified with
+      `git check-ignore`. The baseline records `git_dirty: true` — honest, since `bench/` was still
+      uncommitted at capture — and the document carries an automatic note that the measured binary is
+      the build at the recorded commit.)*
+- [x] `bench/HPC-PROTOCOL.md` (R9): purpose; tree-characteristic inputs to report; environment fields
       (Lustre stripe/OSTs/MDS, GPFS block/NSD/metanode, ZFS recordsize/ARC/vdev; cores/RAM/kernel);
       cache handling (MDS/ARC is the warm/cold factor; cold via freshly-written/never-read tree);
       `-j` sweep to metadata-server saturation; metrics incl. FS-side md-op rate; expected saturation
       shape (single-MDS Lustre ceiling; coordinate a billion-file stat storm); reporting template.
-- [ ] Reference `bench/` from `AGENTS.md` "Testing"; add `bench/results/*.log` to `.gitignore`.
+- [x] Reference `bench/` from `AGENTS.md` "Testing"; add `bench/results/*.log` to `.gitignore`.
+      *(Also corrected two now-stale claims in that same section, per the constitution's "the code is
+      ground truth — fix this file" rule: `crawl_tests.rs` no longer reimplements the crawler (P1), and
+      the section now warns that a self-skipping test still prints `ok`.)*
 - **Verify:** `sh bench/run.sh smoke && test -f bench/results/baseline.json`.
+      *(Result: green. `smoke` asserts a real post-condition — 104 generated == 104 indexed, completion
+      marker present — not merely exit 0. Baseline captured over ~5 min: s5 @ scale 8 (819,216 files)
+      swept `-j 1/2/4/8` → 140K/228K/329K/314K files-per-sec, i.e. it **saturates near `-j 4` and
+      regresses at 8**; s2 flat-wide @ 400k → 126K files/sec and the highest RSS (141 MiB), confirming a
+      single flat directory cannot be split across threads; s3 @ 400k over 1000 partitions → 313K
+      files/sec at 12 MiB. `indexed == generated` on every configuration. Rust gate re-run clean
+      (fmt/clippy/59+17+16 tests).)*
 - **Touches:** `bench/` (new), `.gitignore`, `AGENTS.md`.
 
 ## Phase P5 — Perf: stat-in-pool (L1) + direct-to-Arrow (L2), measured vs baseline
@@ -305,7 +331,12 @@ appetite runs short.
 - [ ] Record the follow-ups (do **not** implement here) in `ROADMAP.md` and `spec/crawl-hardening/META.md`
       / a short assessment note: centralize the DuckDB injection surface (§5) on `index_glob`; reconcile
       `xdu-view::format_file_count` vs `lib::format_count`; lift TUI `strip_ansi`/file-sniff helpers to
-      `lib` for testability (§11/§12).
+      `lib` for testability (§11/§12). **Added during P4:** *no binary supports `--version`* — all four
+      `doc/*.scd` pages document `-V, --version` and `AGENTS.md` claims clap derives it from
+      `CARGO_PKG_VERSION`, but no `XduArgs`/`XduFindArgs`/`XduViewArgs`/`XduRmArgs` `#[command(...)]`
+      sets `version`, so every binary rejects the flag. A one-line-per-struct fix, but it is a CLI
+      change (invariant §10) and does not belong in a benchmark commit — evaluate for this phase or a
+      standalone fix branch.
 - [ ] Confirm nothing here touched `get_schema`/`FileRecord`/reader column lists (§1) or CLI semantics
       (§10).
 - **Verify:** `cargo test && .agents/factory/bin/temp_index.sh sh -c 'xdu-find -i "$XDU_INDEX" --count'`
