@@ -166,8 +166,20 @@
      proof that it works): `spec/crawl-hardening/ASSESSMENT.md`'s five "Deferred, with reasons" items and
      `ROADMAP.md`'s "Internal cleanups surfaced by the crawl-hardening pass". `ASSESSMENT.md` then *links*
      to the `issues/` files rather than duplicating them, so R8's record still stands on its own. Promote
-     the `--version` item first — all four bins reject a flag every man page documents, which is a
-     user-facing defect, not a cleanup.
+     the `--version` item first, as **`issues/version-flag-missing.md`** (`kind: fix`, `appetite: small`)
+     — it is a user-facing defect in a released version, not a cleanup. **Verified 2026-08-05, so the
+     issue file can be written mechanically:** `grep -n version src/cli.rs` returns nothing, i.e. none of
+     the four `#[command(...)]` blocks (`:12`, `:65`, `:122`, `:167`) sets `version`; all four man pages
+     document it (`doc/xdu.1.scd:60`, `xdu-find:61`, `xdu-rm:73`, `xdu-view:56` — "*-V*, *--version*
+     Print version information."); and at runtime `target/release/xdu --version` and
+     `xdu-find --version` both fail with `error: unexpected argument '--version' found`.
+     Two precisions worth carrying into the issue, because both cut against the obvious reading:
+     (i) **completions are not affected** — `gen-completions` builds from the same `clap::Command`, so it
+     omits the flag exactly as the binaries do; only the four man pages overclaim, which narrows the §10
+     violation to man-vs-code; (ii) **the fix needs no doc change** — the man pages are already correct,
+     so §10's same-commit rule is satisfied by a code-only change of four attributes. That makes this
+     small enough that `AGENTS.md`'s "a one-sentence change may skip the lifecycle entirely" applies; it
+     wants its own `fix/` branch, not a slot behind the cleanup queue.
 - **Confidence:** high · **Effort:** medium (the convention is small; the migration is the bulk)
 
 ## F7 — The evidence spine requires an `scdoc` render with no fallback when `scdoc` is absent
