@@ -208,7 +208,7 @@
 - **Confidence:** high · **Effort:** medium (the convention is small; the migration is the bulk)
 
 ## F7 — The evidence spine requires an `scdoc` render with no fallback when `scdoc` is absent · seen again (xdu-build:P8)
-`origin=xdu-review:step2 severity=high category=tooling status=open target=.claude/skills/xdu-review/SKILL.md`
+`origin=xdu-review:step2 severity=high category=tooling status=applied target=.claude/skills/xdu-review/SKILL.md`
 - **Severity raised low → high (2026-08-05), because the gap was measured, not theorized.** `scdoc` was
   installed on this host at the human's prompting, and the first render found `doc/xdu.1.scd` **had not
   compiled since P3 (`b8f5f9c`)** — `*__root__*` nests italic inside bold, a hard `scdoc` error. It rode

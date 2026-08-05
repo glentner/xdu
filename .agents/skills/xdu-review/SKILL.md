@@ -59,6 +59,13 @@ Additional instructions provided with the invocation: $ARGUMENTS
 - **External verification is the spine.** Every finding must cite an executed command
   (`cargo test`, real CLI in a throwaway index via `.agents/factory/bin/temp_index.sh`, the man-page
   render via `scdoc` when a `doc/*.scd` is touched). No assertion-only findings.
+  **When `scdoc` is absent**, do not silently drop the check and do not report an unearned pass. This
+  session is read-only and does not install tooling — instead compare each affected binary's `--help`
+  flag set against the `.scd` by inspection, **state plainly in `REVIEW.md` that the render was
+  unavailable**, and flag it to the human as an unclosed gap (`AGENTS.md`'s Commands section documents
+  the one-line install, so it is cheap for them to fix and re-run). This is not hypothetical: a
+  `doc/*.scd` that had not compiled for six commits, through a full review cycle, survived precisely
+  because no gate on that host could render it. An absent tool is a reported gap, never a pass.
 - **Refute before reporting.** Try to disprove each candidate; classify `CONFIRMED` (reproduced) vs
   `PLAUSIBLE` (needs human triage). Default to dropping when uncertain.
 - **Scope is narrow:** correctness bugs, GOAL R-ID gaps, AGENTS.md invariant violations
