@@ -135,7 +135,7 @@ document can no longer make that claim falsely.
 
 Note also that `baseline.json` (`b8f5f9c`) and `comparison-pre-p5.json` (`c9630c0`) contain
 **no crawl source differences at all** — `git diff b8f5f9c c9630c0 -- src/` is empty — yet
-their figures differ by 8.9–18.5%, with the baseline faster in all six configurations. That
+their figures differ by 1.1–18.5%, with the baseline faster in all six configurations. That
 pair is the cleanest available measurement of this harness's between-invocation drift, and
 it is why the rule above exists.
 
@@ -169,8 +169,12 @@ multi-directory figure at 0.4–3%; that was optimistic and this capture superse
 **Between invocations of the identical binary** the spread is far larger:
 
 - `baseline.json` vs `comparison-pre-p5.json` — identical crawl source, 45 minutes apart —
-  differ by **8.9–18.5%**, the baseline faster in all six configurations. A systematic
-  session bias, not white noise.
+  differ by **1.1–18.5%**, the baseline faster in all six configurations. It is the
+  *direction* that makes this a systematic session bias rather than white noise: all six
+  point the same way. The **magnitude is not uniform** — `s5` at `-j8` drifted 1.1% while
+  `s3` at `-j4` drifted 18.5% — so a configuration that happens to drift little in one
+  pairing is no evidence the harness is quiet, and the worst case is what the rules below
+  are sized against.
 - Four back-to-back `s3 --scale 4` invocations spanned **11%**; across hours, **31%**.
 - Three `s2 --scale 2` invocations gave **3.08 / 4.05 / 6.76 s** — a factor of 2.2. The
   figure `comparison-l2-only.json` records for that configuration, 2.71 s, lies *outside*

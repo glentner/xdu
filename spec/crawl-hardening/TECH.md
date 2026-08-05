@@ -3,10 +3,10 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: blocked
+status: in_progress
 branch: feature/crawl-hardening
 base: main
-current_phase: done
+current_phase: P12
 last_updated: '2026-08-05'
 phases:
 - id: P1
@@ -146,8 +146,15 @@ phases:
     for c in d[\"comparisons\"]); print(\"A/B ok:\", [(c[\"scenario\"], c[\"jobs\"],
     c[\"paired_delta_pct\"][\"median\"]) for c in d[\"comparisons\"]])" && grep -q
     measures_recorded_commit bench/run.sh && grep -qi "noise floor" bench/scenarios.md
-    && git diff --quiet HEAD -- src doc tests && cargo fmt --all -- --check && cargo
-    clippy --all-targets --all-features -- -D warnings && cargo test
+    && python3 -c "import json;B={(r['scenario'],r['jobs']):r['wall_s']['median']
+    for r in json.load(open('bench/results/baseline.json'))['runs']};P={(r['scenario'],r['jobs']):r['wall_s']['median']
+    for r in json.load(open('bench/results/comparison-pre-p5.json'))['runs']};K=sorted(set(B)&set(P));d=[(max(B[k],P[k])-min(B[k],P[k]))/max(B[k],P[k])*100
+    for k in K];c='%.1f%s%.1f%%'%(min(d),chr(8211),max(d));t=open('bench/scenarios.md').read();assert
+    t.count(c)==2,'documented drift range is not the recomputed '+c+' (found %d occurrences)'%t.count(c);assert
+    all(B[k]<P[k] for k in K),'baseline-faster-in-all-six claim no longer holds';print('noise-floor
+    range asserted against committed data:',c)" && git diff --quiet HEAD -- src doc
+    tests && cargo fmt --all -- --check && cargo clippy --all-targets --all-features
+    -- -D warnings && cargo test
 - id: P11
   name: Record every follow-up this cycle defers (F5 + the P9/P10 deferrals)
   status: done
@@ -168,6 +175,24 @@ phases:
     && ! grep -qF "None changes what the tools do" ROADMAP.md && git diff --quiet
     HEAD -- src tests bench doc Cargo.toml Cargo.lock && cargo fmt --all -- --check
     && echo PHASE-OK'
+- id: P12
+  name: 'C2-F2: resync AGENTS.md + invariants.md with the code this cycle landed'
+  status: pending
+  satisfies:
+  - R10
+  depends_on:
+  - P11
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: grep -q 'src/crawl.rs' AGENTS.md && grep -q -- '--allow-errors' AGENTS.md
+    && grep -q '\.xdu-complete' AGENTS.md && grep -q 'ROOT_PARTITION`, `lib\.rs' AGENTS.md
+    && ! grep -q 'ROOT_PARTITION`, `xdu\.rs' AGENTS.md && grep -q '\.xdu-complete'
+    .agents/factory/invariants.md && grep -q -- '--allow-errors' .agents/factory/invariants.md
+    && grep -qi 'collision' .agents/factory/invariants.md && for scd in doc/*.scd;
+    do scdoc < "$scd" > /dev/null || exit 1; done && git diff --quiet HEAD -- src
+    tests bench Cargo.toml Cargo.lock && cargo fmt --all -- --check && cargo clippy
+    --all-targets --all-features -- -D warnings && cargo test && echo PHASE-OK
 review:
   last_reviewed_commit: 08fe099389199f223bafcf621117c80124b8f3fc
   verdict: changes-requested
@@ -808,8 +833,9 @@ anywhere … back to back". None of that is established:
 
 - Against `baseline.json` the shipped build is **flat-or-slower in 5 of 6** configs.
 - `git diff b8f5f9c c9630c0 -- src/` is **empty** — `baseline.json` and `comparison-pre-p5.json` measure
-  *identical crawl source* 45 min apart yet differ **8.9–18.5 %**, baseline faster in all six (a
-  systematic session bias, not white noise).
+  *identical crawl source* 45 min apart yet differ **1.1–18.5 %**, baseline faster in all six (a
+  systematic session bias, not white noise). *(Figure corrected in review cycle 2 — see the remediation
+  item below; this phase originally recorded the low end as 8.9 %.)*
 - Between-invocation drift measured today: four back-to-back `s3 --scale 4` runs spanned 11 % (31 %
   across hours); three `s2 --scale 2` runs gave **3.08 / 4.05 / 6.76 s**. The committed "shipped" s2
   median of 2.71 lies *outside* the entire range observed for that same binary.
@@ -936,6 +962,23 @@ re-capture, write the claims from the new document.**
   asserts, now fixed by filtering `paired` once up front; and smoke's 104-file tree crawls in 0.00 s, so
   every paired delta was uncomputable and `comparisons[]` would have been asserted **empty** — smoke now
   runs at scale 100.)*
+- [x] **Review cycle 2 · C2-F3 remediation.** The stated between-invocation drift range was wrong in
+      both places it appeared (`scenarios.md:138` and `:172`): the document claimed the two baseline
+      captures "differ by **8.9–18.5%** … in all six configurations", but recomputing `wall_s.median`
+      from the committed JSON gives **1.1–18.5%** — `s5 -j8` drifted 1.14% and `s5 -j1` 8.85%, both
+      below the claimed floor. Corrected in both passages, and in this phase's own problem statement
+      above. The *direction* claim (baseline faster in all six) was re-verified and holds, so the
+      "systematic session bias, not white noise" reading stands — but it now rests explicitly on the
+      sign rather than on the magnitude, and the bullet says the magnitude is **not** uniform, so a
+      configuration that drifts little in one pairing is not evidence the harness is quiet. The
+      downstream "cannot resolve below ~20%" rule is sized against the worst case (18.5%) and is
+      unaffected.
+      *Gate tightened, not just the text fixed:* the old verify only ran `grep -qi "noise floor"`, which
+      would pass with any number in the sentence. It now recomputes the range from
+      `baseline.json` + `comparison-pre-p5.json` and asserts the document states exactly that figure
+      twice, plus re-asserts the direction claim. **Seen to fail before being trusted** — reintroducing
+      `8.9` into an isolated copy makes it exit 1 with
+      `documented drift range is not the recomputed 1.1–18.5% (found 0 occurrences)`.
 - **Touches:** `bench/run.sh`, `bench/scenarios.md`, `bench/HPC-PROTOCOL.md`,
   `bench/results/comparison-p5-ab.json` (new; `.gitignore:14` already whitelists `comparison-*.json`),
   `AGENTS.md`, this file. **No `src/` change** — the perf code is kept by decision.
