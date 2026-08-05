@@ -171,8 +171,10 @@ phases:
 review:
   last_reviewed_commit: 08fe099389199f223bafcf621117c80124b8f3fc
   verdict: changes-requested
-  blocked_reason: 'review cycle 2: C2-F1 scoped-run marker attestation (xdu.rs, human
-    gate) + C2-F2 AGENTS.md/invariants.md drift + C2-F3 wrong noise-floor range'
+  blocked_reason: 'review cycle 2 (human-gated): remediate C2-F2 AGENTS.md + invariants.md
+    drift and C2-F3 scenarios.md noise-floor range; docs only, no src/ change. C2-F1
+    accepted as recorded on issues/marker-scoped-run-attestation.md; C2-F4 is a host-coverage
+    limitation (see META F3).'
   cycle: 2
 ---
 # TECH.md — Harden & optimize the index-build crawl

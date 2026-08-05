@@ -501,3 +501,26 @@ any other step. No tracked file was edited; all scratch work stayed in the sessi
 ### Optional completeness sub-pass (separate reviewer; may see TECH.md)
 
 Not run — `/xdu-review` was invoked without the `completeness` argument.
+
+### Human sign-off on the cycle-2 gate (2026-08-05)
+
+The mandatory gate fired on **C2-F1** (CONFIRMED, `src/bin/xdu.rs` — high-blast-radius core). The human
+was given the accept-or-remediate call and chose: **remediate the documentation findings; keep C2-F1
+deferred on its existing record.**
+
+- **C2-F1 — accepted as recorded.** It stays deferred on `issues/marker-scoped-run-attestation.md`
+  (`status: unshaped`) + its ROADMAP entry + the in-code `// Known limitation:` at
+  `src/bin/xdu.rs:628-631`, all three verified accurate and covering both legs. **No crawl-core change
+  this cycle.** Rationale: the limitation is honestly documented at the point of use, and re-opening the
+  marker logic in cycle 3 of ≤3 would spend the last of the review budget on the highest-risk item.
+- **C2-F2 — remediate.** Update `AGENTS.md` (add `src/crawl.rs` to the repository map, add
+  `--allow-errors` to the CLI surface, re-attribute `ROOT_PARTITION` to `src/lib.rs`, document
+  `.xdu-complete` in Architecture / Index layout) **and** `.agents/factory/invariants.md` (the marker
+  contract and the `__root__`-collision rejection), which `AGENTS.md` says is kept in lockstep.
+- **C2-F3 — remediate.** Correct the stated drift range at `bench/scenarios.md:138` and `:172` from
+  8.9–18.5% to the actual 1.14–18.47%. The conclusion drawn from it is unaffected.
+- **C2-F4 — no code change required.** Recorded as a host-coverage limitation; the case runs on the
+  Linux CI leg. Cross-referenced to META `F3`, whose recommended fix (make a self-skip visible in the
+  gate's report rather than silent) is the durable remedy.
+
+Scope for the remediation build: **documentation and one benchmark-doc number only — no `src/` change.**
