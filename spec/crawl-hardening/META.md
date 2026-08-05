@@ -52,6 +52,13 @@
   full pass instead found C3-F1 — a MEDIUM coupled-core defect in `src/crawl.rs` + `src/lib.rs` that
   cycles 1 and 2 had both walked past. The cheap-looking option was the wrong one, and the skill had
   already decided that in advance.
+- The same full-blind-pass default held up a second time in cycle 4, but the lesson is narrower and
+  worth separating from the cycle-3 one: what made C4-F1 *actionable* was not finding it, it was the
+  **differential drive against a release build of `main` in a throwaway worktree**. The reviewer's
+  reproduction alone read as a MEDIUM data-loss defect in new code; running the identical scenario
+  against `main` showed the same rows destroyed, exit 0, and no diagnostic at all — turning "this
+  branch loses data" into "this branch is the first version that tells you". That single command
+  decided the severity, the verdict, and whether a cycle 5 was warranted. See F14.
 
 ## Friction findings
 
@@ -422,4 +429,41 @@
   *does this diff introduce a new reserved on-disk name, and is the collision guarded symmetrically?*
   Cheap and checkable: the guard should iterate a single list of reserved names that `lib` owns, so
   adding a constant to that list is what extends the guard.
+- **Confidence:** high · **Effort:** small
+
+## F14 — No verdict state for a CONFIRMED defect that is pre-existing in the base and never recorded
+
+`origin=xdu-review:step3 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+
+- **What happened:** cycle 4's most severe finding (C4-F1 — an unreadable partition's `finalize` prunes
+  every chunk it previously held, destroying real rows) is reproducible in `src/crawl.rs`, maps to
+  invariant §2 and R2, and fires the mandatory human gate. It is also **identical in `main`**, where it
+  additionally exits 0 with no diagnostic — so this branch is the first version that reports it at all.
+  The rubric routes on "CONFIRMED → blocked + changes-requested" and F11's proposed carve-out only
+  covers a finding **already recorded** in `issues/` + ROADMAP before the review. C4-F1 is neither: not
+  a regression, not recorded. I had to invent the disposition (record it, don't fix it here, human
+  decides) rather than apply one. Two of the reviewer's six findings sat in the same unhandled state.
+- **Skill cause:** the rubric's severity and verdict rules are keyed entirely to *the diff* — invariant
+  violation, R-ID gap, scope creep — and are silent on **provenance**. A blind reviewer given a large
+  refactor diff will inevitably drive code paths nobody drove before and surface defects the base branch
+  has always had; the skill's own "no speculative hardening" line is about *inventing* problems, and
+  says nothing about *finding real pre-existing ones*. Left unhandled this has a specific failure mode,
+  visible right here: the review stops grading the contract and starts auditing the codebase, and the
+  cycle count runs past its bound on defects the branch did not cause. Worse, nothing in the skill asks
+  the reviewer to establish provenance at all — the `git worktree` differential drive that settled
+  C4-F1's severity was improvised by the orchestrator, and had it not been run the finding would have
+  been reported as a MEDIUM defect *in this branch* and almost certainly blocked it.
+- **Recommended fix:** two changes, both small. **(1)** Add a provenance step to the reviewer's
+  refutation protocol: before assigning severity to a defect in code the diff touched, establish whether
+  it reproduces on `base` — by `git worktree add` + build and the same drive, which is already in the
+  reviewer's toolkit — and report the finding as `pre-existing` or `introduced`. **(2)** Add the fourth
+  routing row to "Verdict & loop": a CONFIRMED, **`pre-existing`**, unrecorded defect does **not**
+  auto-block; it is reported at full severity and routed to the human gate with a default disposition of
+  *record it in `issues/` + ROADMAP this pass, fix it in its own change* — which is exactly the
+  precedent the cycle-3 human gate set for C3-F2. **The carve-out must not become an escape hatch**, and
+  it needs the same load-bearing exceptions as F11's: a pre-existing defect still blocks unconditionally
+  when it lands in a destructive path (`xdu-rm`), and `pre-existing` must be **proved by an executed
+  drive against `base`**, never asserted from reading — an unproven provenance claim is treated as
+  `introduced`. Note this composes with F11 rather than duplicating it: F11 covers *recorded* findings,
+  F14 covers *unrecorded pre-existing* ones, and the two together close the routing table.
 - **Confidence:** high · **Effort:** small

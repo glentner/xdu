@@ -3,7 +3,7 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: in_review
+status: blocked
 branch: feature/crawl-hardening
 base: main
 current_phase: done
@@ -212,16 +212,18 @@ phases:
     --all -- --check && cargo clippy --all-targets --all-features -- -D warnings &&
     cargo test
 review:
-  last_reviewed_commit: a6b8a385869cc80d7cebb202c8da77503050e195
+  last_reviewed_commit: 0c77ccbf1de150bb271284dc36286a0fed390407
   verdict: changes-requested
-  blocked_reason: 'review cycle 3 (human-gated): fix C3-F1 in a new P13 - extend crawl::build_work_queue''s
-    reserved-name rejection to COMPLETION_MARKER as well as ROOT_PARTITION (prefer
-    one lib-owned reserved-name list so the class closes, not the instance), with
-    a real-binary regression test. Record C3-F2 (removed top-level dir leaves a phantom
-    partition the marker attests clean; pre-existing in main) in issues/ + ROADMAP.
-    No other src/ change; C2-F1 stays deferred. Human explicitly authorized exceeding
-    the <=3 cycle bound; the re-review lands as cycle 4.'
-  cycle: 3
+  blocked_reason: 'review cycle 4 (human-gated, second overrun of the <=3 bound):
+    4 CONFIRMED, none a regression - C4-F1 MEDIUM (unreadable partition''s finalize
+    prunes its prior chunks; proven identical on main, which exits 0 silently) recommend
+    record in issues/+ROADMAP + one --allow-errors man-page sentence, do not fix here;
+    C4-F2 LOW fix (AGENTS.md:48 + invariants.md:183 assert clap derives --version,
+    false); C4-F3 LOW fix (xdu.rs:39 names nonexistent record_from_metadata); C4-F4
+    LOW human call (FileRecord dead but named by invariant 1). Injection surface and
+    orphan partition re-raised and dismissed as recorded deferrals. Recommendation:
+    land the two doc fixes, record C4-F1, publish without a cycle 5.'
+  cycle: 4
 ---
 # TECH.md — Harden & optimize the index-build crawl
 

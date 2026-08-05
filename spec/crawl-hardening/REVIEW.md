@@ -826,3 +826,259 @@ authorized exceeding the ≤3 review-cycle bound to do it.**
   recorded here so the overrun is deliberate and auditable rather than silent. The re-review may be
   scoped to verifying C3-F1's fix and C3-F2's records, since the rest of the diff has now had three
   independent full blind passes.
+
+---
+
+## Review cycle 4 — changes-requested (2026-08-05)
+
+- **Reviewed commit:** 0c77ccbf1de150bb271284dc36286a0fed390407 · **Base:** main
+- **Cycle:** 4 — **beyond the ≤3 bound for the second time.** Cycle 3's `blocked_reason` records that
+  the human explicitly authorized this cycle. It did **not** authorize a fifth. See "Non-convergence".
+- **Mode:** **full blind pass** over the spec-excluded diff (`git diff main...HEAD -- . ':(exclude)spec/'`)
+  — the cycle default, deliberately *not* narrowed to re-verifying C3-F1's remediation. A fresh
+  `general-purpose` reviewer got `GOAL.md` (inlined verbatim), `invariants.md`, `review-rubric.md` and
+  the runnable repo, and was denied everything under `spec/`. The choice paid for itself again: the one
+  materially new finding (C4-F1) is in a region no prior cycle had driven.
+- **Tooling:** `scdoc` 1.11.5 and `mandoc` both present. **No unclosed man-page gap this cycle** — the
+  published text was rendered and read, not merely exit-checked.
+- **Contract drift:** none. `git log --oneline main..HEAD -- spec/crawl-hardening/GOAL.md` still returns
+  only the shaping commit `f6be759`.
+- **Delta under review since cycle 3's commit `a6b8a38`:** P13 only —
+  `src/lib.rs` (+24), `src/crawl.rs` (+91/−54), `tests/crawl_tests.rs` (+50), `doc/xdu.1.scd` (+12/−9),
+  `issues/orphan-partition-survives-reindex.md` (new), `ROADMAP.md` (+15), and the two doc files. The
+  cycle-3 gate's scope ("no other `src/` change; C2-F1 stays deferred") was honored exactly.
+- **Reviewer conduct:** verified. `git status --porcelain` empty on hand-back, `git worktree list` shows
+  only the main checkout, HEAD unmoved. No `spec/` file was read by the reviewer.
+
+### Cycle-3 remediation: C3-F1 closed as a class, C3-F2 recorded
+
+- **C3-F1 — CLOSED, and closed correctly.** The gate asked for the *class* to close, not the instance,
+  and it did. `lib::RESERVED_INDEX_NAMES` (`src/lib.rs:36-52`) pairs every name the index root claims
+  with what claims it; `crawl::build_work_queue` (`src/crawl.rs:241-252`) `find`s against that list
+  rather than testing names one by one, so reserving a future name extends the rejection by
+  construction. The unit test is **driven from the list itself**, so a later addition is covered without
+  anyone remembering to extend the test — which is precisely the failure mode that produced C3-F1. The
+  real-binary regression (`tests/crawl_tests.rs:322`) asserts both halves of the original damage: the
+  run is rejected in pre-flight with the marker path left free, **and** an unrelated later run over the
+  same outdir still completes and attests — the bricking, not just the rejection. The test also pins the
+  correct negative: a reserved name borne by a loose *file* is not a collision and becomes a `__root__`
+  row. Independently driven (reviewer rows 12–14): both names rejected, rc=1, and **still rejected under
+  `-p alpha`** where the filter would have excluded the directory. `doc/xdu.1.scd` was updated in the
+  same commit and its rendered text reads correctly.
+- **C3-F2 — RECORDED, as gated.** `issues/orphan-partition-survives-reindex.md` exists with
+  `status: unshaped` and a `**Seed:**` entry in `ROADMAP.md:216`. The blind reviewer re-derived the
+  behavior independently and fact-checked every claim in the issue file against source — all accurate,
+  including "pre-existing in `main`" (`git show main:src/bin/xdu.rs` has the identical
+  `for chunk_id in num_chunks..` per-partition prune scope).
+
+### Verification run
+
+The blind reviewer executed 28 numbered gates/drives at `0c77ccb`; the orchestrator independently
+re-ran the ones underpinning findings. Selected results:
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo clippy --all-targets --all-features -- -D warnings` | exit 0, clean |
+| `cargo test` | **105 passed, 0 failed** — 66 lib + 23 `crawl_tests` + 16 `rm_tests` (was 104; P13 adds one) |
+| `cargo test --test crawl_tests -- --nocapture --test-threads=1` | 23 passed, **1 self-skip** (`test_non_utf8_path_is_counted_and_reported` — APFS rejects the name). `geteuid()!=0`, so all four root-gated cases **really ran** |
+| `scdoc` all four `.scd`; `scdoc \| mandoc -Tutf8 \| col -b` | no failures; published text read in full — `__root__`, `OUTDIR/*/*.parquet`, `.xdu-complete`, `.partial` all intact; no dropped leading `.`/`'`, no swallowed `*` |
+| `--help` vs `.scd`, 4 binaries | only the **pre-existing** `--version` gap (see C4-F2) |
+| `sh bench/run.sh smoke` | exit 0 — 104 generated / 104 indexed, marker present |
+| **Accounting at scale:** `gen_tree.py --scenario s3` (100 000 files / 1000 partitions) at `-j 1/8/16` | rc=0 each; **rows = 100000 exactly at every job count**; 1000 partition dirs; 0 `.partial`; marker present |
+| Same tree at `-j 8 -B 7` (chunk-boundary stress) | rows=100000, **distinct paths=100000** — no loss or duplication across flushes |
+| Fail-loud | unreadable subtree → per-path errno, rc=1, **no marker**, sibling partition still indexed; `--allow-errors` → rc=0, marker `errors=1`, diagnostic still printed |
+| Reader warnings | markerless and tolerated-errors warnings from all three readers, **stderr only**; stdout stayed exactly `2` |
+| §4 destructive gates | `n` → `Aborted.`, 5 files intact; `--dry-run --force` deletes nothing; two `--dry-run -l 2` runs byte-identical |
+| Benchmark arithmetic re-derived from `comparison-p5-ab.json` | every figure in `scenarios.md` exact, incl. both noise-floor ranges; `git diff b8f5f9c c9630c0 -- src/` empty, so the drift argument holds |
+
+**Orchestrator's independent reproductions** (throwaway trees under `/tmp`, never a real index):
+
+- **C4-F1 on HEAD** — 11-row index, then `chmod 000` the `alpha` partition and re-index
+  `--allow-errors`: `Finished alpha (0 files, 0 B, pruned 1 stale, 1 errors)`, rc=**0**, `out/alpha`
+  now empty, total rows **11 → 1**, marker written with `files=1 errors=1`.
+- **The same scenario on `main`**, via `git worktree add /tmp/xdu-main-wt main` + a release build:
+  `Finished alpha (0 files, 0 B, pruned 1 stale)`, rc=**0**, rows **11 → 1**, **no error diagnostic at
+  all**, no marker mechanism. Worktree removed; tree clean.
+- **C4-F2/F3/F4** — `grep -rn` over `src/`, `tests/`, `AGENTS.md`, `.agents/factory/invariants.md`.
+- **Reviewer's §5 claim** — `git show main:src/bin/xdu-find.rs` carries the identical raw `format!`
+  into `read_parquet`; the ROADMAP follow-up at `:166` and `:176` records the escaping work.
+
+### Requirement → evidence matrix (cycle 4) — with who verified each
+
+| R-ID | Verified by | Verdict | Evidence |
+|---|---|---|---|
+| **R1** — concurrency audit artifact | **orchestrator** (artifact under `spec/`; reviewer structurally blinded) | **Met** | `research/01-concurrency-audit.md` is byte-unchanged since cycle 3: 11 hazards, each with line refs, a concrete failure scenario, HPC severity and fix direction. Cycle 3's noted imprecision (hazard #10 classed `minor` rather than one of R1's three terms) stands unchanged and remains not-a-finding — it carries its rationale and was fixed anyway. *Corroborating, not grading:* the reviewer's 100 000-file × 1000-partition drives at `-j 1/8/16` and `-B 7` found no lost, duplicated or starved file. |
+| **R2** — bugs fixed + real-binary regression tests | blind reviewer | **Met**, with **C4-F1** as an unrecorded residual | 23 `crawl_tests` drive the real binaries and assert concrete post-conditions; `tests/common/mod.rs` reimplements no production logic. Fixes proven against `main` by differential drive: swallowed walk/metadata errors, the unchecked `read_children_error`, the `is_symlink()` phantom `__root__`, and both reserved-name collisions. Residual: C4-F1 (new, unrecorded) and C3-F2 (recorded). |
+| **R3** — fail loud, non-zero, never a silently-complete index | blind reviewer | **Met** | Unreadable subtree → rc=1, per-path errno, no marker; write failure abandons queued partitions and writes no marker; a pre-flight rejection leaves a prior marker intact. Marker sequencing matches §2b (cleared `xdu.rs:92` after the last rejecting check, written `xdu.rs:636` after the `errors>0` bail). Driver-panic leg remains structural (`panic="abort"` → SIGABRT); the unwind branch is debug-only and still not independently reproduced. |
+| **R4** — reproducible benchmark + recorded baseline | blind reviewer | **Met** | `smoke` asserts index-holds-exactly-N, not exit 0; `baseline.json` records 6 configs with commit, host, medians, per-rep samples and a dirty flag; every flag cited by `scenarios.md`/`HPC-PROTOCOL.md` exists. |
+| **R5** — remove real inefficiencies, document the ceiling, don't merge a non-win as a win | blind reviewer | **Met** | Every table figure and both noise-floor ranges recomputed from the committed JSON and exact. The shipped direct-to-Arrow change is presented as an explicit **null** result kept for the copy reduction and the closed `symlink_metadata` TOCTOU, "not speed"; stat-in-pool measured 2.2× worse and reverted; the jwalk ceiling (directory = unit of parallelism) named; four levers deferred with reasons. |
+| **R6** — refactor for clarity/testability; schema + defaults unchanged | blind reviewer | **Met**, with nits **C4-F3** and **C4-F4** | `src/crawl.rs` (901 lines, 14 unit tests) holds the work queue, per-file measurement, `PartitionBuffer` and marker I/O; the bin keeps the concurrency scaffold. `get_schema()` **byte-identical to `main`** and absent from the diff. Crawl output unchanged. |
+| **R7** — new surface opt-in only, `.scd` same commit | blind reviewer | **Met** | No tuning knob was added — the perf work was a null result and the one lever needing a knob is deferred. `--allow-errors` is the sole addition: `#[arg(long)]`, no short, defaults false, defined only in `src/cli.rs`, `.scd` updated in the same commit. No pre-existing default or short-flag meaning moved. |
+| **R8** — assessment produced; low-risk cleanups applied; larger items recorded | **orchestrator** (document) + blind reviewer (code half) | **Met** | `ASSESSMENT.md` byte-unchanged since cycle 3: 4 applied cleanups with why-safe, 7 deferrals with why-not-here. Code half: `index_glob` across all three readers, layout constants centralized (the duplicate `const ROOT_PARTITION` deleted from `xdu-view.rs`), `RESERVED_INDEX_NAMES` added. **The reviewer fact-checked all five `issues/*.md` against source and every claim holds**, including reproducing the scoped-run marker reset. |
+| **R9** — HPC benchmark protocol | blind reviewer | **Met** | `bench/HPC-PROTOCOL.md` §1–§7 incl. per-filesystem environment tables, load/coordination warning, cache-state rules, FS-side counters (`lctl md_stats`, `mmpmon`, `arcstat`) and a fill-in reporting template. Every command it cites exists. |
+| **R10** — invariants preserved + full pre-release gate clean | blind reviewer | **Met** for the gate and §1–§13 as written; **C4-F2** is a doc-accuracy breach of §13 | Gate clean. §1 byte-identical. §2 partial→rename→prune preserved, 0 `.partial` after every success, readers never glob `.partial`. §3 reserved-name rejection unconditional. §4 re-driven. §6/§7/§8/§9/§12 unchanged. §13 stdout clean and pipeable in every drive. §5 unchanged from `main` and recorded as a follow-up (see "Surfaced, no action"). |
+
+### Findings — cycle 4
+
+Four CONFIRMED: one MEDIUM, three LOW. None CRITICAL, none HIGH, **no regression introduced by this
+branch**. Every one independently reproduced by the orchestrator.
+
+#### C4-F1 — MEDIUM · CONFIRMED · `src/crawl.rs:458` (`finalize` prune loop) + `src/bin/xdu.rs:636`
+
+**A partition whose directory becomes unreadable is finalized as empty, so the prune loop deletes every
+row that partition previously held.** `finalize()` prunes from `num_chunks..`; a partition that yielded
+a hard error and zero files still finalizes with `num_chunks == 0`, so the prune starts at chunk 0 and
+walks the whole contiguous tail — the entire prior partition. With `--allow-errors` the run then exits
+**0** and writes a completion marker.
+
+Failure scenario: an index holds 10 rows for `alpha`. A permission change makes the source `alpha`
+directory mode 000 — routine on shared HPC scratch. The operator re-runs with `--allow-errors`, the flag
+this branch added precisely so a crawl survives unreadable regions. The 10 good rows are destroyed.
+
+```
+initial rc=0 · total rows=11  alpha=10 · alpha chunks: 000000.parquet
+# chmod 000 src/alpha; re-index --allow-errors
+error: /private/tmp/xdu-f1/src/alpha: Permission denied (os error 13)
+Finished alpha (0 files, 0 B, pruned 1 stale, 1 errors)
+rc=0 · alpha dir now: [] · total rows=1
+marker: files=1  errors=1
+```
+
+**Not a regression — this branch strictly improves it.** The identical scenario driven against a release
+build of `main` from a throwaway worktree:
+
+```
+main initial rc=0 · rows=11  alpha=10
+Finished alpha (0 files, 0 B, pruned 1 stale)
+main reindex rc=0 · alpha dir now: [] · rows=1 · marker present: no
+```
+
+`main` destroys the same 10 rows, exits 0, and prints **no error diagnostic whatsoever**. HEAD adds the
+per-path errno line, the `pruned 1 stale` report, a non-zero exit in default mode, `errors=1` in the
+marker, and a reader warning on every subsequent query. The defect is the prune *scope*, which is
+textually identical in `main` (`for chunk_id in num_chunks..`).
+
+**Same mechanism as C3-F2**, which the cycle-3 human gate resolved as record-don't-fix: both are
+`finalize`'s per-partition prune reconciling against this run's chunk count rather than against reality.
+C3-F2 leaves phantom rows; C4-F1 destroys real ones — the sharper half of the pair, and the one that is
+**not recorded anywhere**. `issues/marker-scoped-run-attestation.md` and
+`issues/orphan-partition-survives-reindex.md` both circle it without naming it, and the `--allow-errors`
+man-page text does not mention that a tolerated error can delete prior rows.
+
+**Maps to:** R2 (a lost file), invariants §2/§2b/§2c. Touches `src/crawl.rs` and `src/bin/xdu.rs` →
+**mandatory human gate fires.**
+
+**Recommended disposition:** record, do not fix here — matching the C3-F2 precedent one cycle ago.
+A fix changes crawl behavior on an error path and needs its own tests and measurement; folding it into
+cycle 4 of a ≤3-cycle budget is how a hardening pass never lands. The minimum this pass should carry is
+an `issues/{slug}.md` + `ROADMAP.md` seed and one sentence in `doc/xdu.1.scd`'s `--allow-errors` text.
+**The human decides.**
+
+#### C4-F2 — LOW · CONFIRMED · `AGENTS.md:48` + `.agents/factory/invariants.md:183`
+
+**Ground truth asserts a fact the code contradicts.** Both files state *"Version is single-sourced from
+`Cargo.toml` — `clap` derives `--version` from `CARGO_PKG_VERSION`."* No argument struct in
+`src/cli.rs` sets `version` in its `#[command(...)]` attribute, so clap never registers the flag:
+
+```
+$ ./target/release/xdu --version ; echo $?
+error: unexpected argument '--version' found
+2                                     (identical for xdu-find, xdu-view, xdu-rm)
+$ grep -n version src/cli.rs
+(no output)
+```
+
+The `--version` defect itself is pre-existing and correctly recorded in
+`issues/version-flag-missing.md` — which quotes **this exact AGENTS.md sentence** as its evidence. So
+`a6b8a38` ("resync AGENTS.md + invariants.md with the code") left the resynced document asserting the
+opposite of the code, in the one file `AGENTS.md` itself designates as ground truth
+(*"When something below disagrees with the code, the code is ground truth — fix this file."*).
+
+**Maps to:** invariant §13, R10. **Recommended disposition:** fix — it is a two-line documentation edit
+in files this branch already rewrote, and leaving it re-arms the same trap for the next agent.
+
+#### C4-F3 — LOW · CONFIRMED · `src/bin/xdu.rs:39`
+
+The concurrency-contract doc comment — the artifact R6 requires, in a high-blast-radius file — names a
+function that does not exist:
+
+```
+$ grep -rn "record_from_metadata" src/ tests/
+src/bin/xdu.rs:39:/// (`record_from_metadata`), and Parquet finalization (`PartitionBuffer`) live in
+```
+
+The real helper is `crawl::file_size_and_atime`. A stale name in the one comment a maintainer is meant
+to navigate by. **Maps to:** R6. **Recommended disposition:** fix — one word.
+
+#### C4-F4 — LOW · CONFIRMED · `src/lib.rs:17`
+
+`FileRecord` — named by invariant §1 as part of the schema contract, alongside `get_schema()` — is dead
+production code after the direct-to-Arrow rewrite. Its only remaining references are its own unit tests:
+
+```
+$ grep -rn "FileRecord" src/ tests/
+src/lib.rs:17:pub struct FileRecord {
+src/lib.rs:740,743,756,761,766,778   (all inside #[cfg(test)])
+```
+
+A `pub` struct raises no dead-code warning, so it can drift out of agreement with `get_schema()`
+unnoticed — the exact coupling §1 exists to prevent, now with nothing holding the two together.
+`get_schema()` itself is byte-identical to `main`, so this is hygiene, not a violation. **Maps to:** R6,
+invariant §1. **Recommended disposition:** the human's call — delete it with its tests, or keep it and
+add a comment binding it to `get_schema()`. Either closes the drift.
+
+### Surfaced, no action — checked and dismissed
+
+Both were raised by the blind reviewer and both are real behaviors; neither is a finding against *this*
+contract, and recording why is part of the evidence spine.
+
+- **DuckDB injection surface (invariant §5).** `index_glob` still raw-`format!`s the index path and
+  partition name into `read_parquet(...)`; a `'` in `-u` escapes the string literal (reproduced:
+  `Parser Error: syntax error at or near "UNION"`), and `-u '*'` silently widens to the whole index.
+  The rubric makes a §5 violation auto-CRITICAL, so this deserved the explicit check it got.
+  **Dismissed because:** `git show main:src/bin/xdu-find.rs` carries the identical raw `format!` — this
+  pass *centralized* the seam without changing what reaches SQL, and R8's own text authorizes recording
+  rather than attempting anything "larger or riskier". It **is** recorded, in `ASSESSMENT.md` and at
+  `ROADMAP.md:166` with a `**Seed:**` at `:176`, with a sound reason: escaping changes the emitted SQL
+  for exotic names, which is a behavior change the GOAL's non-goals put out of bounds here. The
+  deferral is contract-compliant. It is also now the single highest-value item in the follow-up queue.
+- **Orphan partition survives re-index.** Independently re-derived by the reviewer; this is C3-F2,
+  already recorded per the cycle-3 human gate. No new action.
+
+### Unmapped changes (possible scope creep)
+
+| Change | Judgment |
+|---|---|
+| `.gitignore` `+/.idea/` (own `[chore]` commit `c613634`) | Maps to no R-ID. One ignore line; trivial and isolated. Not worth a loop — unchanged from cycle 1's judgment. |
+| Six `[harness]` commits under `.agents/` | Out-of-GOAL but **process-sanctioned** — `AGENTS.md` designates `/xdu-harness` as the route from `META.md` findings back to `.agents/`. The reviewer read the review-facing ones and confirmed **every change strengthens a gate**: `temp_index.sh` now rebuilds stale binaries instead of measuring them, this skill now forbids reporting an unearned pass when `scdoc` is absent, and the rubric/invariants **added** `src/crawl.rs` and `index_glob` to the high-blast-radius list. No non-negotiable gate was weakened. |
+| `.gitignore` `bench/results/*` + `!baseline.json` + `!comparison-*.json` | In scope — R4 needs the reference committed and local runs ignored. |
+| `AGENTS.md` / `ROADMAP.md` / `issues/` growth | In scope — R4/R6/R8 bookkeeping and the deferral convention R8's records depend on. |
+
+All six stated non-goals respected: no schema change, no backend work, no new query/deletion features,
+no changed default, no repurposed flag, no TUI rewrite.
+
+### Human-gate triggers
+
+**The mandatory human gate fires.** C4-F1 is CONFIRMED and touches `src/crawl.rs` and `src/bin/xdu.rs`
+— both on the high-blast-radius list this branch itself expanded — and maps to the atomic-finalize
+invariant (§2). C4-F4 touches `src/lib.rs` and invariant §1. Per this skill's Step 4, **no further
+lifecycle step may run without explicit human sign-off.**
+
+### Non-convergence
+
+This is **cycle 4 of a ≤3-cycle bound, the second consecutive overrun.** Cycle 3's `blocked_reason`
+authorized this cycle specifically; nothing authorizes a fifth.
+
+The honest read of the trend: cycles 3 and 4 each found exactly one MEDIUM defect plus low-severity
+residue, and **neither was introduced by this branch** — C3-F1 was a gap this pass opened and half-closed
+in the same pass, C4-F1 is behavior `main` has always had and that HEAD strictly improves. The pass is
+not diverging; a large, genuinely load-bearing diff is being read more carefully each round, which is
+what a blind full pass is *for*. But a review that keeps finding pre-existing defects in adjacent code
+has stopped grading the contract and started auditing the codebase — and R8 exists precisely to route
+that work to `issues/` instead of into this branch.
+
+**Recommendation:** land C4-F2 and C4-F3 (documentation and a one-word comment — no `src/` logic), take
+the human's call on C4-F4, and record C4-F1 as an `issues/` follow-up rather than fixing it here. Then
+**publish without a cycle 5**: none of the four findings is a regression, R1–R10 are all met, and the
+remaining items are pre-existing defects that the deferral convention was built to carry.
