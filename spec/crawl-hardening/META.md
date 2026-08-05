@@ -82,7 +82,7 @@
   rule.
 - **Confidence:** med · **Effort:** small
 
-## F3 — A self-skipping test reports `ok`, so a green `cargo test` can hide an unrun case · seen again (xdu-build:P10)
+## F3 — A self-skipping test reports `ok`, so a green `cargo test` can hide an unrun case · seen again (xdu-build:P10, xdu-review:step3)
 `origin=xdu-build:P3 severity=low category=missing-guidance status=open target=.claude/skills/xdu-build/SKILL.md`
 - **What happened:** P3's non-UTF-8 case can't run on the dev box (APFS/HFS+ reject such filenames), so
   the test early-returns — and prints `... ok` like every other test. The `verify:` gate was fully green
@@ -319,3 +319,52 @@
   Either way also fix the header comment, which currently states the "build once if absent" behavior as
   though it were sufficient.
 - **Confidence:** high · **Effort:** small
+
+## F11 — The verdict rules have no state for a CONFIRMED finding the build deliberately recorded
+`origin=xdu-review:step4 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md + .claude/skills/xdu-review/SKILL.md`
+- **What happened:** cycle 2's most severe finding (C2-F1, the scoped-run marker attestation) is a
+  reproduced defect in `src/bin/xdu.rs` **and** an item the build had already decided to defer, with an
+  in-code `// Known limitation:` comment, an `issues/marker-scoped-run-attestation.md` at
+  `status: unshaped`, and a ROADMAP entry. The rubric's routing table knows only "CONFIRMED → blocked +
+  changes-requested". So the finding is simultaneously (a) a confirmed defect the rule says must block
+  and (b) an accepted trade-off the team recorded on purpose. I had to either mechanically block work
+  that was consciously scoped out, or invent a discretion the rubric does not grant me. I blocked, and
+  routed the substance to the human gate — but the rubric did not tell me to do that.
+- **Skill cause:** the rubric's verdict table predates the `issues/` convention, which **landed during
+  this very cycle** (`de3e4ee`). That convention created a new, legitimate end-state — "confirmed, and
+  deliberately recorded elsewhere" — and nothing in the review skillset was updated to route it. The
+  blind reviewer also cannot see this state cleanly: it read the in-code comment and the `issues/` file
+  and correctly flagged the tension itself, calling it "a judgement call for the human", which is
+  exactly the guidance the rubric should have supplied.
+- **Recommended fix:** add a third routing row to the rubric's "Verdict & loop": a CONFIRMED finding
+  already recorded in `issues/{slug}.md` + ROADMAP **before** the review began (verifiable from
+  `git log`, so it cannot be back-filled to dodge a block) is reported at full severity and routed to
+  the **human gate for an accept-or-remediate call**, not auto-blocked — *except* when it violates an
+  `invariants.md` §1–§12 item or lands in a destructive path, which still blocks unconditionally. The
+  reviewer prompt should also say plainly that a recorded deferral is still a finding: report it, and do
+  not soften the severity because it is written down. **This must not become an escape hatch** — it
+  routes to a human, it does not approve anything, and the unconditional-block carve-out is the
+  load-bearing half. Framed any looser it would weaken the executed-evidence spine.
+- **Confidence:** high · **Effort:** small
+
+## F12 — No severity slot for AGENTS.md drifting from the code a pass just landed
+`origin=xdu-review:step3 severity=low category=instruction status=open target=.agents/factory/review-rubric.md`
+- **What happened:** C2-F2 is a real, greppable gap — `src/crawl.rs`, `--allow-errors`, and the new
+  `.xdu-complete` marker appear nowhere in `AGENTS.md`, `ROOT_PARTITION` is misattributed to `xdu.rs`,
+  and `invariants.md` (which `AGENTS.md` says is kept "in lockstep") was not touched at all. I could not
+  place it on the severity scale. §13 violations are HIGH, but §13 enumerates specific packaging and
+  convention items and never says "AGENTS.md must describe the code" — even though `AGENTS.md` opens by
+  declaring itself the map and instructing that the code is ground truth, so **fix this file**. I rated
+  it MEDIUM and had to write a sentence justifying why it wasn't HIGH.
+- **Skill cause:** the severity table has rows for code defects, R-ID gaps and invariant violations, but
+  documentation-drift-from-this-diff falls between them. It is a predictable outcome of every `refactor`
+  pass that moves code between modules, and it has a compounding consequence the table doesn't capture:
+  a stale `invariants.md` silently narrows the gate that `/xdu-plan` and the next `/xdu-review` both
+  draw from, so the drift propagates into future cycles.
+- **Recommended fix:** name it in the rubric's scope list as a fifth flaggable class — "**operating-manual
+  drift**: a symbol, module, flag, or on-disk artifact this diff introduced or moved that `AGENTS.md` or
+  `invariants.md` still describes wrongly or not at all" — at **HIGH** when the stale text is
+  `invariants.md` or an `AGENTS.md` invariant (it degrades a downstream gate) and MEDIUM otherwise. A
+  concrete check worth naming: for a `kind: refactor` diff, grep `AGENTS.md` + `invariants.md` for each
+  new/moved module and each new CLI flag or on-disk artifact.
+- **Confidence:** med · **Effort:** small

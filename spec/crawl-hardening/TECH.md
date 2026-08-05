@@ -3,7 +3,7 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: in_review
+status: blocked
 branch: feature/crawl-hardening
 base: main
 current_phase: done
@@ -169,12 +169,11 @@ phases:
     HEAD -- src tests bench doc Cargo.toml Cargo.lock && cargo fmt --all -- --check
     && echo PHASE-OK'
 review:
-  last_reviewed_commit: e1f5d7e93138ed38b607bb6097c67ca720fc6979
+  last_reviewed_commit: 08fe099389199f223bafcf621117c80124b8f3fc
   verdict: changes-requested
-  blocked_reason: 'P11 prerequisite unmet: the issues/ convention (META F6) has not
-    landed — /xdu-harness has never run, so there is no destination for the cycle''s
-    deferral ledger'
-  cycle: 1
+  blocked_reason: 'review cycle 2: C2-F1 scoped-run marker attestation (xdu.rs, human
+    gate) + C2-F2 AGENTS.md/invariants.md drift + C2-F3 wrong noise-floor range'
+  cycle: 2
 ---
 # TECH.md — Harden & optimize the index-build crawl
 
