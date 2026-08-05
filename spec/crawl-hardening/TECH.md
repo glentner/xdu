@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: feature/crawl-hardening
 base: main
-current_phase: P7
+current_phase: P8
 last_updated: '2026-08-05'
 phases:
 - id: P1
@@ -87,7 +87,7 @@ phases:
     --count'
 - id: P7
   name: 'F1: clear the completion marker after pre-flight, not before it'
-  status: pending
+  status: done
   satisfies:
   - R2
   - R3
@@ -532,47 +532,72 @@ which is the load-bearing fact licensing the move):
 | `xdu.rs:88` `build_work_queue(...)?` → `crawl.rs:229` reserved `__root__`, `:269` "No partitions found", `:279` lossy-name collision | no (pure over `TopEntry`) |
 | `xdu.rs:150` `std::thread::scope(...)` | **point of no return** — first writes are `crawl.rs:378` `create_dir_all`, `:405` `File::create(*.partial)`, `:428` `rename`, `:442` prune |
 
-- [ ] Move the single statement `clear_completion_marker(outdir)?;` **and its comment** from the top of
+- [x] Move the single statement `clear_completion_marker(outdir)?;` **and its comment** from the top of
       `crawl()` (`xdu.rs:54-58`) to immediately after `let num_items = work_queue.len();` (`xdu.rs:89`),
       directly before the `// Progress display` block. Nothing else moves; no signature, `lib`, schema,
       CLI or reader change. Placement is legal anywhere in `(89, 150]`; line 90 is the earliest point
       after every rejection that leaves the index untouched, and keeps the clear adjacent to the
       validation that licenses it.
-- [ ] Reword the moved comment to state the new ordering rule declaratively (no spec ids):
+- [x] Reword the moved comment to state the new ordering rule declaratively (no spec ids):
       pre-flight has passed, so from here the index is being rewritten and the previous run's
       attestation no longer describes it; dropping the marker after the last check that can still
       reject the run and before any driver writes means a crash below leaves an index that is visibly
       unattested, while a run rejected without touching the index leaves an already-complete index
       still attested.
-- [ ] Update `crawl()`'s doc comment (`xdu.rs:42-43`): "cleared here" → "cleared once pre-flight
+- [x] Update `crawl()`'s doc comment (`xdu.rs:42-43`): "cleared here" → "cleared once pre-flight
       passes", adding that a run rejected before crawling leaves the previous marker intact.
-- [ ] **Fix two stale doc comments in `src/crawl.rs` in the same commit** (comment-only, zero
+- [x] **Fix two stale doc comments in `src/crawl.rs` in the same commit** (comment-only, zero
       behavioral risk — the skeptic flagged that the design wrongly claimed there was no drift here):
       (a) `crawl.rs:37-38` on the `COMPLETION_MARKER` re-export ("removed when a run starts"); (b)
       `crawl.rs:46-50`, the `clear_completion_marker` doc ("at the start of a run" / "A run in progress
       must never carry the previous run's attestation"). Restate both as *removed once a run's
       pre-flight has passed and it is about to write*. (b) matters most — it is the doc a future editor
       reads when deciding where this call belongs, so leaving it stale re-arms the regression.
-- [ ] Adjust `doc/xdu.1.scd:105`: "removed when a run starts" → "removed once a run has passed its
+- [x] Adjust `doc/xdu.1.scd:105`: "removed when a run starts" → "removed once a run has passed its
       pre-flight checks and is about to write, and written only once every partition has been walked
       and finalized".
-- [ ] Add `test_rejected_run_leaves_existing_marker_intact` to `tests/crawl_tests.rs`: build a complete
+      *(Located by content, not line number, as this section instructs; the paragraph also gained the
+      converse — "a run rejected before it writes leaves an existing marker intact" — since the man
+      page is where an operator learns the recovery property. Re-wrapped ≤ 79 cols; the file's two
+      over-79 lines both pre-date this phase.)*
+- [x] Add `test_rejected_run_leaves_existing_marker_intact` to `tests/crawl_tests.rs`: build a complete
       index, assert marker present, then assert it **survives** each rejection — (1) empty source tree
       → exit 1 "No partitions found"; (2) a real top-level `__root__` dir → exit 1 "reserved";
       (3) unreadable source root (`chmod 000`, skip under root via `libc::geteuid()`, restore perms in
       teardown) → exit 1 "Failed to read directory". Assert in each case: non-zero exit, **marker still
       present**, and the pre-existing row count still queryable.
-- [ ] **Only three of the four bail classes are testable** — the lossy-partition-name collision
+      *(Amendment: the assertion is **stronger** than "still present" — the marker body is captured
+      before the rejections and compared byte-for-byte after each, so a clear-then-rewrite could not
+      pass. Two further tightenings: the `__root__` leg needs no loose file (the reserved-name check
+      is unconditional), and the unreadable-root leg asserts specifically "Failed to read directory",
+      confirmed by drive to be the site it exists to cover — canonicalizing the root only lstats it,
+      so the failure lands on the top-level enumeration, not the earlier resolve. The test closes by
+      re-proving the fail-safe below the clear in the same fixture: sabotaging a partition directory
+      and re-running the good tree strips the attestation.)*
+- [x] **Only three of the four bail classes are testable** — the lossy-partition-name collision
       (`crawl.rs:279`) needs a non-UTF-8 directory name that APFS rejects (the existing test at
       `crawl_tests.rs:434` self-skips for exactly this reason), and a `ThreadPoolBuilder` failure is not
       injectable. Do not try to force either; the three legs above are the right coverage.
-- [ ] Confirm the fail-safe still holds *after* the clear: a mid-run driver failure must still leave the
+- [x] Confirm the fail-safe still holds *after* the clear: a mid-run driver failure must still leave the
       index markerless. The existing `!marker.exists()` assertions (`crawl_tests.rs:279-315` fresh index
       per `-j`; `:349-365` sabotaged partition dir, detected by `create_dir_all` **below** the new
       clear) must pass unchanged — verify, don't assume.
+      *(Verified, not assumed: both `test_reserved_root_partition_name_is_rejected` and
+      `test_completion_marker_written_on_success_and_cleared_on_failure` pass with their assertions
+      untouched. The first is unaffected because its index is fresh per `-j`, so there was never a
+      marker to preserve; the second's sabotage is detected by `create_dir_all` below the new clear.)*
 - **Verify:** `cargo test --test crawl_tests -- --nocapture` (nocapture so a root self-skip is visible)
   then the full gate. Drive: build a marked index, point `xdu` at an empty tree, assert exit 1 **and**
   `.xdu-complete` still present.
+  *(Result: green — 19 crawl (up from 18) + 63 lib + 16 rm tests pass, fmt/clippy clean. The new test
+  ran rather than self-skipping: no root-skip line in `--nocapture` output. Drive through the release
+  binaries against a throwaway marked index (`temp_index.sh`), asserting concrete post-conditions
+  rather than exit codes: baseline marker holds `files=4` and `xdu-find --count` returns 4; the
+  empty-tree run exits 1 with "No partitions found" and the marker is **unchanged** (body compared,
+  not just present) with the count still 4; the `chmod 000` source run exits 1 with "Failed to read
+  directory: …/locked" + "Permission denied (os error 13)", marker still present, count still 4.
+  `scdoc` is not installed here so the man page render was **not** checked locally — it is gated in
+  CI, and P8 re-runs it as part of its own verify.)*
 - **Touches:** `src/bin/xdu.rs`, `src/crawl.rs` (comments only), `doc/xdu.1.scd`, `tests/crawl_tests.rs`.
 - **Out of scope:** do **not** hoist the `-p` validation or `fs::create_dir_all(&args.outdir)`
   (`xdu.rs:535`) — reordering those changes pre-existing default behavior (a stray empty outdir), which

@@ -366,6 +366,113 @@ fn test_completion_marker_written_on_success_and_cleared_on_failure() {
 }
 
 // =============================================================================
+// A run rejected before it writes leaves a complete index's marker intact
+// =============================================================================
+
+#[test]
+fn test_rejected_run_leaves_existing_marker_intact() {
+    let tmp = TempDir::new().unwrap();
+    let good = tmp.path().join("good");
+    let index = tmp.path().join("index");
+
+    create_test_file(&good.join("p/f1.txt"), 100).unwrap();
+    create_test_file(&good.join("p/f2.txt"), 100).unwrap();
+
+    build_index(&good, &index);
+
+    let marker = index.join(COMPLETION_MARKER);
+    let attestation = fs::read_to_string(&marker).expect("the initial run must be marked complete");
+
+    // Each leg re-runs against the same index with a source that xdu rejects during
+    // pre-flight, before it touches the index. The attestation describes an index that
+    // was not rewritten, so it must survive byte-for-byte.
+    let assert_intact = |leg: &str| {
+        assert_eq!(
+            fs::read_to_string(&marker).ok().as_deref(),
+            Some(attestation.as_str()),
+            "a run rejected in pre-flight must leave the marker untouched ({leg})"
+        );
+        assert_eq!(
+            find_count(&index, &[]),
+            2,
+            "the pre-existing index must still be queryable ({leg})"
+        );
+    };
+
+    // Leg 1: an empty source tree — nothing to index.
+    let empty = tmp.path().join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        empty.to_str().unwrap(),
+    ]);
+    assert!(!ok, "an empty tree must fail the run");
+    assert!(e.contains("No partitions found"), "got: {e}");
+    assert_intact("empty tree");
+
+    // Leg 2: a real top-level directory using the reserved partition name.
+    let reserved = tmp.path().join("reserved");
+    create_test_file(&reserved.join("__root__/inner.txt"), 100).unwrap();
+    create_test_file(&reserved.join("p/f.txt"), 100).unwrap();
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        reserved.to_str().unwrap(),
+    ]);
+    assert!(!ok, "a __root__ collision must fail the run");
+    assert!(e.contains("reserved"), "got: {e}");
+    assert_intact("reserved __root__ name");
+
+    // Leg 3: an unreadable source root — the top-level enumeration itself fails.
+    // Root bypasses permission bits, so this leg cannot be reproduced as root.
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping the unreadable-source leg: running as root bypasses permissions");
+    } else {
+        let locked = tmp.path().join("locked");
+        create_test_file(&locked.join("p/f.txt"), 100).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let (_o, e, ok) = run_xdu(&[
+            "--apparent-size",
+            "-o",
+            index.to_str().unwrap(),
+            locked.to_str().unwrap(),
+        ]);
+
+        // Restore perms before asserting so the TempDir can always be cleaned up.
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(!ok, "an unreadable source root must fail the run");
+        // Canonicalizing the root only lstats it, so the failure lands on the top-level
+        // enumeration — the rejection site this leg exists to cover.
+        assert!(
+            e.contains("Failed to read directory"),
+            "stderr must explain the unreadable source, got: {e}"
+        );
+        assert_intact("unreadable source root");
+    }
+
+    // The fail-safe still holds below the clear: a run that gets past pre-flight and
+    // then fails mid-crawl must strip the attestation it can no longer support.
+    fs::remove_dir_all(index.join("p")).unwrap();
+    fs::write(index.join("p"), b"not a directory").unwrap();
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        good.to_str().unwrap(),
+    ]);
+    assert!(!ok, "a driver failure must fail the run, stderr: {e}");
+    assert!(
+        !marker.exists(),
+        "a run that started writing and then failed must leave the index unattested"
+    );
+}
+
+// =============================================================================
 // A markerless index still queries: readers warn on stderr, they do not refuse
 // =============================================================================
 

@@ -34,8 +34,9 @@ use crate::SizeMode;
 /// `COMPLETION_MARKER` exists because per-chunk `partial`→`rename` finalization is atomic
 /// for one file but cannot express whether the *run* finished: when one driver fails, the
 /// partitions that already succeeded remain on disk as real `.parquet` chunks,
-/// indistinguishable from a complete index. The marker is removed when a run starts and
-/// written only when it succeeds, so its presence attests to the whole run.
+/// indistinguishable from a complete index. The marker is removed once a run's pre-flight
+/// has passed and it is about to write, and written only when it succeeds, so its presence
+/// attests to the whole run.
 pub use crate::{COMPLETION_MARKER, ROOT_PARTITION};
 
 /// Location of the completion marker for an index directory.
@@ -43,10 +44,13 @@ pub fn completion_marker_path(index: &Path) -> PathBuf {
     index.join(COMPLETION_MARKER)
 }
 
-/// Drop any existing completion marker at the start of a run.
+/// Drop any existing completion marker once a run's pre-flight has passed and it is
+/// about to write.
 ///
-/// A run in progress must never carry the previous run's attestation: if this one
-/// dies before finishing, the index is left markerless. A missing marker is not an
+/// A run that is rewriting the index must never carry the previous run's attestation: if
+/// this one dies before finishing, the index is left markerless. Call this *after* the
+/// last check that can still reject the run and *before* the first write, so a rejected
+/// run leaves an already-complete index still attested. A missing marker is not an
 /// error — most runs start against a fresh or already-markerless directory.
 pub fn clear_completion_marker(index: &Path) -> Result<()> {
     let path = completion_marker_path(index);

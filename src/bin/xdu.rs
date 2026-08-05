@@ -39,8 +39,9 @@ use xdu::{SizeMode, format_bytes, format_count, format_speed, get_schema, parse_
 /// (`record_from_metadata`), and Parquet finalization (`PartitionBuffer`) live in
 /// `xdu::crawl` so they are unit-testable; this function is the orchestrator.
 ///
-/// The run-level completion marker is cleared here and written by `main` only on the
-/// success path, so an index this run abandons carries no attestation.
+/// The run-level completion marker is cleared once pre-flight passes and written by
+/// `main` only on the success path, so an index this run abandons carries no
+/// attestation, while a run rejected before it crawls leaves the previous marker intact.
 fn crawl(
     top_dir: &Path,
     outdir: &Path,
@@ -51,12 +52,6 @@ fn crawl(
     partition_filter: Option<&HashSet<String>>,
     is_tty: bool,
 ) -> Result<CrawlStats> {
-    // From this point the index is being rewritten, so the previous run's
-    // attestation no longer describes it. Dropping the marker first means a crash
-    // anywhere below leaves an index that is visibly unattested rather than one that
-    // still claims to be complete.
-    clear_completion_marker(outdir)?;
-
     // Build shared rayon thread pool for jwalk walkers
     let pool = Arc::new(
         ThreadPoolBuilder::new()
@@ -87,6 +82,14 @@ fn crawl(
 
     let work_queue = build_work_queue(entries, top_dir, partition_filter)?;
     let num_items = work_queue.len();
+
+    // Pre-flight has passed, so from here the index is being rewritten and the previous
+    // run's attestation no longer describes it. Dropping the marker after the last check
+    // that can still reject the run, and before any driver writes, means a crash below
+    // leaves an index that is visibly unattested rather than one that still claims to be
+    // complete — while a run rejected without touching the index leaves an
+    // already-complete index still attested.
+    clear_completion_marker(outdir)?;
 
     // Progress display
     let mp = MultiProgress::new();

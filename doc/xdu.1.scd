@@ -102,10 +102,12 @@ Files are written atomically using a .partial suffix, then renamed on
 completion. Stale chunks from previous runs are automatically pruned.
 
 On success *xdu* writes a run-level completion marker, _OUTDIR_/.xdu-complete,
-holding the version and this run's totals. The marker is removed when a run
-starts and written only once every partition has been walked and finalized, so
-an index left behind by a failed or interrupted run carries no marker. Readers
-glob _OUTDIR_/*/*.parquet, so the marker is never mistaken for a partition.
+holding the version and this run's totals. The marker is removed once a run has
+passed its pre-flight checks and is about to write, and written only once every
+partition has been walked and finalized, so an index left behind by a failed or
+interrupted run carries no marker, while a run rejected before it writes leaves
+an existing marker intact. Readers glob _OUTDIR_/*/*.parquet, so the marker is
+never mistaken for a partition.
 
 Paths are stored as UTF-8. A filename containing invalid UTF-8 is stored with
 replacement characters, so that row no longer names a real file and cannot be
