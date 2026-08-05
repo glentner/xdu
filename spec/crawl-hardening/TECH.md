@@ -3,7 +3,7 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: in_progress
+status: blocked
 branch: feature/crawl-hardening
 base: main
 current_phase: P11
@@ -150,7 +150,7 @@ phases:
     clippy --all-targets --all-features -- -D warnings && cargo test
 - id: P11
   name: Record every follow-up this cycle defers (F5 + the P9/P10 deferrals)
-  status: pending
+  status: blocked
   satisfies:
   - R8
   depends_on:
@@ -171,8 +171,9 @@ phases:
 review:
   last_reviewed_commit: e1f5d7e93138ed38b607bb6097c67ca720fc6979
   verdict: changes-requested
-  blocked_reason: Marker cleared before work-queue validation (xdu.rs); R5 perf evidence
-    overclaims vs committed baseline
+  blocked_reason: 'P11 prerequisite unmet: the issues/ convention (META F6) has not
+    landed — /xdu-harness has never run, so there is no destination for the cycle''s
+    deferral ledger'
   cycle: 1
 ---
 # TECH.md — Harden & optimize the index-build crawl
@@ -1024,6 +1025,33 @@ it. The design pass found a **second**, related pre-existing §12 gap worth the 
 - **Verify:** the grep assertions for all four new sections and the ROADMAP edits, a clean `src`/`tests`/
   `bench`/`doc` diff, `cargo fmt --all -- --check`, then `PHASE-OK`.
 - **Touches:** `spec/crawl-hardening/ASSESSMENT.md`, `ROADMAP.md`.
+
+> **BLOCKED 2026-08-05 — the prerequisite above is not met; no work was attempted.** Checked at the top
+> of this phase, as instructed: `issues/` **does not exist** (absent from the working tree and untracked
+> in git), `/xdu-harness` has **never run** (`.agents/factory/harness-log.md` holds only its template
+> header, zero decision entries), and the convention is absent from `.agents/` apart from an incidental
+> mention in `templates/GOAL.md`. This phase forbids improvising a destination or falling back to prose,
+> so it stops here rather than inventing one — which is the whole point of the gate: the deferrals it
+> must file are precisely the ones that evaporate when written somewhere provisional.
+>
+> **To unblock:** run **`/xdu-harness`** (human-gated) and apply [`META.md`](META.md) F6's agreed
+> convention — items 1–4 are what this phase depends on: `issues/<slug>.md` reusing the `GOAL.md` body
+> with `status: unshaped`, `ROADMAP.md`'s `**Seed:**` pointing at the issue file, the `AGENTS.md`
+> repo-map entry stating the `META.md` / `issues/` / `ROADMAP.md` / `spec/` boundary, and the
+> phase-authoring rule. F6 item 5 (migrating the existing deferrals, and promoting `--version` as
+> `issues/version-flag-missing.md`) overlaps this phase's own ledger work — whoever runs `/xdu-harness`
+> should decide whether the migration happens there or here, so the two do not write the same files
+> twice. Then re-run `/xdu-build`; nothing in P11's checklist changes.
+>
+> **Nothing is lost by stopping:** every deferral this phase must record is already written down in the
+> P7–P10 checklists and their amendment notes, plus the `// Known limitation:` comment at the
+> marker-write site and P10's `usage()` warning and provenance-table note. This phase's job is to move
+> them into a durable, indexed home — not to discover them.
+>
+> `review.blocked_reason` was repointed at this prerequisite; the cycle-1 reason it replaced ("marker
+> cleared before work-queue validation; R5 perf evidence overclaims") named two findings that **P7 and
+> P10 have since fixed**, so leaving it would have described a blocker that no longer exists. The full
+> cycle-1 record remains in [`REVIEW.md`](REVIEW.md).
 
 ---
 

@@ -198,6 +198,13 @@
      so §10's same-commit rule is satisfied by a code-only change of four attributes. That makes this
      small enough that `AGENTS.md`'s "a one-sentence change may skip the lifecycle entirely" applies; it
      wants its own `fix/` branch, not a slot behind the cleanup queue.
+- **The gate fired as designed (2026-08-05).** P11 was authored with this convention as an explicit
+  prerequisite and a STOP-do-not-improvise instruction. Reaching it, `issues/` did not exist, so the
+  phase stopped with nothing attempted rather than inventing a destination — which is exactly the
+  failure mode F6 describes. **The feature is now blocked on `/xdu-harness`**, making this finding
+  the critical path rather than a backlog item. Worth noting for the harness pass: F6 item 5
+  (migrate the existing deferrals) overlaps P11's own ledger work, so decide which one owns it
+  before both write `ASSESSMENT.md` and `ROADMAP.md`.
 - **Confidence:** high · **Effort:** medium (the convention is small; the migration is the bulk)
 
 ## F7 — The evidence spine requires an `scdoc` render with no fallback when `scdoc` is absent · seen again (xdu-build:P8)
