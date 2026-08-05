@@ -3,11 +3,11 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: blocked
+status: in_progress
 branch: feature/crawl-hardening
 base: main
-current_phase: done
-last_updated: '2026-08-04'
+current_phase: P7
+last_updated: '2026-08-05'
 phases:
 - id: P1
   name: Extract lib::crawl + replace the fake crawler tests with a real-binary suite
@@ -85,6 +85,86 @@ phases:
   hill: uphill
   verify: cargo test && .agents/factory/bin/temp_index.sh sh -c 'xdu-find -i "$XDU_INDEX"
     --count'
+- id: P7
+  name: 'F1: clear the completion marker after pre-flight, not before it'
+  status: pending
+  satisfies:
+  - R2
+  - R3
+  depends_on:
+  - P6
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test --test crawl_tests -- --nocapture && cargo fmt --all -- --check
+    && cargo clippy --all-targets --all-features -- -D warnings && cargo test
+- id: P8
+  name: 'F3: correct the man page EXIT STATUS for both error classes'
+  status: pending
+  satisfies:
+  - R3
+  - R10
+  depends_on:
+  - P7
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: 'if command -v scdoc >/dev/null 2>&1; then scdoc < doc/xdu.1.scd > /dev/null
+    && echo "scdoc render: ok"; else echo "scdoc render: SKIPPED (not installed; gated
+    in CI test.yaml)"; fi && cargo fmt --all -- --check && cargo clippy --all-targets
+    --all-features -- -D warnings && cargo test --test crawl_tests -- --nocapture'
+- id: P9
+  name: 'F4: readers warn when the marker records tolerated errors (with a bounded,
+    non-blocking read)'
+  status: pending
+  satisfies:
+  - R3
+  - R8
+  depends_on:
+  - P8
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
+    -- -D warnings && cargo test --lib && cargo test --test crawl_tests -- --nocapture
+    && cargo test
+- id: P10
+  name: 'F2: interleaved A/B mode in bench/run.sh, honest re-capture, and rewritten
+    perf claims'
+  status: pending
+  satisfies:
+  - R4
+  - R5
+  depends_on:
+  - P9
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: sh bench/run.sh smoke && python3 -c "import json; d=json.load(open(\"bench/results/comparison-p5-ab.json\"));
+    assert {r[\"variant\"] for r in d[\"runs\"]}=={\"A\",\"B\"}; assert all(r[\"indexed_files\"]==r[\"generated_files\"]
+    for r in d[\"runs\"]); assert len(d[\"comparisons\"])==6; assert all(len(c[\"paired_delta_pct\"][\"samples\"])==c[\"paired_delta_pct\"][\"reps\"]
+    for c in d[\"comparisons\"]); print(\"A/B ok:\", [(c[\"scenario\"], c[\"jobs\"],
+    c[\"paired_delta_pct\"][\"median\"]) for c in d[\"comparisons\"]])" && grep -q
+    measures_recorded_commit bench/run.sh && grep -qi "noise floor" bench/scenarios.md
+    && git diff --quiet HEAD -- src doc tests && cargo fmt --all -- --check && cargo
+    clippy --all-targets --all-features -- -D warnings && cargo test
+- id: P11
+  name: 'F5: record the two pre-existing xdu-view terminal-safety gaps as R8 follow-ups'
+  status: pending
+  satisfies:
+  - R8
+  depends_on:
+  - P10
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: grep -qF "### Restore the terminal on every exit path, including panic"
+    spec/crawl-hardening/ASSESSMENT.md && grep -qF "### Truncate display names on
+    char boundaries, not byte indices" spec/crawl-hardening/ASSESSMENT.md && grep
+    -qF "panic = \"abort\"" spec/crawl-hardening/ASSESSMENT.md && grep -qF "Drop"
+    ROADMAP.md && ! grep -qF "None changes what the tools do" ROADMAP.md && git diff
+    --quiet HEAD -- src tests bench doc Cargo.toml Cargo.lock && cargo fmt --all --
+    --check && echo PHASE-OK
 review:
   last_reviewed_commit: e1f5d7e93138ed38b607bb6097c67ca720fc6979
   verdict: changes-requested
@@ -402,6 +482,364 @@ appetite runs short.
       was seen to print before that.)*
 - **Touches:** `src/lib.rs` (`index_glob` + reader marker helper), `src/bin/xdu-find.rs`,
   `src/bin/xdu-rm.rs`, `src/bin/xdu-view.rs`, `ROADMAP.md`, `spec/crawl-hardening/META.md`.
+
+---
+
+# Review cycle 1 remediation (P7–P11)
+
+Added 2026-08-05 from [`REVIEW.md`](REVIEW.md) cycle 1 (`changes-requested`, reviewed commit
+`e1f5d7e`). Each phase closes one CONFIRMED finding. Designs were produced and adversarially verified
+before authoring; **F1's placement and F4's blast radius were each attacked by an independent skeptic**
+and the corrections are folded into the checklists below.
+
+**Two human decisions are already made** (2026-08-05) and are not open for re-litigation mid-build:
+
+1. **F2 goes the full route** — fix the harness so it can resolve a real difference, re-capture, then
+   write the claims from the new document.
+2. **The P5 direct-to-Arrow change is KEPT.** Under interleaved A/B it shows no measured throughput
+   effect on any shape; it is kept for lower peak RSS on the worst-memory shape and the
+   `symlink_metadata` TOCTOU it closed. P10 rewrites the claim to say exactly that. **Do not revert
+   `src/crawl.rs`'s builder path.** If P10's fresh capture shows a *regression* clearing the paired
+   spread, STOP and escalate — that changes the decision.
+
+**Ordering constraint:** P7, P8 and P9 all edit `doc/xdu.1.scd`, and P8 re-wraps EXIT STATUS (the file
+grows 135 → 144 lines). **Every line number cited below is as-of `e1f5d7e`** — re-locate by content,
+never by line number, in P8 onward. The review's own F3 citation was already stale by ~9 lines.
+
+---
+
+## Phase P7 — F1: clear the completion marker after pre-flight, not before it
+**Satisfies:** R2, R3 · **Depends on:** P6
+**Goal:** A run rejected *before it writes anything* must leave a previously-complete index's marker
+intact. Today `clear_completion_marker(outdir)?` is the **first** statement of `crawl()`, so four
+pre-flight rejection paths strip the attestation from an index they never touched — recoverable only by
+a full re-index. The existing in-code fail-safe rationale is **correct and must survive**: everything
+after the clear must still leave a crashed run visibly unattested.
+
+The complete enumeration of early exits between `crawl()` entry and the first index mutation (read from
+source, independently confirmed by a second pass — `build_work_queue` makes **zero** filesystem calls,
+which is the load-bearing fact licensing the move):
+
+| site | index touched? |
+|---|---|
+| `xdu.rs:58` `clear_completion_marker(outdir)?` | **YES — the defect** (and itself fallible) |
+| `xdu.rs:61-66` `ThreadPoolBuilder…build()?` | no |
+| `xdu.rs:72-73` `fs::read_dir(top_dir)?` | no |
+| `xdu.rs:75` `entry?` · `:77` `entry.file_type()?` | no |
+| `xdu.rs:88` `build_work_queue(...)?` → `crawl.rs:229` reserved `__root__`, `:269` "No partitions found", `:279` lossy-name collision | no (pure over `TopEntry`) |
+| `xdu.rs:150` `std::thread::scope(...)` | **point of no return** — first writes are `crawl.rs:378` `create_dir_all`, `:405` `File::create(*.partial)`, `:428` `rename`, `:442` prune |
+
+- [ ] Move the single statement `clear_completion_marker(outdir)?;` **and its comment** from the top of
+      `crawl()` (`xdu.rs:54-58`) to immediately after `let num_items = work_queue.len();` (`xdu.rs:89`),
+      directly before the `// Progress display` block. Nothing else moves; no signature, `lib`, schema,
+      CLI or reader change. Placement is legal anywhere in `(89, 150]`; line 90 is the earliest point
+      after every rejection that leaves the index untouched, and keeps the clear adjacent to the
+      validation that licenses it.
+- [ ] Reword the moved comment to state the new ordering rule declaratively (no spec ids):
+      pre-flight has passed, so from here the index is being rewritten and the previous run's
+      attestation no longer describes it; dropping the marker after the last check that can still
+      reject the run and before any driver writes means a crash below leaves an index that is visibly
+      unattested, while a run rejected without touching the index leaves an already-complete index
+      still attested.
+- [ ] Update `crawl()`'s doc comment (`xdu.rs:42-43`): "cleared here" → "cleared once pre-flight
+      passes", adding that a run rejected before crawling leaves the previous marker intact.
+- [ ] **Fix two stale doc comments in `src/crawl.rs` in the same commit** (comment-only, zero
+      behavioral risk — the skeptic flagged that the design wrongly claimed there was no drift here):
+      (a) `crawl.rs:37-38` on the `COMPLETION_MARKER` re-export ("removed when a run starts"); (b)
+      `crawl.rs:46-50`, the `clear_completion_marker` doc ("at the start of a run" / "A run in progress
+      must never carry the previous run's attestation"). Restate both as *removed once a run's
+      pre-flight has passed and it is about to write*. (b) matters most — it is the doc a future editor
+      reads when deciding where this call belongs, so leaving it stale re-arms the regression.
+- [ ] Adjust `doc/xdu.1.scd:105`: "removed when a run starts" → "removed once a run has passed its
+      pre-flight checks and is about to write, and written only once every partition has been walked
+      and finalized".
+- [ ] Add `test_rejected_run_leaves_existing_marker_intact` to `tests/crawl_tests.rs`: build a complete
+      index, assert marker present, then assert it **survives** each rejection — (1) empty source tree
+      → exit 1 "No partitions found"; (2) a real top-level `__root__` dir → exit 1 "reserved";
+      (3) unreadable source root (`chmod 000`, skip under root via `libc::geteuid()`, restore perms in
+      teardown) → exit 1 "Failed to read directory". Assert in each case: non-zero exit, **marker still
+      present**, and the pre-existing row count still queryable.
+- [ ] **Only three of the four bail classes are testable** — the lossy-partition-name collision
+      (`crawl.rs:279`) needs a non-UTF-8 directory name that APFS rejects (the existing test at
+      `crawl_tests.rs:434` self-skips for exactly this reason), and a `ThreadPoolBuilder` failure is not
+      injectable. Do not try to force either; the three legs above are the right coverage.
+- [ ] Confirm the fail-safe still holds *after* the clear: a mid-run driver failure must still leave the
+      index markerless. The existing `!marker.exists()` assertions (`crawl_tests.rs:279-315` fresh index
+      per `-j`; `:349-365` sabotaged partition dir, detected by `create_dir_all` **below** the new
+      clear) must pass unchanged — verify, don't assume.
+- **Verify:** `cargo test --test crawl_tests -- --nocapture` (nocapture so a root self-skip is visible)
+  then the full gate. Drive: build a marked index, point `xdu` at an empty tree, assert exit 1 **and**
+  `.xdu-complete` still present.
+- **Touches:** `src/bin/xdu.rs`, `src/crawl.rs` (comments only), `doc/xdu.1.scd`, `tests/crawl_tests.rs`.
+- **Out of scope:** do **not** hoist the `-p` validation or `fs::create_dir_all(&args.outdir)`
+  (`xdu.rs:535`) — reordering those changes pre-existing default behavior (a stray empty outdir), which
+  the GOAL's non-goals forbid.
+
+## Phase P8 — F3: correct the man page EXIT STATUS for both error classes
+**Satisfies:** R3, R10 · **Depends on:** P7
+**Goal:** EXIT STATUS claims "the remaining threads stop taking on new partitions once one has failed"
+inside the paragraph about *permission/I-O* errors. That is false for that class: an entry-level error
+increments `part_errors`, reports the path, and the crawl **continues** — every partition is walked and
+finalized, and the run fails only in `main()` afterwards. The sentence describes the *write-failure*
+class instead, and even there imprecisely (an in-flight partition does finish). **Doc-only — the code
+is R3-compliant.** The offending sentence is at `doc/xdu.1.scd:122-123` as of `e1f5d7e`, not the
+`:113-114` the review cited; locate it by content.
+
+- [ ] Replace the EXIT STATUS body (`doc/xdu.1.scd:118-130`) with four paragraphs: **class A** —
+      reports the offending path to stderr, goes on to index everything else it can reach, and exits
+      non-zero *at the end of the run*, so a partial index is never presented as complete (keep the
+      ENOENT-race sentence here); **class B** — a Parquet chunk that cannot be written or renamed stops
+      the run: the partition being written is abandoned (chunks not yet renamed stay as `.partial`,
+      which readers ignore), other threads finish the partition they are on but take on no new ones,
+      and still-queued partitions go unindexed; **shared** — either way the failing run leaves no
+      completion marker (keep the `_OUTPUT FORMAT_` cross-reference); **`--allow-errors`** — as today,
+      plus "Write failures are not downgraded."
+- [ ] Delete the false clause "and the remaining threads stop taking on new partitions once one has
+      failed" from the class-A paragraph.
+- [ ] Keep the four correct existing claims in substance: no marker on a failing run; ENOENT races
+      counted and skipped without failing; `--allow-errors` downgrades and exits 0; all diagnostics on
+      stderr so piped stdout stays clean.
+- [ ] Keep the file's conventions: `*bold*` for program/flags/exit codes, `_italic_` for the section
+      cross-reference, literal em dashes, `.partial` written plain as at `:101`, body wrapped ≤ 79 cols.
+      A paragraph starting `*xdu*` at column 0 is existing precedent and safe.
+- [ ] Add `test_unreadable_path_does_not_stop_sibling_partitions` to `tests/crawl_tests.rs`: skip under
+      root, `chmod 000` a nested dir inside one partition, restore perms **before** asserting, then
+      assert exit non-zero, the offending path on stderr, the sibling partition indexed, **the erroring
+      partition still finalized**, zero leftover `.partial`, and no marker.
+- [ ] Add `test_write_failure_abandons_queued_partitions`: four partitions, `<index>/p2` pre-created as
+      a regular file, `-j 1` for a deterministic drain order; assert exit non-zero, `p1` indexed, `p3`
+      and `p4` absent, no marker. Note in the test's doc comment that its determinism depends on
+      `build_work_queue`'s ascending sort and on `num_drivers = jobs.min(num_items).max(1)`.
+- [ ] Do **not** also document that partitions a failed run never reached still hold the previous run's
+      chunks (true, invariant §2, but it turns three tight paragraphs into a wall). Do not soften
+      "exits non-zero" into "may exit non-zero".
+- **Verify:** render with `scdoc` when available, else record that it was skipped (not installed here;
+  gated by CI `.github/workflows/test.yaml`) — then `cargo test --test crawl_tests -- --nocapture` and
+  the fmt/clippy gate. Commit nothing under `share/` (generated, git-ignored).
+- **Touches:** `doc/xdu.1.scd`, `tests/crawl_tests.rs`. No `src/` change.
+
+## Phase P9 — F4: readers warn when the marker records tolerated errors
+**Satisfies:** R3, R8 · **Depends on:** P8
+**Goal:** An `--allow-errors` index is knowingly incomplete yet carries the completion marker, and
+`index_completion_warning` tests only `.exists()` — so the skipped regions are invisible to every query
+tool, `xdu-rm` included, whose whole risk model is "files the index does not know about". The marker
+body already records `errors=N`; nothing reads it. Finishing this branch's own signal, not new scope:
+consent given by one operator at build time does not transport to whoever runs `xdu-rm` weeks later.
+
+> **BLOCKING correction from the adversarial pass — do not skip.** The obvious implementation
+> (`.exists()` then an unconditional `fs::read_to_string`) **introduces an indefinite hang in all three
+> readers**: a read-only open of a FIFO (or symlink-to-FIFO, or character device) named `.xdu-complete`
+> blocks forever, where today's `.exists()` returns instantly. This was executed both directions and
+> confirmed. On shared HPC scratch the index directory is routinely group-writable. The read is also
+> size-unbounded. The guard below is what makes the design's own safety claim ("worst case it is exactly
+> today's code") true.
+
+- [ ] Add `const MARKER_READ_LIMIT: u64 = 64 * 1024;` to `src/lib.rs` (the writer emits ~100 bytes).
+- [ ] Implement the presence test with **one** `fs::metadata(&marker)` — semantically identical to
+      `Path::exists()`, which *is* `metadata().is_ok()`, so absent-marker behavior is preserved
+      bit-for-bit at one `stat` instead of two:
+      `Err` → the byte-identical absent-marker warning; `Ok(meta)` where
+      `!meta.is_file() || meta.len() > MARKER_READ_LIMIT` → `None` (presence still attests; the body is
+      not consulted); otherwise read with `read_to_string(...).unwrap_or_default()`. Comment the *why*:
+      opening a FIFO or device node of that name would block the reader forever, and a huge one would
+      be read into memory.
+- [ ] Add `pub fn completion_marker_errors(body: &str) -> Option<u64>` beside `COMPLETION_MARKER`: scan
+      lines, `split_once('=')`, first key trimming to `errors` wins, `value.trim().parse().ok()`;
+      `None` for a missing or unparseable key. Doc comment states the invariant — an unrecognized
+      marker body says nothing about errors, so the reader stays as quiet as it was before the marker
+      existed.
+- [ ] Keep `index_completion_warning`'s signature `(index: &Path) -> Option<String>` and return the new
+      warning only for `Some(n) if n > 0`; every other arm returns `None`. **No `?`, no `unwrap`/
+      `expect`, no new error type, no panic path** in either function — a corrupt, empty, non-UTF-8,
+      directory-shaped, FIFO, oversized, or racily-deleted marker must yield `None`. Verify by reading
+      the code, not only by test.
+- [ ] Warning text — must **not** contain the substring `completion marker`, so the existing
+      markerless-index assertions keep discriminating: `warning: {index} was indexed with {n} tolerated
+      error(s) (xdu --allow-errors); the affected paths were skipped, so results may be incomplete`.
+      Note `classify_io_error` folds everything except `NotFound` into `errors`, so avoid the narrower
+      "unreadable paths".
+- [ ] Add a lib unit test that **guards the guard**, or the metadata check will be "simplified" away
+      later: `libc` is already a dev-dependency, so `libc::mkfifo` a `.xdu-complete`, then assert
+      `index_completion_warning` returns `None` *and returns at all* (assert from a worker thread with
+      `recv_timeout` — without the guard it hangs forever). Also assert a >64 KiB body yields `None`.
+- [ ] Add `test_completion_marker_errors_reads_the_writers_body` to `src/lib.rs`'s `mod tests`, building
+      its input with `crawl::completion_marker_contents(&CrawlStats { errors: 3, .. }, t)` so writer and
+      reader are pinned by one test; plus missing-key / empty / garbage / negative / no-trailing-newline
+      / CRLF cases. Extend the existing `test_index_completion_warning` **in place**, keeping its
+      current assertions verbatim.
+- [ ] Append reader assertions to `test_unreadable_subtree_allow_errors_continues`: `xdu-find --count`
+      exits 0, **stdout trims to exactly `1`**, stderr contains `--allow-errors`, stdout contains no
+      `warning` (invariant §13 — stdout stays pipeable). Add a root-safe
+      `test_reader_warns_on_marker_recording_tolerated_errors`: clean index quiet at count 2; after
+      rewriting the marker body with `errors=2`, `xdu-find --count` still prints exactly `2` on stdout
+      and warns on stderr, and `xdu-rm --dry-run --force` warns on stderr while its stdout still lists
+      the target and nothing is deleted.
+- [ ] Refresh the three call-site comments (`xdu-find.rs:19-20`, `xdu-view.rs:1839-1840`,
+      `xdu-rm.rs:40-41`) so they no longer describe only the interrupted-run case. **Comment-only** —
+      change no code there, keep every emission an `eprintln!`, and keep `xdu-view`'s call before
+      `enable_raw_mode()` (verified: `:1841` is 24 lines ahead of `:1865`, and the only bails between
+      are pre-terminal, so §12 is safe). Skip the `xdu-view` comment touch if it buys nothing.
+- [ ] Append one sentence to `doc/xdu.1.scd`'s `--allow-errors` paragraph: such a run still writes the
+      marker, the marker carries the tolerated-error count, and the readers warn on stderr on a non-zero
+      count. Coordinate with P8's rewrite of the same section; leave the three reader man pages alone.
+- [ ] Record as a known limitation (do **not** fix — marker-format/CLI-semantics work is a non-goal):
+      `xdu.rs:58` clears the marker on *every* run including a partition-scoped one, and `:628` writes a
+      whole-index marker from that run's stats, so a later clean `xdu -p onepartition` rewrites
+      `errors=0` and silently retires the warning while other partitions' skipped regions remain.
+- [ ] Do **not** extend the warning to `vanished`/`lossy_paths`, add an `xdu-rm` refusal or extra
+      prompt, add a suppression flag, or add a `format=`/version key to the marker body.
+- **Verify:** fmt, clippy, `cargo test --lib`, `cargo test --test crawl_tests -- --nocapture` (confirm
+  the new allow-errors assertions actually ran rather than hitting the root self-skip), full `cargo test`.
+- **Touches:** `src/lib.rs`, `doc/xdu.1.scd`, `tests/crawl_tests.rs`, optionally reader comments.
+  **No** change to `get_schema()`, `FileRecord`, any reader's column list, the partition layout, or any
+  CLI flag/default — if one becomes necessary, STOP: that is a GOAL non-goal.
+
+## Phase P10 — F2: interleaved A/B in `bench/run.sh`, honest re-capture, rewritten claims
+**Satisfies:** R4, R5 · **Depends on:** P9
+**Goal:** R4 requires the committed baseline so a change is "quantified against it rather than
+asserted"; R5 forbids merging a change that does not measurably help "as if it did". `scenarios.md`
+claims "real wins on the flat-wide, many-partition and mid-`--jobs` mixed shapes, no measured regression
+anywhere … back to back". None of that is established:
+
+- Against `baseline.json` the shipped build is **flat-or-slower in 5 of 6** configs.
+- `git diff b8f5f9c c9630c0 -- src/` is **empty** — `baseline.json` and `comparison-pre-p5.json` measure
+  *identical crawl source* 45 min apart yet differ **8.9–18.5 %**, baseline faster in all six (a
+  systematic session bias, not white noise).
+- Between-invocation drift measured today: four back-to-back `s3 --scale 4` runs spanned 11 % (31 %
+  across hours); three `s2 --scale 2` runs gave **3.08 / 4.05 / 6.76 s**. The committed "shipped" s2
+  median of 2.71 lies *outside* the entire range observed for that same binary.
+- `captured_at` = 18:49 / 19:34 / 20:58 / 00:52 **next day**. "back to back" is false, as is TECH.md
+  P5's "measured back-to-back … against identical generated trees" (each invocation regenerates a tree).
+- Three of four documents carry `git_dirty: true`; for the two l1-l2/l2-only captures the dirty paths
+  included `src/`, making `run.sh`'s auto-note ("uncommitted changes outside `src/` do not affect it")
+  **false** — and `run.sh:144-147` only ever computed whole-tree dirtiness, so the note asserts
+  something the harness never checked.
+
+The harness *does* record within-invocation spread (`spread()` emits `{median,min,max,samples[]}`); what
+is missing is any between-invocation control. **Human decision: keep the P5 code, fix the harness,
+re-capture, write the claims from the new document.**
+
+- [ ] `bench/run.sh`: add a build-input dirtiness probe beside the whole-tree one —
+      `git status --porcelain -- src Cargo.toml Cargo.lock rust-toolchain.toml` decides
+      `MEASURES_COMMIT`. Emit `xdu.measures_recorded_commit`. Comment the invariant: only a modified
+      *build input* makes the recorded commit a lie about the measured binary.
+- [ ] Replace the false note (`run.sh:421-425`) with two verified branches — build input dirty →
+      `git_commit` identifies the BASE commit, not the measured code; dirty but no build input touched →
+      the measured binary IS the commit's build. Add an unconditional note that medians come from **one
+      invocation**, that two invocations of the same binary differ by up to ~20 % on the reference host,
+      and that `--compare-bin` is the way to A/B.
+- [ ] Record `xdu.binary = {path, bytes, mtime}`. Add `--bin PATH`, and when it is supplied explicitly
+      do **not** auto-build (today `run.sh:157-160` builds only when the default path is *absent*, so a
+      stale binary is measured silently).
+- [ ] Add the interleaved A/B mode: `--compare-bin PATH` plus optional `--compare-worktree DIR`
+      (records B's commit and its own `measures_recorded_commit`). One generated tree per scenario; one
+      warm-up per variant; **each timed rep runs both binaries** against the same tree with a fresh
+      index, order alternating `A B` / `B A` by rep parity so neither runs systematically first. Add a
+      `variant` column to the TSV and to the python grouping key `(scenario, jobs, variant)`, and verify
+      the row count **per variant** so a build that is fast because it lost files fails for either side.
+- [ ] Emit top-level `comparisons[]`: per `(scenario, jobs)` — `a_median_s`, `b_median_s`,
+      `paired_delta_pct {median, samples, a_faster_reps, reps}` from per-rep pairs matched by rep number,
+      and `peak_rss_delta_pct`. The paired delta is the number a claim rests on, so the document carries
+      it rather than leaving it to be re-derived.
+- [ ] **Non-negotiable, not polish:** extend `sh bench/run.sh smoke` with a second stage running the A/B
+      path with the same binary as both variants, asserting both variants present,
+      `indexed_files == generated_files` per variant, one `comparisons` entry with `reps` matching
+      `len(samples)`, `measures_recorded_commit` true on a clean tree, and `xdu.binary.bytes` matching
+      disk. Assert nothing about timing. Keep the one-line `smoke ok:` output; update `usage()`. Today
+      smoke exits before the report path, so `comparisons[]` would otherwise ship untested.
+- [ ] Capture `bench/results/comparison-p5-ab.json`: A = HEAD's `xdu`, B = a `git worktree` build of
+      `c9630c0`, `--compare-worktree` set, `--reps 7` (**9–11 for s2**, the only shape whose paired
+      spread is wide enough to hide something), and the baseline config set (`s5 --scale 8 --jobs
+      "1 2 4 8"`, `s2 --scale 2 --jobs 4`, `s3 --scale 4 --jobs 4`) so it is directly comparable.
+      **Pass `--out` explicitly** — `baseline` mode defaults `OUT` to `bench/results/baseline.json`
+      (`run.sh:300`) and would destroy the R4 reference. Quiet machine; ~10–12 min.
+      **Build B in the worktree's OWN target dir** (or copy the binary out and
+      `cargo clean --release -p xdu`): sharing `CARGO_TARGET_DIR` makes cargo reuse the pre-P5 `libxdu`
+      rlib and breaks `xdu-find` with E0432 — hit for real during design.
+- [ ] Rewrite the claims **from the new document**: replace `scenarios.md:136-139`'s "What shipped"
+      measurement claim with the A/B result (expected: no measured throughput effect on any shape, median
+      paired delta within ±1 %, signs split, hidden effect bounded ~±3 % multi-directory / ~±10 %
+      flat-wide); peak RSS down ~11 % on flat-wide (142 → 126 MiB) and **up ~35 % on many-partition**
+      (13 → 17.5 MiB — the increase the old text omitted); and that the earlier 6–28 % apparent wins sit
+      inside the documented drift. Keep the mechanism prose and say why the change is kept: one path
+      copy instead of two, less memory on the shape with the most memory, and the `symlink_metadata`
+      TOCTOU closed — **not** a throughput win.
+- [ ] Add a `## The noise floor — what this harness can resolve` section to `scenarios.md`:
+      within-invocation spread (0.4–3 % multi-directory, 21–44 % flat-wide with a monotone within-run
+      drift), between-invocation spread on identical source, the back-to-back series above, and the
+      resulting rules — two documents cannot resolve < ~20 % and resolve nothing on flat-wide; a
+      "faster" claim needs `--compare-bin`; peak RSS is the more portable signal. Label the numbers
+      host-specific and frame them as rules about the harness, not about `xdu`.
+- [ ] Rewrite `scenarios.md:75-77` (comparability rule) to require an interleaved A/B rather than two
+      invocations, and reword `:84-86` so it no longer calls the numbers reproducible across commits.
+      Replace `:103-104` with a provenance table naming, per committed document, the commit recorded,
+      whether it measures that commit, and what it is good for — stating plainly that
+      `comparison-l1-l2.json` and `comparison-l2-only.json` carry an automatic note that is wrong for
+      them, generated before the runner could tell the difference.
+- [ ] Correct the rejected stat-in-pool paragraph (`:141-151`) in place: note its numbers are a
+      cross-invocation comparison, but the effect (many-partition **more than twice as slow in wall
+      time**, not "50 % slower") is several times the largest observed drift, so **the rejection
+      stands**; soften the flat-wide "the gain was really pipelining" to an unestablished
+      cross-invocation number. Leave the deferred-levers list and the closing jwalk per-directory
+      ceiling paragraph untouched — that material is exactly what R5's characterize-and-justify asks
+      for and must not be overcorrected into "we measured nothing".
+- [ ] Fix `bench/HPC-PROTOCOL.md:80` (operators are currently told warm back-to-back runs are good for
+      comparing two builds): require interleaving with paired per-rep deltas, cite the ~20 % spread, and
+      add the `--compare-bin` invocation beside the runner example at `:113-119`. Update `AGENTS.md:213`
+      from "Compare two builds via a `git worktree`, never a stash" to require the interleaved A/B in one
+      invocation, with the reason.
+- [ ] Append an amendment note to this file's P5 comparison item recording that "measured back-to-back
+      … against identical generated trees" and the overlapping-per-rep-ranges judgement were both wrong,
+      and that `comparison-p5-ab.json` supersedes those numbers.
+- [ ] **STOP and escalate** if the fresh capture shows a regression clearing the paired spread — that
+      reopens the keep-vs-revert decision, which is the human's. Do not revert `src/crawl.rs` on your
+      own initiative.
+- **Verify:** `sh bench/run.sh smoke`, then assert the new document's shape (both variants,
+  `indexed_files == generated_files`, 6 comparisons, `samples` length == `reps`), `measures_recorded_commit`
+  present in `run.sh`, a noise-floor section in `scenarios.md`, **no `src`/`doc`/`tests` diff**, and the
+  full Rust gate green.
+- **Touches:** `bench/run.sh`, `bench/scenarios.md`, `bench/HPC-PROTOCOL.md`,
+  `bench/results/comparison-p5-ab.json` (new; `.gitignore:14` already whitelists `comparison-*.json`),
+  `AGENTS.md`, this file. **No `src/` change** — the perf code is kept by decision.
+- **Known footgun left as a follow-up:** `baseline` mode still defaults `--out` to the committed
+  `baseline.json`, so an operator can silently destroy the R4 reference. Record it; do not fix here.
+
+## Phase P11 — F5: record the pre-existing `xdu-view` terminal-safety gaps as R8 follow-ups
+**Satisfies:** R8 · **Depends on:** P10
+**Goal:** `xdu-view`'s terminal restore is plain sequential code after `run_app` — no `Drop` guard, no
+panic hook, whole-file grep for `set_hook`/`impl Drop`/`catch_unwind` returns zero hits — and
+`Cargo.toml:49` sets `panic = "abort"`, so `:1873-1874` are unreachable on any panic path. That is a
+genuine invariant §12 violation, but it is **pre-existing and identical in `main`**, and this branch's
+`xdu-view` diff (16+/10−) touches only the `index_glob`/`ROOT_PARTITION` dedup and the marker warning —
+nothing in the raw-mode region. So it does **not** block, and fixing it here would be scope creep into a
+reader rewrite. R8 requires it be *recorded* as an explicit follow-up, and the R8 record currently omits
+it. The design pass found a **second**, related pre-existing §12 gap worth the same treatment.
+
+- [ ] Add two `###` sections to `ASSESSMENT.md`'s "Deferred, with reasons" list, after "Lift the pure
+      TUI helpers into `lib`" and before "Decouple pool width from driver count", matching the file's
+      format and ~100-col wrap: **"Restore the terminal on every exit path, including panic"** and
+      **"Truncate display names on char boundaries, not byte indices"**.
+- [ ] The first must state all four facts: restore is plain sequential code after `run_app`;
+      `panic = "abort"` removes the unwind that would otherwise run it; the fix is a `Drop` guard or
+      panic hook; invariant §12 requires exactly that. Note the early-`?` case is real too —
+      `Terminal::new` at `:1867` already runs after raw mode and the alternate screen are entered.
+- [ ] The second must name `render_list_content` and `render_tree_content`, the
+      `&name[..width.saturating_sub(1)]` byte index, the bytes-vs-columns confusion, and §12's
+      char-boundary clause, and tie the reachable panic back to the missing restore guard.
+- [ ] Both sections state they are pre-existing (identical in `main`) and give the reason they were not
+      folded into this pass: they pair with the already-deferred TUI-helper lift as one §12
+      terminal-safety change to the same 2,500-line file.
+- [ ] Extend `ROADMAP.md`'s "Internal cleanups surfaced by the crawl-hardening pass" with both gaps,
+      replace the now-false "None changes what the tools do" sentence, and update the `**Seed:**` line to
+      name the terminal-safety work so a future `/xdu-feature` does not drop it. Consider dropping
+      ", low priority" — the bundle now includes a user-visible wedged terminal and a reachable panic.
+- [ ] Do **not** touch `research/04-architecture.md` (a point-in-time input; `ASSESSMENT.md` is the R8
+      deliverable and carries the correction). Add no test and change no code: the phase commit must
+      touch only `ASSESSMENT.md` and `ROADMAP.md`, with zero paths under `src/`, `tests/`, `bench/`,
+      `doc/`, or `Cargo.toml`/`Cargo.lock`.
+- **Verify:** the grep assertions for both new headings and the ROADMAP edits, a clean `src`/`tests`/
+  `bench`/`doc` diff, `cargo fmt --all -- --check`, then `PHASE-OK`.
+- **Touches:** `spec/crawl-hardening/ASSESSMENT.md`, `ROADMAP.md`.
 
 ---
 
