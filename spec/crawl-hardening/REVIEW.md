@@ -798,3 +798,31 @@ under `spec/` — every diff used `':(exclude)spec/'`.
 ### Optional completeness sub-pass (separate reviewer; may see TECH.md)
 
 Not run — `/xdu-review` was invoked without the `completeness` argument.
+
+### Human sign-off on the cycle-3 gate (2026-08-05)
+
+The mandatory gate fired on **C3-F1** (CONFIRMED, `src/crawl.rs` + `src/lib.rs` — two high-blast-radius
+core files), and the ≤3 cycle bound was simultaneously exhausted. The human was given the
+fix / record / defer-to-a-follow-up-branch call and chose: **fix C3-F1 in a new phase, and explicitly
+authorized exceeding the ≤3 review-cycle bound to do it.**
+
+- **C3-F1 — remediate in a new `P13`.** Extend the reserved-name rejection in
+  `crawl::build_work_queue` to cover `COMPLETION_MARKER` as well as `ROOT_PARTITION`, with a
+  **real-binary regression test** asserting a concrete post-condition (a source tree containing a
+  top-level `.xdu-complete` directory is rejected with a clear diagnostic, and the outdir is left
+  usable). Prefer closing the **class** over the instance: have the guard iterate a single
+  reserved-name list that `lib` owns, so adding a future reserved constant extends the guard by
+  construction rather than by remembering. This is the fix META `F13` recommends.
+- **C3-F2 — record, do not fix.** The prune scope is pre-existing in `main` and outside this GOAL's
+  scope; the gap is that it is recorded nowhere. It gets an `issues/{slug}.md` at `status: unshaped`
+  from [`templates/ISSUE.md`](../../.agents/factory/templates/ISSUE.md) plus a `**Seed:**` entry in
+  `ROADMAP.md`, per `AGENTS.md`'s four-homes rule. The write-up must state plainly that the stale
+  partition survives in `main` too, and that what this pass changed is the presence of an attestation
+  that does not detect it.
+- **Scope for the remediation build:** the `build_work_queue` guard plus its regression test, and the
+  two deferral records. **No other `src/` change**, no marker-format change, and C2-F1 stays deferred on
+  its existing record. The full pre-release gate must pass clean.
+- **Cycle bound:** this remediation lands as cycle 4, above the documented ≤3. The authorization is
+  recorded here so the overrun is deliberate and auditable rather than silent. The re-review may be
+  scoped to verifying C3-F1's fix and C3-F2's records, since the rest of the diff has now had three
+  independent full blind passes.

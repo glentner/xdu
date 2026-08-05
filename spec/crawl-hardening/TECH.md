@@ -196,13 +196,13 @@ phases:
 review:
   last_reviewed_commit: a6b8a385869cc80d7cebb202c8da77503050e195
   verdict: changes-requested
-  blocked_reason: 'review cycle 3 (human-gated, loop bound exhausted): C3-F1 MEDIUM
-    CONFIRMED in src/crawl.rs:232 + src/lib.rs:33 - .xdu-complete is a second reserved
-    index-root name but build_work_queue guards only ROOT_PARTITION, so a source dir
-    of that name bricks the outdir for all future runs. C3-F2 LOW CONFIRMED (src/crawl.rs:443)
-    - a removed top-level dir leaves a phantom partition that the new marker attests
-    as clean; pre-existing prune scope, but recorded nowhere. Cycle 3 of <=3: human
-    must choose fix-in-P13 / record-and-publish / follow-up fix branch.'
+  blocked_reason: 'review cycle 3 (human-gated): fix C3-F1 in a new P13 - extend crawl::build_work_queue''s
+    reserved-name rejection to COMPLETION_MARKER as well as ROOT_PARTITION (prefer
+    one lib-owned reserved-name list so the class closes, not the instance), with
+    a real-binary regression test. Record C3-F2 (removed top-level dir leaves a phantom
+    partition the marker attests clean; pre-existing in main) in issues/ + ROADMAP.
+    No other src/ change; C2-F1 stays deferred. Human explicitly authorized exceeding
+    the <=3 cycle bound; the re-review lands as cycle 4.'
   cycle: 3
 ---
 # TECH.md — Harden & optimize the index-build crawl
