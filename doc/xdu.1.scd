@@ -120,16 +120,24 @@ index format change and is not done here.
 *xdu* exits *0* on success. If the crawl cannot read a file or directory
 (a permission or I/O error — for example an unreadable subtree that would
 otherwise be silently omitted), it reports the offending path and error to
-standard error and exits *non-zero*, so a partial index is never presented as
-complete. A failing run also leaves no completion marker (see _OUTPUT FORMAT_),
-and the remaining threads stop taking on new partitions once one has failed.
-Files that vanish between being listed and being stat'd (an ENOENT race on a
-live filesystem) are counted and skipped without failing the run.
+standard error, goes on to index everything else it can reach, and exits
+*non-zero* at the end of the run, so a partial index is never presented as
+complete. Files that vanish between being listed and being stat'd (an ENOENT
+race on a live filesystem) are counted and skipped without failing the run.
 
-Pass *--allow-errors* to downgrade the hard errors to warnings: the crawl then
-indexes every reachable file and exits *0*. The per-path diagnostics and the
-skipped/error counts in the summary are printed either way, and all such
-diagnostics go to standard error so piped output on standard output stays clean.
+A Parquet chunk that cannot be written or renamed stops the run instead. The
+partition being written is abandoned — chunks not yet renamed keep
+their .partial suffix, which readers ignore — and the other threads finish
+the partition they are on but take on no new ones, so partitions still queued
+go unindexed.
+
+Either way, a failing run leaves no completion marker (see _OUTPUT FORMAT_).
+
+Pass *--allow-errors* to downgrade the read errors to warnings: the crawl then
+indexes every reachable file and exits *0*. Write failures are not downgraded.
+The per-path diagnostics and the skipped/error counts in the summary are
+printed either way, and all such diagnostics go to standard error so piped
+output on standard output stays clean.
 
 # SEE ALSO
 

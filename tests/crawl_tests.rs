@@ -745,3 +745,110 @@ fn test_unreadable_subtree_allow_errors_continues() {
     );
     assert_eq!(find_count(&index, &["-u", "data"]), 1);
 }
+
+// =============================================================================
+// A read error is survived, not fatal on the spot: every partition is still
+// walked and finalized, and only the run as a whole fails
+// =============================================================================
+
+#[test]
+fn test_unreadable_path_does_not_stop_sibling_partitions() {
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping: running as root bypasses permission checks");
+        return;
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("alpha/readable.txt"), 100).unwrap();
+    create_test_file(&source.join("alpha/locked/hidden.txt"), 100).unwrap();
+    create_test_file(&source.join("beta/b.txt"), 100).unwrap();
+
+    let locked = source.join("alpha/locked");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let (_o, err, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    // Restore perms before asserting so the TempDir can always be cleaned up.
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(!ok, "an unreadable path must fail the run");
+    assert!(
+        err.contains("locked"),
+        "stderr must name the unreadable directory, got: {err}"
+    );
+
+    // The erroring partition was walked to the end and finalized anyway...
+    assert_eq!(find_count(&index, &["-u", "alpha"]), 1);
+    assert!(
+        count_chunks(&index, "alpha") >= 1,
+        "the erroring partition must still be finalized"
+    );
+    // ...and its sibling was indexed rather than abandoned.
+    assert_eq!(find_count(&index, &["-u", "beta"]), 1);
+    assert_eq!(count_partials(&index), 0);
+    assert!(
+        !index.join(COMPLETION_MARKER).exists(),
+        "a run that failed on a read error must not be marked complete"
+    );
+}
+
+// =============================================================================
+// A write failure stops the run: partitions still queued go unindexed
+// =============================================================================
+
+/// The drain order this asserts on is a consequence of two crawl properties:
+/// `build_work_queue` sorts partitions ascending, and
+/// `num_drivers = jobs.min(num_items).max(1)` — so `-j 1` means a single driver takes
+/// p1, p2, p3, p4 in that order, and the failure on p2 is reached with p3/p4 still queued.
+#[test]
+fn test_write_failure_abandons_queued_partitions() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    for partition in ["p1", "p2", "p3", "p4"] {
+        create_test_file(&source.join(partition).join("f.txt"), 100).unwrap();
+    }
+
+    // A regular file where p2's partition directory belongs: that driver fails when it
+    // flushes the partition's first chunk.
+    fs::create_dir_all(&index).unwrap();
+    fs::write(index.join("p2"), b"not a directory").unwrap();
+
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-j",
+        "1",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    assert!(!ok, "a write failure must fail the run, stderr: {e}");
+
+    // The partition drained before the failure is complete on disk...
+    assert_eq!(count_chunks(&index, "p1"), 1);
+    assert_eq!(
+        find_count(&index, &[]),
+        1,
+        "only the partition ahead of the failure should be indexed"
+    );
+    // ...and the two still queued behind it were never started.
+    assert!(
+        !index.join("p3").exists(),
+        "a queued partition must go unindexed after a write failure"
+    );
+    assert!(!index.join("p4").exists());
+    assert!(
+        !index.join(COMPLETION_MARKER).exists(),
+        "a run that failed on a write must not be marked complete"
+    );
+}

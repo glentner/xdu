@@ -182,8 +182,15 @@
      wants its own `fix/` branch, not a slot behind the cleanup queue.
 - **Confidence:** high · **Effort:** medium (the convention is small; the migration is the bulk)
 
-## F7 — The evidence spine requires an `scdoc` render with no fallback when `scdoc` is absent
+## F7 — The evidence spine requires an `scdoc` render with no fallback when `scdoc` is absent · seen again (xdu-build:P8)
 `origin=xdu-review:step2 severity=low category=tooling status=open target=.claude/skills/xdu-review/SKILL.md`
+- **Seen again at `xdu-build:P8`, and it bites harder on the build side:** P8 was a **doc-only** phase —
+  its entire deliverable was the rendered EXIT STATUS prose — yet its `verify:` gate goes green while
+  printing `scdoc render: SKIPPED`. A gate that cannot inspect the one artifact the phase produces is
+  passing on the strength of `cargo test`, which never reads `doc/`. Same fix shape as below, applied to
+  `xdu-build`/`xdu-plan`'s verify authoring: when the phase's deliverable *is* the man page, either
+  require the render (installing `scdoc` is a one-liner on both CI and dev hosts) or make the phase state
+  explicitly that its deliverable is unverified locally and CI is the only gate.
 - **What happened:** the skill lists "the man-page render via `scdoc` when a `doc/*.scd` is touched" as
   part of the mandatory executed-evidence spine. `doc/xdu.1.scd` changed on this branch, but `scdoc` is
   not installed on this host, so that evidence line could not be produced. The reviewer substituted a
@@ -196,4 +203,23 @@
   with `scdoc` when available, else compare `<bin> --help`'s flag set against the `.scd` by inspection
   **and record in `REVIEW.md` that the render was unavailable**. Keeps the evidence requirement; only
   removes the ambiguity about an absent tool.
+- **Confidence:** high · **Effort:** small
+
+## F8 — No recorded `.scd` authoring conventions, so a wrap can silently emit a roff control line
+`origin=xdu-build:P8 severity=medium category=missing-guidance status=open target=.agents/factory/invariants.md`
+- **What happened:** P8's checklist enumerated the man-page conventions to preserve (`*bold*`, `_italic_`,
+  literal em dashes, `.partial` written plain, body wrapped ≤ 79 cols) — and following them produced a
+  line **beginning** with `.partial`, because that is where the 79-col wrap fell. In roff a line starting
+  with `.` is a control request, so the rendered page could drop or mangle the sentence. Caught only by
+  noticing the byte pattern and grepping: no line in any `doc/*.scd` starts with a period, so there was
+  no precedent to copy, and `scdoc` is absent here (F7) so the render could not settle it either.
+- **Skill cause:** the `.scd` conventions live nowhere durable — they are re-derived per phase from
+  whatever the current file happens to look like. `invariants.md` §10/§13 cover *that* man pages track
+  the CLI and that `share/` is generated, but not *how* to write the source safely. A convention that
+  must be rediscovered by inspection every time is a convention that will eventually be missed, and this
+  one fails silently in a generated artifact nobody re-reads.
+- **Recommended fix:** add a short "authoring `doc/*.scd`" note to `invariants.md` §13 (or a
+  `factory/` reference): never begin a line with `.` or `'` (roff control chars — rewrap instead), keep
+  the body ≤ 79 cols, `*bold*` for programs/flags/exit codes, `_italic_` for section cross-references.
+  Pairs with F7: with the render unavailable locally, written conventions are the only guard.
 - **Confidence:** high · **Effort:** small

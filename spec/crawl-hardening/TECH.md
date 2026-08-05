@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: feature/crawl-hardening
 base: main
-current_phase: P8
+current_phase: P9
 last_updated: '2026-08-05'
 phases:
 - id: P1
@@ -100,7 +100,7 @@ phases:
     && cargo clippy --all-targets --all-features -- -D warnings && cargo test
 - id: P8
   name: 'F3: correct the man page EXIT STATUS for both error classes'
-  status: pending
+  status: done
   satisfies:
   - R3
   - R10
@@ -613,7 +613,7 @@ class instead, and even there imprecisely (an in-flight partition does finish). 
 is R3-compliant.** The offending sentence is at `doc/xdu.1.scd:122-123` as of `e1f5d7e`, not the
 `:113-114` the review cited; locate it by content.
 
-- [ ] Replace the EXIT STATUS body (`doc/xdu.1.scd:118-130`) with four paragraphs: **class A** —
+- [x] Replace the EXIT STATUS body (`doc/xdu.1.scd:118-130`) with four paragraphs: **class A** —
       reports the offending path to stderr, goes on to index everything else it can reach, and exits
       non-zero *at the end of the run*, so a partial index is never presented as complete (keep the
       ENOENT-race sentence here); **class B** — a Parquet chunk that cannot be written or renamed stops
@@ -622,28 +622,55 @@ is R3-compliant.** The offending sentence is at `doc/xdu.1.scd:122-123` as of `e
       and still-queued partitions go unindexed; **shared** — either way the failing run leaves no
       completion marker (keep the `_OUTPUT FORMAT_` cross-reference); **`--allow-errors`** — as today,
       plus "Write failures are not downgraded."
-- [ ] Delete the false clause "and the remaining threads stop taking on new partitions once one has
+- [x] Delete the false clause "and the remaining threads stop taking on new partitions once one has
       failed" from the class-A paragraph.
-- [ ] Keep the four correct existing claims in substance: no marker on a failing run; ENOENT races
+      *(Falsified by drive before deletion, not just by reading: a two-partition tree with an
+      unreadable dir inside `alpha` prints `Finished alpha` **and** `Finished beta` — the sibling was
+      taken on after the error — then exits 1.)*
+- [x] Keep the four correct existing claims in substance: no marker on a failing run; ENOENT races
       counted and skipped without failing; `--allow-errors` downgrades and exits 0; all diagnostics on
       stderr so piped stdout stays clean.
-- [ ] Keep the file's conventions: `*bold*` for program/flags/exit codes, `_italic_` for the section
+      *(All four kept. "hard errors" became "the read errors" in the `--allow-errors` paragraph: with
+      two classes now named, "hard" would read as covering write failures, which it never did.)*
+- [x] Keep the file's conventions: `*bold*` for program/flags/exit codes, `_italic_` for the section
       cross-reference, literal em dashes, `.partial` written plain as at `:101`, body wrapped ≤ 79 cols.
       A paragraph starting `*xdu*` at column 0 is existing precedent and safe.
-- [ ] Add `test_unreadable_path_does_not_stop_sibling_partitions` to `tests/crawl_tests.rs`: skip under
+      *(One hazard this item did not anticipate: the natural wrap put `.partial` at **column 0**, and a
+      leading `.` is a roff control line. No line in any `doc/*.scd` starts with a period, so there was
+      no precedent to lean on and `scdoc` is not installed here to settle it — rewrapped so `.partial`
+      sits mid-line instead of betting on scdoc's escaping. The file now has **one** over-79 line, the
+      pre-existing 121-col SYNOPSIS; the 80-col line this phase briefly introduced is rewrapped, and
+      the one it replaced is gone.)*
+- [x] Add `test_unreadable_path_does_not_stop_sibling_partitions` to `tests/crawl_tests.rs`: skip under
       root, `chmod 000` a nested dir inside one partition, restore perms **before** asserting, then
       assert exit non-zero, the offending path on stderr, the sibling partition indexed, **the erroring
       partition still finalized**, zero leftover `.partial`, and no marker.
-- [ ] Add `test_write_failure_abandons_queued_partitions`: four partitions, `<index>/p2` pre-created as
+      *(All seven assertions as specified; "still finalized" is asserted twice over — `alpha` yields 1
+      row **and** holds ≥ 1 `.parquet` chunk.)*
+- [x] Add `test_write_failure_abandons_queued_partitions`: four partitions, `<index>/p2` pre-created as
       a regular file, `-j 1` for a deterministic drain order; assert exit non-zero, `p1` indexed, `p3`
       and `p4` absent, no marker. Note in the test's doc comment that its determinism depends on
       `build_work_queue`'s ascending sort and on `num_drivers = jobs.min(num_items).max(1)`.
-- [ ] Do **not** also document that partitions a failed run never reached still hold the previous run's
+      *(As specified. The failure surfaces from `PartitionBuffer::flush`'s `create_dir_all` — "File
+      exists (os error 17)" — so it is a genuine write-path failure, not a pre-flight rejection.)*
+- [x] Do **not** also document that partitions a failed run never reached still hold the previous run's
       chunks (true, invariant §2, but it turns three tight paragraphs into a wall). Do not soften
       "exits non-zero" into "may exit non-zero".
+      *(Both honored — neither claim was softened and the stale-chunk case stays undocumented.)*
 - **Verify:** render with `scdoc` when available, else record that it was skipped (not installed here;
   gated by CI `.github/workflows/test.yaml`) — then `cargo test --test crawl_tests -- --nocapture` and
   the fmt/clippy gate. Commit nothing under `share/` (generated, git-ignored).
+  *(Result: green — 21 crawl (up from 19) + 63 lib + 16 rm tests pass, fmt/clippy clean, nothing under
+  `share/` touched. `scdoc` is **not installed here**, so the render was NOT checked locally; CI's
+  `test.yaml` gates it. Both new tests ran rather than self-skipping (`--nocapture`, not root).
+  Because this phase's deliverable is prose whose only value is being **true**, every sentence was
+  driven through the release binaries against a throwaway index rather than reasoned about: class A —
+  a `chmod 000` dir inside `alpha` gives exit 1, one `error:` line, and **both** `Finished alpha` and
+  `Finished beta`, alpha=1 row / 1 chunk, beta=1 row, 0 partials, no marker (the sibling was taken on
+  after the error, which is precisely what the deleted clause denied); class B — `<index>/p2` as a
+  regular file at `-j 1` gives exit 1 "File exists (os error 17)", 1 total row, `p3`/`p4` absent, no
+  marker; and the new "Write failures are not downgraded" sentence was checked by re-running class B
+  **with `--allow-errors`** — still exit 1, still no marker.)*
 - **Touches:** `doc/xdu.1.scd`, `tests/crawl_tests.rs`. No `src/` change.
 
 ## Phase P9 — F4: readers warn when the marker records tolerated errors
