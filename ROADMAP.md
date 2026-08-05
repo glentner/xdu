@@ -200,6 +200,21 @@ whole-index marker — marker-format or CLI-semantics work either way.
 *Horizon: near-term · Depends on: — · Refs: On-disk index schema versioning*
 **Seed:** [`issues/marker-scoped-run-attestation.md`](issues/marker-scoped-run-attestation.md)
 
+## Re-indexing never retires a partition whose source directory is gone
+
+Delete a top-level directory from an indexed tree, re-index, and its partition — chunks and rows — stays
+in the index forever: `finalize` prunes stale chunks only *within* the partitions a run actually walked,
+so one it never enqueued is never reconciled. The run exits 0 and writes a completion marker, so every
+reader reports a clean index that is still answering queries with rows for files that no longer exist —
+`xdu-rm` matches them, and a purged project keeps counting against the tree's size forever. The marker's
+own `files=` count contradicts the row count the readers return, and nothing compares the two. The stale
+partition is **pre-existing behaviour**; what is new is having an attestation that fails to detect it.
+Needs whole-index reconciliation (and a scoped run must never delete the partitions it was told to skip),
+so it lands next to the scoped-marker work above.
+
+*Horizon: near-term · Depends on: — · Refs: Completion marker scoped runs (same question, marker side)*
+**Seed:** [`issues/orphan-partition-survives-reindex.md`](issues/orphan-partition-survives-reindex.md)
+
 ## Benchmark harness: stop `baseline` mode overwriting the committed reference
 
 `bench/run.sh baseline` defaults `--out` to `bench/results/baseline.json`, and `baseline` mode is also

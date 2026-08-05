@@ -29,8 +29,30 @@ pub const ROOT_PARTITION: &str = "__root__";
 
 /// Run-level completion marker written at the index root when a crawl succeeds.
 ///
-/// A dotfile, so the readers' `*/*.parquet` glob never mistakes it for a partition.
+/// A dotfile, so the readers' `*/*.parquet` glob never mistakes it for a partition. The
+/// reverse direction — a partition directory landing *on* the marker path — is guarded by
+/// this name's membership in `RESERVED_INDEX_NAMES`.
 pub const COMPLETION_MARKER: &str = ".xdu-complete";
+
+/// Every name the index root already claims, paired with what claims it.
+///
+/// `<index>/` holds exactly two kinds of entry: partition directories named after the
+/// source tree's top-level subdirectories, and the reserved `COMPLETION_MARKER` dotfile.
+/// A top-level source directory whose name is already claimed would be written *as* that
+/// entry — clobbering the synthetic loose-file partition's chunk ids, or occupying the
+/// marker path so the run cannot attest itself and no later run can clear it. So
+/// `crawl::build_work_queue` rejects one, naming what the collision is with.
+///
+/// The guard iterates this list rather than testing names one by one, so reserving a new
+/// name at the index root extends the rejection by construction: the collision class stays
+/// closed instead of depending on someone remembering the second half of it.
+pub const RESERVED_INDEX_NAMES: &[(&str, &str)] = &[
+    (
+        ROOT_PARTITION,
+        "the partition holding loose top-level files",
+    ),
+    (COMPLETION_MARKER, "the run-completion marker"),
+];
 
 /// Most a reader will ever read from a completion marker. The writer emits ~100 bytes; the
 /// cap exists so a reader cannot be made to pull an arbitrarily large file into memory by

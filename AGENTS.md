@@ -149,8 +149,11 @@ xdu-find / xdu-view / xdu-rm ◀── warn if absent/errors ┘  ◀── Duck
 - **Index layout:** `<outdir>/<partition>/NNNNNN.parquet`, where `partition` is a top-level
   subdirectory name. Loose files directly under the indexed root go to the reserved partition
   **`__root__`** (`ROOT_PARTITION`, `lib.rs`), crawled with `max_depth(1)`. Readers glob `*/*.parquet`.
-  A real top-level subdirectory *named* `__root__` would collide with that synthetic partition and
-  clobber its chunk ids, so `crawl::build_work_queue` **rejects** one instead.
+  `<index>/` holds exactly two kinds of entry — partition directories and the marker dotfile below —
+  so **both** their names are reserved (`RESERVED_INDEX_NAMES`, `lib.rs`, pairing each name with what
+  claims it). A top-level source subdirectory of either name is **rejected** by
+  `crawl::build_work_queue`, which iterates that list: it would clobber the synthetic partition's chunk
+  ids, or occupy the marker path and brick the outdir for every later run.
 - **Run-level completion marker:** `<outdir>/.xdu-complete` (`COMPLETION_MARKER`, `lib.rs`) — a
   dotfile, so the readers' `*/*.parquet` glob never mistakes it for a partition. Per-chunk
   `.partial`→rename is atomic for one *file* but cannot express whether the **run** finished: when one
@@ -212,10 +215,13 @@ kept **in lockstep** with this section (this file wins if they drift). The `xdu-
    completeness is a *separate* mechanism: the `.xdu-complete` marker (see Architecture), cleared after
    pre-flight and written only on success. Never write it on a failure path.
 3. **Partition scheme.** `<index>/<partition>/NNNNNN.parquet`; `__root__` reserved for loose
-   top-level files (depth-1 walk); zero-padded sequential chunk ids; readers glob `*/*.parquet`. A real
-   top-level dir named `__root__` is **rejected** by `crawl::build_work_queue` (it would clobber the
-   synthetic partition's chunk ids), unconditionally — even when a `--partition` filter would exclude
-   it, because the collision is with the layout, not with the selection.
+   top-level files (depth-1 walk); zero-padded sequential chunk ids; readers glob `*/*.parquet`. The
+   index root's namespace is a **class, not two facts**: it holds partition directories plus the
+   `COMPLETION_MARKER` dotfile, and *every* name in `lib::RESERVED_INDEX_NAMES` is **rejected** as a
+   top-level source directory by `crawl::build_work_queue`, unconditionally — even when a `--partition`
+   filter would exclude it, because the collision is with the layout, not with the selection. Reserving
+   a new name at the index root means adding it to that list in the same commit; the guard iterates the
+   list, so the rejection follows by construction.
 4. **`xdu-rm` destructive safety.** Default requires interactive `y/N` (anything but `y`/`yes`
    aborts); `--dry-run` deletes nothing; `--force` skips the prompt; `--safe` re-stats each file
    immediately before unlink. **Any deletion combined with `--limit` MUST carry a deterministic
@@ -251,9 +257,9 @@ kept **in lockstep** with this section (this file wins if they drift). The `xdu-
   confirm/dry-run/force gates are load-bearing.
 - **`src/lib.rs`** — `get_schema()` (schema stability), `QueryFilters` (the SQL/injection surface),
   `index_glob` (the one place the index layout becomes SQL), and the `ROOT_PARTITION` /
-  `COMPLETION_MARKER` layout constants.
-- **`src/crawl.rs`** — `PartitionBuffer::finalize()` atomicity + stale-chunk pruning; the `__root__`
-  collision rejection in `build_work_queue`; completion-marker write/clear ordering.
+  `COMPLETION_MARKER` layout constants with the `RESERVED_INDEX_NAMES` list that guards both.
+- **`src/crawl.rs`** — `PartitionBuffer::finalize()` atomicity + stale-chunk pruning; the
+  reserved-index-name collision rejection in `build_work_queue`; completion-marker write/clear ordering.
 - **`src/bin/xdu.rs`** — the shared-pool concurrency model (driver threads, `thread::scope` error
   propagation); marker clear-after-pre-flight / write-on-success sequencing.
 - **`src/bin/xdu-view.rs`** — terminal restore on panic; multibyte-safe truncation; empty-list

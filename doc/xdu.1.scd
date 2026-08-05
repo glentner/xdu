@@ -89,9 +89,12 @@ The index is structured as _OUTDIR_/<partition>/<chunk>.parquet, where
 partitions correspond to top-level subdirectories of _DIR_. Files lying
 directly in _DIR_ are indexed under the reserved partition name
 *\_\_root\_\_*.
-A real top-level subdirectory of that name would write into the same
-partition directory and clobber its chunks, so *xdu* rejects it with an
-error rather than corrupting the index; rename the directory to index it.
+Two names in _OUTDIR_ are reserved: that partition, and the completion
+marker described below. A real top-level subdirectory of either name would
+be written as that entry — clobbering the loose-file partition's chunks, or
+occupying the marker path so no run can attest or clear it again — so *xdu*
+rejects it with an error rather than corrupting the index; rename the
+directory to index it.
 
 Each Parquet file contains three columns:
 
@@ -108,7 +111,8 @@ passed its pre-flight checks and is about to write, and written only once every
 partition has been walked and finalized, so an index left behind by a failed or
 interrupted run carries no marker, while a run rejected before it writes leaves
 an existing marker intact. Readers glob _OUTDIR_/\*/\*.parquet, so the marker
-is never mistaken for a partition.
+is never mistaken for a partition, and its name is reserved as above, so a
+partition is never written over the marker.
 
 Paths are stored as UTF-8. A filename containing invalid UTF-8 is stored with
 replacement characters, so that row no longer names a real file and cannot be

@@ -37,7 +37,11 @@ use crate::SizeMode;
 /// indistinguishable from a complete index. The marker is removed once a run's pre-flight
 /// has passed and it is about to write, and written only when it succeeds, so its presence
 /// attests to the whole run.
-pub use crate::{COMPLETION_MARKER, ROOT_PARTITION};
+///
+/// `RESERVED_INDEX_NAMES` pairs both names with what claims them: it is the list
+/// `build_work_queue` rejects a top-level source directory against, so every name the index
+/// root claims is guarded in both directions.
+pub use crate::{COMPLETION_MARKER, RESERVED_INDEX_NAMES, ROOT_PARTITION};
 
 /// Location of the completion marker for an index directory.
 pub fn completion_marker_path(index: &Path) -> PathBuf {
@@ -210,6 +214,10 @@ pub fn classify_io_error(kind: Option<std::io::ErrorKind>) -> EntryError {
 /// `__root__` item is pushed **first** iff any loose top-level file exists. An empty
 /// result is an error — there is nothing to index.
 ///
+/// A directory whose name appears in `RESERVED_INDEX_NAMES` is rejected before the
+/// `--partition` filter is consulted: it would be written over an entry the index root
+/// already owns.
+///
 /// The root trigger is `is_file()` only: the walk excludes symlinks, so a root whose
 /// only loose entries are symlinks would otherwise spawn a `__root__` partition that
 /// indexes nothing.
@@ -223,18 +231,25 @@ pub fn build_work_queue(
 
     for entry in entries {
         if entry.is_dir {
-            // A real subdirectory of the reserved name would write into the same
-            // partition directory as the synthetic loose-file partition: both start
-            // at chunk id 0, so their chunks overwrite each other and each one's
-            // finalize prunes the other's tail. Reject instead of corrupting — the
+            // A subdirectory whose name the index root already claims would be written
+            // as that entry: over the synthetic loose-file partition (both start at
+            // chunk id 0, so their chunks overwrite each other and each one's finalize
+            // prunes the other's tail), or over the completion marker (a directory at
+            // that path fails the attestation write and leaves every later run unable
+            // to clear it, from any source tree). Reject instead of corrupting — the
             // check is unconditional because the collision is with what is already
-            // on disk, not with what this run happens to select.
-            if entry.name == ROOT_PARTITION {
+            // on disk, not with what this run happens to select, and it iterates the
+            // whole reserved list so a newly reserved name is covered by construction.
+            if let Some((name, claimed_by)) = RESERVED_INDEX_NAMES
+                .iter()
+                .find(|(name, _)| *name == entry.name)
+            {
                 anyhow::bail!(
-                    "top-level directory '{}' in {} uses the partition name reserved \
-                     for loose top-level files; rename it before indexing",
-                    ROOT_PARTITION,
-                    top_dir.display()
+                    "top-level directory '{}' in {} uses a name reserved by the index \
+                     layout for {}; rename it before indexing",
+                    name,
+                    top_dir.display(),
+                    claimed_by
                 );
             }
             if let Some(pf) = partition_filter
@@ -623,30 +638,42 @@ mod tests {
     }
 
     #[test]
-    fn test_build_work_queue_rejects_reserved_root_directory() {
-        // A real __root__ subdirectory collides with the reserved loose-file partition.
-        let entries = vec![
-            top_dir("alpha", true),
-            top_dir(ROOT_PARTITION, true),
-            top_dir("loose.txt", false),
-        ];
-        let err = build_work_queue(entries, Path::new("/data"), None).unwrap_err();
-        let msg = err.to_string();
+    fn test_build_work_queue_rejects_every_reserved_index_name() {
+        // Driven from the list itself, so a name reserved later is covered here without
+        // this test being remembered — which is the failure the list exists to prevent.
         assert!(
-            msg.contains(ROOT_PARTITION),
-            "message should name it: {msg}"
-        );
-        assert!(
-            msg.contains("reserved"),
-            "message should explain why: {msg}"
+            RESERVED_INDEX_NAMES.len() >= 2,
+            "both the loose-file partition and the completion marker are reserved"
         );
 
-        // It is rejected even when no loose file would create the synthetic item and
-        // even when a --partition filter would have excluded it: the collision is
-        // with the on-disk layout, not with this run's selection.
-        let filter: HashSet<String> = ["alpha".to_string()].into_iter().collect();
-        let entries = vec![top_dir("alpha", true), top_dir(ROOT_PARTITION, true)];
-        assert!(build_work_queue(entries, Path::new("/data"), Some(&filter)).is_err());
+        for (reserved, claimed_by) in RESERVED_INDEX_NAMES {
+            let entries = vec![
+                top_dir("alpha", true),
+                top_dir(reserved, true),
+                top_dir("loose.txt", false),
+            ];
+            let err = build_work_queue(entries, Path::new("/data"), None).unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains(reserved), "message should name it: {msg}");
+            assert!(
+                msg.contains("reserved") && msg.contains(claimed_by),
+                "message should explain what it collides with: {msg}"
+            );
+
+            // It is rejected even when no loose file would create the synthetic item
+            // and even when a --partition filter would have excluded it: the collision
+            // is with the on-disk layout, not with this run's selection.
+            let filter: HashSet<String> = ["alpha".to_string()].into_iter().collect();
+            let entries = vec![top_dir("alpha", true), top_dir(reserved, true)];
+            assert!(build_work_queue(entries, Path::new("/data"), Some(&filter)).is_err());
+        }
+
+        // A reserved name borne by a loose *file* is not a collision: it becomes a row in
+        // the __root__ partition, not a directory entry at the index root.
+        let entries = vec![top_dir("alpha", true), top_dir(COMPLETION_MARKER, false)];
+        let queue = build_work_queue(entries, Path::new("/data"), None).unwrap();
+        let names: Vec<&str> = queue.iter().map(|i| i.partition.as_str()).collect();
+        assert_eq!(names, vec![ROOT_PARTITION, "alpha"]);
     }
 
     #[test]

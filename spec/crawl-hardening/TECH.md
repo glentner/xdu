@@ -3,7 +3,7 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: blocked
+status: in_review
 branch: feature/crawl-hardening
 base: main
 current_phase: done
@@ -193,6 +193,24 @@ phases:
     do scdoc < "$scd" > /dev/null || exit 1; done && git diff --quiet HEAD -- src
     tests bench Cargo.toml Cargo.lock && cargo fmt --all -- --check && cargo clippy
     --all-targets --all-features -- -D warnings && cargo test && echo PHASE-OK
+- id: P13
+  name: 'C3-F1: reject every reserved index-root name, not just __root__ (+ record
+    C3-F2)'
+  status: done
+  satisfies:
+  - R3
+  - R8
+  - R10
+  depends_on:
+  - P12
+  parallel: false
+  hammerable: false
+  hill: downhill
+  verify: cargo test --test crawl_tests -- --nocapture && cargo test --lib && scdoc
+    < doc/xdu.1.scd > /dev/null && test -f issues/orphan-partition-survives-reindex.md
+    && grep -q "issues/orphan-partition-survives-reindex.md" ROADMAP.md && cargo fmt
+    --all -- --check && cargo clippy --all-targets --all-features -- -D warnings &&
+    cargo test
 review:
   last_reviewed_commit: a6b8a385869cc80d7cebb202c8da77503050e195
   verdict: changes-requested
@@ -1185,6 +1203,70 @@ the next review would not check the marker contract or the `__root__` collision 
   the negative `xdu.rs` one.)*
 - **Touches:** `AGENTS.md`, `.agents/factory/invariants.md`, `.agents/factory/review-rubric.md`, this
   file. **No `src/` change** — this phase is documentation resync only, per the cycle-2 human gate.
+
+---
+
+# Review cycle 3 remediation (P13)
+
+Added by `xdu-build` under the cycle-3 human gate recorded in `REVIEW.md` ("Human sign-off on the
+cycle-3 gate"), which authorized exceeding the documented ≤3 review-cycle bound to fix one CONFIRMED
+finding in the coupled core and to record a second. Scope is exactly that: the `build_work_queue` guard
+plus its regression test, and two deferral records. C2-F1 stays deferred on its existing record.
+
+## Phase P13 — C3-F1: reject every reserved index-root name, not just `__root__` (+ record C3-F2)
+**Satisfies:** R3, R8, R10 · **Depends on:** P12
+**Goal:** this branch introduced a **second** reserved name at the index root (`.xdu-complete`) and
+guarded only the first. A top-level source directory of that name is crawled as a partition, so it is
+created as a *directory* at the marker path: the run indexes every file correctly but exits non-zero
+(`EISDIR` writing the attestation), and **every later run against that outdir — from any source tree —
+fails in `clear_completion_marker` with `EPERM`**. A correct index reported as failed, plus an outdir
+that cannot be rebuilt or marked complete again without a manual `rmdir`. Reachability is low (a
+pathological directory name), exactly as it is for `__root__` — which *is* rejected unconditionally.
+
+The fix closes the **class**, not the instance: the guard iterates one `lib`-owned list of reserved
+names, so reserving a name in future extends the rejection by construction rather than by someone
+remembering the second half of the collision.
+
+- [x] `lib.rs`: add `RESERVED_INDEX_NAMES` — `(name, what-claims-it)` pairs for `ROOT_PARTITION` and
+      `COMPLETION_MARKER` — with the doc comment stating that `<index>/` holds exactly two kinds of
+      entry and that adding a reserved name means adding it here. Record the reverse collision direction
+      on `COMPLETION_MARKER` itself, whose doc comment previously stated only the one-way dotfile
+      property.
+- [x] `crawl.rs`: `build_work_queue` rejects against the whole list (before the `--partition` filter, so
+      the check stays unconditional), naming both the entry and what claims it; re-export the list and
+      retune the declarative comments to the class.
+- [x] Unit test `test_build_work_queue_rejects_every_reserved_index_name`: **driven from the list
+      itself** (so a future reserved name is covered without this test being remembered), each name
+      checked with and without a `--partition` filter that would have excluded it; plus the negative
+      case — a reserved name borne by a loose *file* is a `__root__` row, not a collision.
+- [x] Real-binary regression test `test_reserved_marker_name_is_rejected_and_leaves_the_outdir_usable`:
+      a source tree containing a top-level `.xdu-complete/` is rejected non-zero with a diagnostic naming
+      the entry, nothing is indexed, the marker path is left unoccupied — **and an unrelated run against
+      that same outdir then completes and attests itself**, which is precisely what the unguarded
+      collision made permanently impossible.
+- [x] `doc/xdu.1.scd`: OUTPUT FORMAT states the reserved-name rule for **both** names and both
+      directions (the glob never mistakes the marker for a partition; a partition is never written over
+      the marker), rendered and read as published text.
+- [x] `AGENTS.md` + `.agents/factory/invariants.md` §3 (and §2b's cross-reference, the high-blast-radius
+      file lines): restate the collision as a **namespace class** with the same-commit rule for a new
+      reserved name — the drift META `F13` identifies as the reason two full blind passes missed this.
+- [x] Record **C3-F2** (a removed top-level directory leaves a phantom partition that the marker
+      attests as clean) per the four-homes rule: `issues/orphan-partition-survives-reindex.md` at
+      `status: unshaped` + a `**Seed:**` entry in `ROADMAP.md`, both stating plainly that the stale
+      partition is **pre-existing in `main`** (identical per-partition prune scope, verified via
+      `git show main:src/bin/xdu.rs`) and that what this pass changed is the presence of an attestation
+      that fails to detect it.
+- **Verify:** `cargo test --test crawl_tests -- --nocapture && cargo test --lib && scdoc <
+  doc/xdu.1.scd > /dev/null && test -f issues/orphan-partition-survives-reindex.md && grep -q
+  "issues/orphan-partition-survives-reindex.md" ROADMAP.md && cargo fmt --all -- --check && cargo
+  clippy --all-targets --all-features -- -D warnings && cargo test`
+  *(Result: green. Both defects were reproduced first-hand against the real binaries before the fix —
+  C3-F1's bricked outdir and C3-F2's `files=6` marker over a 9-row index — and both new gates were
+  **seen to fail**: narrowing the guard to the list's first entry fails the unit test and the
+  integration test, the latter with the pre-fix `Is a directory (os error 21)`.)*
+- **Touches:** `src/lib.rs`, `src/crawl.rs`, `tests/crawl_tests.rs`, `doc/xdu.1.scd`, `AGENTS.md`,
+  `.agents/factory/invariants.md`, `issues/orphan-partition-survives-reindex.md`, `ROADMAP.md`, this
+  file. **No marker-format change, no other `src/` change**, per the cycle-3 human gate.
 
 ---
 

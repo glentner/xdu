@@ -315,6 +315,56 @@ fn test_reserved_root_partition_name_is_rejected() {
 }
 
 // =============================================================================
+// A top-level .xdu-complete directory would land on the marker path and is rejected
+// =============================================================================
+
+#[test]
+fn test_reserved_marker_name_is_rejected_and_leaves_the_outdir_usable() {
+    let tmp = TempDir::new().unwrap();
+    let bad = tmp.path().join("bad");
+    let good = tmp.path().join("good");
+    let index = tmp.path().join("index");
+
+    // A top-level source directory named exactly like the completion marker. Crawled as
+    // a partition it becomes a *directory* at the marker path, so this run cannot attest
+    // itself and no later run — from any source tree — can clear the marker again.
+    create_test_file(&bad.join(".xdu-complete/inner.txt"), 100).unwrap();
+    create_test_file(&bad.join("p/f.txt"), 100).unwrap();
+
+    create_test_file(&good.join("p/f1.txt"), 100).unwrap();
+    create_test_file(&good.join("q/f2.txt"), 100).unwrap();
+
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        bad.to_str().unwrap(),
+    ]);
+    assert!(!ok, "a completion-marker name collision must fail the run");
+    assert!(
+        e.contains(COMPLETION_MARKER) && e.contains("reserved"),
+        "stderr must name the reserved entry and say what claims it, got: {e}"
+    );
+
+    // Rejected in pre-flight: nothing was indexed and the marker path is still free.
+    assert_eq!(count_chunks(&index, "p"), 0);
+    assert_eq!(count_partials(&index), 0);
+    assert!(
+        !index.join(COMPLETION_MARKER).exists(),
+        "a rejected run must leave the marker path unoccupied"
+    );
+
+    // The outdir stays usable — an unrelated run completes and attests itself, which is
+    // exactly what an unguarded collision made permanently impossible.
+    build_index(&good, &index);
+    assert!(
+        index.join(COMPLETION_MARKER).is_file(),
+        "the marker must be a plain file a later run can clear"
+    );
+    assert_eq!(find_count(&index, &[]), 2);
+}
+
+// =============================================================================
 // The completion marker attests to a whole run: written on success, gone on failure
 // =============================================================================
 
