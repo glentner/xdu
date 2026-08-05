@@ -139,7 +139,36 @@
   (`ROADMAP.md` and/or the spec-local assessment), and the cycle's last phase should own a deferral ledger
   that cross-checks every "do not fix" line for a matching record — a deferral mentioned only in a
   consumed checklist evaporates. Fixed locally by making P11 that ledger.
-- **Confidence:** high · **Effort:** small
+- **Agreed convention to apply (human decision, 2026-08-05) — this is the concrete `/xdu-harness` work
+  item, not a suggestion:** give deferred *code* work a real home so it stops competing with `META.md`.
+  1. **`issues/<slug>.md`** — one file per deferred defect, reusing the body of
+     [`templates/GOAL.md`](templates/GOAL.md) (Problem / Outcome / R-IDs) so promotion is a move-and-fill
+     rather than a rewrite. Front-matter carries **`status: unshaped`** and a header line stating that
+     `/xdu-feature` promotes it into `spec/{slug}/GOAL.md`, where appetite and non-goals get negotiated.
+     **Deliberately NOT named `GOAL-<slug>.md`:** every other GOAL in the factory is a locked contract
+     `xdu-review` grades against, so a file carrying that name will eventually be copied into
+     `spec/{slug}/GOAL.md` verbatim by an agent reading the name as authoritative — skipping the
+     `/xdu-feature` shaping gate this log already credits (see *What worked well*). The `status` field is
+     the guard that keeps a review-time finding from becoming a graded contract without a human.
+  2. **`ROADMAP.md`** keeps its `## Title` + prose + `**Horizon:**` shape but its `**Seed:**` line points
+     at the `issues/` file instead of carrying a one-line `/xdu-feature` prompt. Entries are ordered by
+     intended remediation/build order. Today's seed one-liner throws away the expensive part of a
+     deferral — the `file:line`, the mechanism, and *why it was not safe to fix in that pass* — which is
+     precisely what the finder has at hand and a future session must otherwise re-derive.
+  3. **A new `AGENTS.md` repo-map entry** for `issues/`, stating the three-way boundary so it cannot drift
+     again: `META.md` = harness/skill feedback · `issues/<slug>.md` = deferred code work, pre-shaped ·
+     `ROADMAP.md` = the ordered index · `spec/{slug}/` = work actually in flight. Reconcile with the
+     GitHub tracker explicitly (`AGENTS.md` already cites issues #2/#3): a GH issue is the public-facing
+     ticket, `issues/<slug>.md` is the pre-shaped spec, and they may point at each other.
+  4. **The phase-authoring rule** from the paragraph above: a deferral must name its destination inline,
+     and a cycle's final phase owns the ledger cross-check.
+  5. **Migrate the existing deferrals** as part of establishing the convention (docs-only, and the natural
+     proof that it works): `spec/crawl-hardening/ASSESSMENT.md`'s five "Deferred, with reasons" items and
+     `ROADMAP.md`'s "Internal cleanups surfaced by the crawl-hardening pass". `ASSESSMENT.md` then *links*
+     to the `issues/` files rather than duplicating them, so R8's record still stands on its own. Promote
+     the `--version` item first — all four bins reject a flag every man page documents, which is a
+     user-facing defect, not a cleanup.
+- **Confidence:** high · **Effort:** medium (the convention is small; the migration is the bulk)
 
 ## F7 — The evidence spine requires an `scdoc` render with no fallback when `scdoc` is absent
 `origin=xdu-review:step2 severity=low category=tooling status=open target=.claude/skills/xdu-review/SKILL.md`
