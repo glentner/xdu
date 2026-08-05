@@ -106,12 +106,22 @@ failure modes cannot defer correctness. The `hammerable: false` phase flag opera
     ears.md               # EARS requirement templates
     review-rubric.md      # severity scale, refutation protocol, human-gate triggers
     portability.md        # non-Claude / smaller-model harness compatibility contract
-    templates/            # GOAL.md PLAN.md TECH.md REVIEW.md META.md skeletons
+    templates/            # GOAL.md PLAN.md TECH.md REVIEW.md META.md ISSUE.md skeletons
     bin/                  # next_phase.py, set_phase.py, _fsm.py (FSM); meta_status.py (META.md reader); temp_index.sh (throwaway-index verify helper)
     harness-log.md        # xdu-harness decision ledger (cross-job anti-thrash memory)
 spec/{slug}/              # per-feature artifacts incl. META.md (committed, retained on merge)
+issues/{slug}.md          # deferred code work, pre-shaped (status: unshaped) — /xdu-feature promotes one to a GOAL
+ROADMAP.md                # the ordered index; each entry's **Seed:** points at an issues/ file
 AGENTS.md                 # the constitution (CLAUDE.md is a symlink to it; Warp reads AGENTS.md directly)
 ```
+
+**Where a deferral goes.** Work a pass decides *not* to do is not an artifact of that feature, so it
+does not live in `spec/{slug}/`. It becomes an `issues/{slug}.md` — pre-shaped from
+`templates/ISSUE.md`, carrying `status: unshaped` — plus an ordered `ROADMAP.md` entry pointing at it.
+`META.md` is **never** the destination: that file is harness/skill feedback, and the boundary between
+the two is stated once in `AGENTS.md`. The `unshaped` status is what keeps a deferral a *candidate*:
+`/xdu-feature` promotes it into a real `GOAL.md`, and that promotion is where a human negotiates
+appetite, non-goals and the R-IDs `xdu-review` will grade.
 
 `.claude` is a symlink to `.agents`, so Claude Code discovers the skills and reads settings through
 it. The skills reference the bundled scripts and shared reference material by **repo-relative path**
