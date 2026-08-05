@@ -16,8 +16,9 @@ fn main() -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
 
-    // An index from an interrupted run is still queryable, so this warns rather than
-    // refusing; it goes to stderr so piped results stay clean.
+    // An index can be incomplete two ways — a run that never finished, or one that finished
+    // under --allow-errors having skipped what it could not read. Either is still queryable,
+    // so this warns rather than refusing; it goes to stderr so piped results stay clean.
     if let Some(warning) = index_completion_warning(&index_path) {
         eprintln!("{}", warning);
     }

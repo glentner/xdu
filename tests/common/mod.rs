@@ -76,6 +76,19 @@ pub fn run_find(args: &[&str]) -> (String, String, bool) {
     )
 }
 
+/// Run `xdu-rm` with arbitrary args; returns (stdout, stderr, success).
+pub fn run_rm(args: &[&str]) -> (String, String, bool) {
+    let output = Command::new(binary_path("xdu-rm"))
+        .args(args)
+        .output()
+        .expect("failed to spawn xdu-rm");
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+        output.status.success(),
+    )
+}
+
 /// Query the index row count, optionally scoped by extra `xdu-find` args.
 pub fn find_count(index: &Path, extra: &[&str]) -> i64 {
     let mut args: Vec<&str> = vec!["-i", index.to_str().unwrap(), "--count"];

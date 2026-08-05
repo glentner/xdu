@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: feature/crawl-hardening
 base: main
-current_phase: P9
+current_phase: P10
 last_updated: '2026-08-05'
 phases:
 - id: P1
@@ -116,7 +116,7 @@ phases:
 - id: P9
   name: 'F4: readers warn when the marker records tolerated errors (with a bounded,
     non-blocking read)'
-  status: pending
+  status: done
   satisfies:
   - R3
   - R8
@@ -693,8 +693,10 @@ consent given by one operator at build time does not transport to whoever runs `
 > size-unbounded. The guard below is what makes the design's own safety claim ("worst case it is exactly
 > today's code") true.
 
-- [ ] Add `const MARKER_READ_LIMIT: u64 = 64 * 1024;` to `src/lib.rs` (the writer emits ~100 bytes).
-- [ ] Implement the presence test with **one** `fs::metadata(&marker)` — semantically identical to
+- [x] Add `const MARKER_READ_LIMIT: u64 = 64 * 1024;` to `src/lib.rs` (the writer emits ~100 bytes).
+      *(Private, not `pub` — no caller outside `lib` needs it, and the guard test reaches it from
+      `mod tests`.)*
+- [x] Implement the presence test with **one** `fs::metadata(&marker)` — semantically identical to
       `Path::exists()`, which *is* `metadata().is_ok()`, so absent-marker behavior is preserved
       bit-for-bit at one `stat` instead of two:
       `Err` → the byte-identical absent-marker warning; `Ok(meta)` where
@@ -702,56 +704,86 @@ consent given by one operator at build time does not transport to whoever runs `
       not consulted); otherwise read with `read_to_string(...).unwrap_or_default()`. Comment the *why*:
       opening a FIFO or device node of that name would block the reader forever, and a huge one would
       be read into memory.
-- [ ] Add `pub fn completion_marker_errors(body: &str) -> Option<u64>` beside `COMPLETION_MARKER`: scan
+- [x] Add `pub fn completion_marker_errors(body: &str) -> Option<u64>` beside `COMPLETION_MARKER`: scan
       lines, `split_once('=')`, first key trimming to `errors` wins, `value.trim().parse().ok()`;
       `None` for a missing or unparseable key. Doc comment states the invariant — an unrecognized
       marker body says nothing about errors, so the reader stays as quiet as it was before the marker
       existed.
-- [ ] Keep `index_completion_warning`'s signature `(index: &Path) -> Option<String>` and return the new
+- [x] Keep `index_completion_warning`'s signature `(index: &Path) -> Option<String>` and return the new
       warning only for `Some(n) if n > 0`; every other arm returns `None`. **No `?`, no `unwrap`/
       `expect`, no new error type, no panic path** in either function — a corrupt, empty, non-UTF-8,
       directory-shaped, FIFO, oversized, or racily-deleted marker must yield `None`. Verify by reading
       the code, not only by test.
-- [ ] Warning text — must **not** contain the substring `completion marker`, so the existing
+      *(Verified by reading: neither function contains `?`, `unwrap(`, `expect(` or `panic!`. The only
+      fallible-call handling is `read_to_string(...).unwrap_or_default()`, which cannot panic, plus the
+      `fs::metadata` `Err` arm. Confirmed mechanically by grepping both function bodies.)*
+- [x] Warning text — must **not** contain the substring `completion marker`, so the existing
       markerless-index assertions keep discriminating: `warning: {index} was indexed with {n} tolerated
       error(s) (xdu --allow-errors); the affected paths were skipped, so results may be incomplete`.
       Note `classify_io_error` folds everything except `NotFound` into `errors`, so avoid the narrower
       "unreadable paths".
-- [ ] Add a lib unit test that **guards the guard**, or the metadata check will be "simplified" away
+- [x] Add a lib unit test that **guards the guard**, or the metadata check will be "simplified" away
       later: `libc` is already a dev-dependency, so `libc::mkfifo` a `.xdu-complete`, then assert
       `index_completion_warning` returns `None` *and returns at all* (assert from a worker thread with
       `recv_timeout` — without the guard it hangs forever). Also assert a >64 KiB body yields `None`.
-- [ ] Add `test_completion_marker_errors_reads_the_writers_body` to `src/lib.rs`'s `mod tests`, building
+      *(Both added. The guard test was itself **proven to guard**: with the `is_file()/len()` check
+      temporarily replaced by a no-op — exactly the "simplification" it exists to catch — the test hangs
+      the full 10 s and fails with its intended message; guard then restored and re-verified green. A
+      test that asserts the absence of a hang cannot be trusted until it has been seen to fail.)*
+- [x] Add `test_completion_marker_errors_reads_the_writers_body` to `src/lib.rs`'s `mod tests`, building
       its input with `crawl::completion_marker_contents(&CrawlStats { errors: 3, .. }, t)` so writer and
       reader are pinned by one test; plus missing-key / empty / garbage / negative / no-trailing-newline
       / CRLF cases. Extend the existing `test_index_completion_warning` **in place**, keeping its
       current assertions verbatim.
-- [ ] Append reader assertions to `test_unreadable_subtree_allow_errors_continues`: `xdu-find --count`
+- [x] Append reader assertions to `test_unreadable_subtree_allow_errors_continues`: `xdu-find --count`
       exits 0, **stdout trims to exactly `1`**, stderr contains `--allow-errors`, stdout contains no
       `warning` (invariant §13 — stdout stays pipeable). Add a root-safe
       `test_reader_warns_on_marker_recording_tolerated_errors`: clean index quiet at count 2; after
       rewriting the marker body with `errors=2`, `xdu-find --count` still prints exactly `2` on stdout
       and warns on stderr, and `xdu-rm --dry-run --force` warns on stderr while its stdout still lists
       the target and nothing is deleted.
-- [ ] Refresh the three call-site comments (`xdu-find.rs:19-20`, `xdu-view.rs:1839-1840`,
+- [x] Refresh the three call-site comments (`xdu-find.rs:19-20`, `xdu-view.rs:1839-1840`,
       `xdu-rm.rs:40-41`) so they no longer describe only the interrupted-run case. **Comment-only** —
       change no code there, keep every emission an `eprintln!`, and keep `xdu-view`'s call before
       `enable_raw_mode()` (verified: `:1841` is 24 lines ahead of `:1865`, and the only bails between
       are pre-terminal, so §12 is safe). Skip the `xdu-view` comment touch if it buys nothing.
-- [ ] Append one sentence to `doc/xdu.1.scd`'s `--allow-errors` paragraph: such a run still writes the
+      *(`xdu-find` and `xdu-rm` refreshed — both now name the `--allow-errors` case, and `xdu-rm`'s adds
+      that whoever tolerated the errors at build time is rarely whoever is deleting now. **`xdu-view`
+      deliberately left alone**, taking the escape this item offers: its comment explains *when* it
+      prints (before the alternate screen claims the terminal), which is a §12 concern still exactly
+      true and orthogonal to which case is being warned about. Rewording it would buy nothing and
+      dilute the reason it is there.)*
+- [x] Append one sentence to `doc/xdu.1.scd`'s `--allow-errors` paragraph: such a run still writes the
       marker, the marker carries the tolerated-error count, and the readers warn on stderr on a non-zero
       count. Coordinate with P8's rewrite of the same section; leave the three reader man pages alone.
-- [ ] Do **not** fix the partition-scoped marker limitation (marker-format/CLI-semantics work is a
+- [x] Do **not** fix the partition-scoped marker limitation (marker-format/CLI-semantics work is a
       non-goal): `xdu.rs:58` clears the marker on *every* run including a partition-scoped one, and
       `:628` writes a whole-index marker from that run's stats, so a later clean `xdu -p onepartition`
       rewrites `errors=0` and silently retires the warning while other partitions' skipped regions
       remain. **Recording it is P11's job, not this phase's** — leave a `// Known limitation:` comment at
       the marker-write site stating the behavior, and let P11 carry the follow-up record. (Do not file it
       in `META.md`: that file is harness feedback only, per its own header and its F6 finding.)
-- [ ] Do **not** extend the warning to `vanished`/`lossy_paths`, add an `xdu-rm` refusal or extra
+- [x] Do **not** extend the warning to `vanished`/`lossy_paths`, add an `xdu-rm` refusal or extra
       prompt, add a suppression flag, or add a `format=`/version key to the marker body.
+      *(All five held. `get_schema()`, `FileRecord`, every reader column list, the partition layout and
+      `src/cli.rs` are untouched — `git diff` shows zero changed lines in `cli.rs`.)*
 - **Verify:** fmt, clippy, `cargo test --lib`, `cargo test --test crawl_tests -- --nocapture` (confirm
   the new allow-errors assertions actually ran rather than hitting the root self-skip), full `cargo test`.
+  *(Result: green — 66 lib (was 63) + 22 crawl (was 21) + 16 rm, fmt/clippy clean; all four `doc/*.scd`
+  still render under `scdoc`. `--nocapture` confirms `test_unreadable_subtree_allow_errors_continues`
+  **ran** rather than self-skipping (not root), so its new reader assertions genuinely executed.*
+  *A **failed first drive is worth recording**: driving `temp_index.sh` immediately after the code change
+  showed no warning at all on an `errors=3` marker, and the FIFO case "passing" — because that script
+  rebuilds the release binaries only when **absent**, never when **stale**, so the drive exercised
+  pre-P9 binaries. Every observation was vacuous: old code reads no body, so of course it neither warned
+  nor hung. After `cargo build --release --bins`, the same six cases were re-driven and genuinely hold:
+  (1) clean index silent at count 4; (2) `errors=3` → the exact warning on **stderr** while stdout stays
+  exactly `4` and carries no `warning` (§13); (3) `xdu-rm -p '\.log$' --dry-run --force` warns on stderr,
+  still lists `app.log` on stdout, and the file is still present afterwards; (4) a **FIFO** named
+  `.xdu-complete` → `xdu-find` and `xdu-rm` both return `rc=0` under `timeout 10` instead of hanging,
+  count still 4 — this is the case the guard exists for and it is only meaningful now that the code
+  reads bodies; (5) a 70 KiB marker containing `errors=9` → zero warnings, the size guard beating the
+  key; (6) markerless → the original "no completion marker" warning intact. Recorded as META F10.)*
 - **Touches:** `src/lib.rs`, `doc/xdu.1.scd`, `tests/crawl_tests.rs`, optionally reader comments.
   **No** change to `get_schema()`, `FileRecord`, any reader's column list, the partition layout, or any
   CLI flag/default — if one becomes necessary, STOP: that is a GOAL non-goal.

@@ -624,6 +624,11 @@ fn main() -> Result<()> {
     // errors along the way were explicitly tolerated. Every failure path above returns
     // before this point, leaving the index unmarked. The recorded counts keep an
     // --allow-errors run honest about what it skipped.
+    //
+    // Known limitation: the marker describes the whole index but its counts come from this
+    // run alone. A partition-scoped run (--partition) still clears the marker and rewrites
+    // it from its own stats, so a later clean run over one partition records errors=0 and
+    // retires the warning while other partitions' skipped regions remain unindexed.
     let completed_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())

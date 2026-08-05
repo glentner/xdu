@@ -138,7 +138,10 @@ Pass *--allow-errors* to downgrade the read errors to warnings: the crawl then
 indexes every reachable file and exits *0*. Write failures are not downgraded.
 The per-path diagnostics and the skipped/error counts in the summary are
 printed either way, and all such diagnostics go to standard error so piped
-output on standard output stays clean.
+output on standard output stays clean. Such a run still writes the completion
+marker, recording the tolerated-error count in it, so *xdu-find*(1),
+*xdu-view*(1) and *xdu-rm*(1) warn on standard error that results may be
+incomplete.
 
 # SEE ALSO
 

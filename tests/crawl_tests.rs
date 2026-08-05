@@ -744,6 +744,88 @@ fn test_unreadable_subtree_allow_errors_continues() {
         "summary should still report the error count: {err}"
     );
     assert_eq!(find_count(&index, &["-u", "data"]), 1);
+
+    // The run was marked complete, but the marker records what it skipped — so a reader must
+    // pass that on, on stderr only, leaving a piped count as just a number.
+    let (out, read_err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(ok, "an allow-errors index must stay queryable: {read_err}");
+    assert_eq!(out.trim(), "1", "stdout carries the count and nothing else");
+    assert!(
+        read_err.contains("--allow-errors"),
+        "the reader should name the flag that licensed the gap: {read_err}"
+    );
+    assert!(!out.contains("warning"), "stdout must stay pipeable: {out}");
+}
+
+// =============================================================================
+// A marker recording tolerated errors makes every reader warn, without changing results
+// =============================================================================
+
+#[test]
+fn test_reader_warns_on_marker_recording_tolerated_errors() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("p/keep.txt"), 100).unwrap();
+    create_test_file(&source.join("p/target.log"), 100).unwrap();
+
+    build_index(&source, &index);
+
+    // A clean run records errors=0, which is nothing to report.
+    let (out, err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(ok);
+    assert_eq!(out.trim(), "2");
+    assert!(
+        !err.contains("tolerated"),
+        "a clean index must be quiet: {err}"
+    );
+
+    // Rewrite the marker body as an --allow-errors run would have left it. Editing the marker
+    // rather than provoking a real permission error keeps this case runnable as root.
+    let marker = index.join(COMPLETION_MARKER);
+    let body = fs::read_to_string(&marker)
+        .unwrap()
+        .replace("errors=0", "errors=2");
+    assert!(
+        body.contains("errors=2"),
+        "marker body shape changed: {body}"
+    );
+    fs::write(&marker, &body).unwrap();
+
+    let (out, err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(ok, "the warning must not break the query: {err}");
+    assert_eq!(out.trim(), "2", "results are unchanged by the warning");
+    assert!(
+        err.contains("2 tolerated error(s)"),
+        "stderr should report the recorded count: {err}"
+    );
+    assert!(!out.contains("warning"), "stdout must stay pipeable: {out}");
+
+    // xdu-rm is the tool this matters most to: it warns, and a dry run still lists its
+    // target on stdout and deletes nothing.
+    let (out, err, ok) = common::run_rm(&[
+        "-i",
+        index.to_str().unwrap(),
+        "-p",
+        r"\.log$",
+        "--dry-run",
+        "--force",
+    ]);
+    assert!(ok, "xdu-rm --dry-run should succeed: {err}");
+    assert!(
+        err.contains("2 tolerated error(s)"),
+        "xdu-rm must warn before anything is unlinked: {err}"
+    );
+    assert!(
+        out.contains("target.log"),
+        "the dry run should still list its target: {out}"
+    );
+    assert!(
+        source.join("p/target.log").exists(),
+        "a dry run must delete nothing"
+    );
+    assert!(source.join("p/keep.txt").exists());
 }
 
 // =============================================================================

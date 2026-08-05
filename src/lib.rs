@@ -4,6 +4,7 @@ pub mod cli;
 pub mod crawl;
 
 use std::fmt;
+use std::fs;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -31,6 +32,28 @@ pub const ROOT_PARTITION: &str = "__root__";
 /// A dotfile, so the readers' `*/*.parquet` glob never mistakes it for a partition.
 pub const COMPLETION_MARKER: &str = ".xdu-complete";
 
+/// Most a reader will ever read from a completion marker. The writer emits ~100 bytes; the
+/// cap exists so a reader cannot be made to pull an arbitrarily large file into memory by
+/// whatever left a file of that name in a group-writable index directory.
+const MARKER_READ_LIMIT: u64 = 64 * 1024;
+
+/// The tolerated-error count a completion marker records, if its body states one.
+///
+/// `None` for a missing or unparseable `errors=` key. An unrecognized marker body says
+/// nothing about errors, so a reader stays exactly as quiet as it was before the marker
+/// existed rather than inventing a warning out of a format it does not understand. The
+/// first key trimming to `errors` decides the answer.
+pub fn completion_marker_errors(body: &str) -> Option<u64> {
+    for line in body.lines() {
+        if let Some((key, value)) = line.split_once('=')
+            && key.trim() == "errors"
+        {
+            return value.trim().parse().ok();
+        }
+    }
+    None
+}
+
 /// The `read_parquet` glob for an index, optionally scoped to a single partition.
 ///
 /// Every reader goes through here, so the index layout (`<index>/<partition>/*.parquet`)
@@ -43,22 +66,58 @@ pub fn index_glob(index: &Path, partition: Option<&str>) -> String {
     }
 }
 
-/// A warning to print when an index carries no completion marker, else `None`.
+/// A warning to print when an index cannot be trusted to be complete, else `None`.
 ///
-/// The crawler writes the marker only when a run finishes, so its absence means the index
-/// came from a failed or interrupted run — or predates the marker entirely. Readers warn
-/// and carry on rather than refusing: every index built before the marker existed is still
-/// perfectly queryable, and breaking those would be worse than the risk being flagged.
+/// Two ways an index falls short. It may carry **no marker**: the crawler writes one only
+/// when a run finishes, so absence means a failed or interrupted run — or an index that
+/// predates the marker entirely. Or it may carry a marker that records **tolerated errors**:
+/// an `xdu --allow-errors` run finishes and is marked complete, yet knowingly skipped
+/// whatever it could not read. That second case matters most to `xdu-rm`, whose risk is
+/// precisely the files an index does not know about, and the operator running it weeks later
+/// never gave the consent the build-time `--allow-errors` expressed.
+///
+/// Readers warn and carry on rather than refusing: every index built before the marker
+/// existed is still perfectly queryable, and breaking those would be worse than the risk
+/// being flagged.
 pub fn index_completion_warning(index: &Path) -> Option<String> {
-    if index.join(COMPLETION_MARKER).exists() {
+    let marker = index.join(COMPLETION_MARKER);
+
+    // One `stat`, not two: `Path::exists()` *is* `metadata().is_ok()`, so an absent marker
+    // behaves exactly as it did before this function read bodies at all.
+    let meta = match fs::metadata(&marker) {
+        Ok(meta) => meta,
+        Err(_) => {
+            return Some(format!(
+                "warning: {} has no completion marker ({}); it may be from an interrupted \
+                 run or predate the marker, so results may be incomplete",
+                index.display(),
+                COMPLETION_MARKER
+            ));
+        }
+    };
+
+    // Presence alone already attests that the run finished; the body only ever adds detail.
+    // So consulting it must never cost more than not consulting it: opening a FIFO, socket
+    // or device node of this name would block the reader forever, and an oversized file
+    // would be pulled into memory. Neither is worth a detail, so neither is opened.
+    if !meta.is_file() || meta.len() > MARKER_READ_LIMIT {
         return None;
     }
-    Some(format!(
-        "warning: {} has no completion marker ({}); it may be from an interrupted \
-         run or predate the marker, so results may be incomplete",
-        index.display(),
-        COMPLETION_MARKER
-    ))
+
+    // Anything unreadable here — a permission change, non-UTF-8 bytes, or the marker being
+    // deleted since the stat above — degrades to an empty body and therefore to silence,
+    // which is the behavior a marker-present index had before.
+    let body = fs::read_to_string(&marker).unwrap_or_default();
+
+    match completion_marker_errors(&body) {
+        Some(errors) if errors > 0 => Some(format!(
+            "warning: {} was indexed with {} tolerated error(s) (xdu --allow-errors); the \
+             affected paths were skipped, so results may be incomplete",
+            index.display(),
+            errors
+        )),
+        _ => None,
+    }
 }
 
 /// Round size up to the nearest block boundary.
@@ -924,6 +983,111 @@ mod tests {
 
         // Marker present: silence.
         std::fs::write(index.join(COMPLETION_MARKER), "xdu=test\n").unwrap();
+        assert_eq!(index_completion_warning(index), None);
+
+        // A marker recording tolerated errors is present but still not trustworthy: warn, and
+        // do it without the substring the markerless case owns so the two stay distinguishable.
+        std::fs::write(index.join(COMPLETION_MARKER), "xdu=test\nerrors=2\n").unwrap();
+        let warning = index_completion_warning(index).expect("a tolerated-error index must warn");
+        assert!(warning.contains(&index.display().to_string()));
+        assert!(warning.contains("2 tolerated error(s)"));
+        assert!(warning.contains("--allow-errors"));
+        assert!(
+            !warning.contains("completion marker"),
+            "must stay distinguishable from the markerless warning: {warning}"
+        );
+
+        // A clean run records zero, which is nothing to report.
+        std::fs::write(index.join(COMPLETION_MARKER), "xdu=test\nerrors=0\n").unwrap();
+        assert_eq!(index_completion_warning(index), None);
+
+        // Something of that name that is not a file still attests presence, and offers no
+        // body worth reading.
+        std::fs::remove_file(index.join(COMPLETION_MARKER)).unwrap();
+        std::fs::create_dir(index.join(COMPLETION_MARKER)).unwrap();
+        assert_eq!(index_completion_warning(index), None);
+    }
+
+    #[test]
+    fn test_completion_marker_errors_reads_the_writers_body() {
+        // Writer and reader pinned by one test: if `completion_marker_contents` ever renames
+        // or reformats the key, this fails loudly instead of the readers going quietly silent.
+        let body = crawl::completion_marker_contents(
+            &crawl::CrawlStats {
+                errors: 3,
+                ..Default::default()
+            },
+            1_700_000_000,
+        );
+        assert_eq!(completion_marker_errors(&body), Some(3));
+        assert_eq!(
+            completion_marker_errors(&crawl::completion_marker_contents(
+                &crawl::CrawlStats::default(),
+                1_700_000_000
+            )),
+            Some(0)
+        );
+
+        // Nothing to say: no key, no body, or a format this version does not understand.
+        assert_eq!(completion_marker_errors(""), None);
+        assert_eq!(completion_marker_errors("xdu=0.4.1\nfiles=10\n"), None);
+        assert_eq!(completion_marker_errors("errors=garbage\n"), None);
+        assert_eq!(completion_marker_errors("errors=-1\n"), None);
+        assert_eq!(completion_marker_errors("errors=\n"), None);
+        assert_eq!(completion_marker_errors("no separator here\n"), None);
+
+        // Stray whitespace, a missing trailing newline, and CRLF all still parse.
+        assert_eq!(completion_marker_errors("errors=4"), Some(4));
+        assert_eq!(completion_marker_errors("errors= 5 \n"), Some(5));
+        assert_eq!(completion_marker_errors("files=1\r\nerrors=6\r\n"), Some(6));
+
+        // The first key trimming to `errors` decides the answer.
+        assert_eq!(completion_marker_errors("errors=1\nerrors=9\n"), Some(1));
+    }
+
+    #[test]
+    fn test_index_completion_warning_does_not_block_on_a_fifo_marker() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let marker = dir.path().join(COMPLETION_MARKER);
+
+        // Opening a FIFO read-only blocks until a writer appears, so reading the body without
+        // first checking the file type would hang every reader forever. An index directory on
+        // shared scratch is routinely group-writable, so this is reachable, not theoretical.
+        let c_path = std::ffi::CString::new(marker.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) }, 0);
+
+        let index = dir.path().to_path_buf();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(index_completion_warning(&index));
+        });
+
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(result) => assert_eq!(
+                result, None,
+                "a FIFO marker attests presence and yields no body"
+            ),
+            Err(_) => panic!(
+                "index_completion_warning blocked on a FIFO marker — the file-type guard is gone"
+            ),
+        }
+    }
+
+    #[test]
+    fn test_index_completion_warning_ignores_an_oversized_marker() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let index = dir.path();
+
+        // This body does record errors, but a reader must not pull 64 KiB+ into memory to
+        // find that out — the size guard wins over the key.
+        let mut body = String::from("errors=7\n");
+        body.push_str(&"x".repeat(MARKER_READ_LIMIT as usize + 1));
+        std::fs::write(index.join(COMPLETION_MARKER), &body).unwrap();
+
         assert_eq!(index_completion_warning(index), None);
     }
 }

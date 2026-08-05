@@ -25,6 +25,11 @@
 - `xdu-build` Step 4's "exit 0 is necessary but not sufficient" directly shaped P4's `smoke` gate: it
   became "the index holds *exactly* the generated files, and a completion marker exists" rather than
   "the script ran". That check is what caught the generator defect in F4 below.
+- `xdu-plan`'s adversarial pass on the P9 design earned the whole phase: the obvious
+  `.exists()`-then-`read_to_string` implementation would have shipped an indefinite hang in all
+  three readers on a FIFO named `.xdu-complete`, and the checklist carried that as a BLOCKING
+  correction with the guard spelled out. A design review that produces an executable counter-example
+  is worth more than one that produces advice.
 
 ## Friction findings
 
@@ -264,4 +269,28 @@
   missing. Mirror the same sentence in `xdu-review`'s spine: a man-page render is evidence only when the
   published text was read. Deliberately **not** applied in this pass — recorded per the human's call that
   gate changes go through `/xdu-harness`.
+- **Confidence:** high · **Effort:** small
+
+## F10 — `temp_index.sh` rebuilds release binaries only when absent, so a CLI drive can silently test stale code
+`origin=xdu-build:P9 severity=high category=tooling status=open target=.agents/factory/bin/temp_index.sh`
+- **What happened:** P9 changed `lib::index_completion_warning`, then drove the readers through
+  `temp_index.sh` per Step 4. The drive reported **no warning** on an `errors=3` marker and a **clean pass
+  on the FIFO hang case** — both wrong. `temp_index.sh` guards its build with
+  `if [ ! -x "$bindir/xdu" ] … then cargo build --release`, so with binaries already on disk from an
+  earlier phase it never rebuilds. The drive exercised pre-P9 binaries, which read no marker body: of
+  course they neither warned nor hung. After `cargo build --release --bins` the same six cases were
+  re-driven and behaved correctly.
+- **Skill cause:** this is a **false PASS in the factory's primary behavioral gate**, which is why it is
+  `high`. `xdu-build` Step 4 says "verify by driving the CLI, not just tests" and "exit 0 is necessary but
+  not sufficient — assert a concrete post-condition", and the script's own header claims "Release binaries
+  are the source of truth for a verify drive". A drive can therefore satisfy every instruction, produce a
+  concrete-looking post-condition, and still be evidence about code that is no longer in the tree. Worse,
+  the failure is **inverted**: a stale binary most often lacks the new behavior, so the drive
+  under-reports — and a phase whose drive *fails* gets investigated, while this one silently agreed with
+  whatever the old binary did. Note the fix must **not** weaken the gate.
+- **Recommended fix:** make `temp_index.sh` rebuild when stale rather than only when absent — drop the
+  `-x` guard and let `cargo build --release --bins` decide (cargo is already incremental, so a no-op
+  rebuild is cheap and correct). Alternatively compare binary mtime against the newest file under `src/`.
+  Either way also fix the header comment, which currently states the "build once if absent" behavior as
+  though it were sufficient.
 - **Confidence:** high · **Effort:** small

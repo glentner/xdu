@@ -37,8 +37,10 @@ fn main() -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
 
-    // An index from an interrupted run is missing rows, which for a deletion tool means
-    // files it will not consider — worth saying out loud before anything is unlinked.
+    // An index that never finished, or that finished under --allow-errors, is missing rows —
+    // which for a deletion tool means files it will not consider. Worth saying out loud
+    // before anything is unlinked, the more so because whoever tolerated those errors at
+    // build time is rarely whoever is running this now.
     if let Some(warning) = index_completion_warning(&index_path) {
         eprintln!("{}", warning);
     }
