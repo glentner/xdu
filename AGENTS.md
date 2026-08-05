@@ -100,6 +100,7 @@ share/           # GENERATED (man + completions); git-ignored; built in CI / by 
 build.sh install.sh cruft.sh Dockerfile   # packaging / ops scripts
 .agents/         # the spec-driven "software factory" (see below)
 spec/{slug}/     # committed, dated per-feature design records the factory produces (retained on merge)
+issues/{slug}.md # deferred code work, pre-shaped (status: unshaped); /xdu-feature promotes one to a GOAL
 ROADMAP.md       # forward-looking feature roadmap — prose intentions that seed future /xdu-feature
 ```
 
@@ -110,6 +111,25 @@ templates, the non-Claude `portability.md` contract, and the `bin/` FSM scripts 
 and **`spec/{slug}/`** — the `GOAL/PLAN/TECH/REVIEW.md` + `META.md` records the factory produces and
 **retains on merge**. `AGENTS.md` stays ground truth; `spec/{slug}/` is a point-in-time record of
 intent. See `.agents/factory/methodology.md`.
+
+**Where a deferral goes — four homes, one rule each.** A pass that decides not to fix something must
+record it, and the destination is not a matter of taste:
+
+| File | Holds | Written by |
+|---|---|---|
+| `spec/{slug}/META.md` | **Harness/skill feedback only** — "was this the *factory's* fault". Never code follow-ups. | the lifecycle skills |
+| `issues/{slug}.md` | **Deferred code work**, pre-shaped from [`templates/ISSUE.md`](.agents/factory/templates/ISSUE.md) with `status: unshaped` | whoever defers it |
+| `ROADMAP.md` | the **ordered index** — one entry per issue, `**Seed:**` pointing at the `issues/` file | whoever defers it |
+| `spec/{slug}/` | work **actually in flight** | the lifecycle skills |
+
+An `issues/{slug}.md` is a *candidate*, not a contract: `/xdu-feature` promotes it into
+`spec/{slug}/GOAL.md`, and that promotion is where appetite, non-goals and R-IDs get negotiated. Never
+copy one into a `GOAL.md` verbatim — `xdu-review` grades a GOAL, and an unshaped proposal is not a
+contract anyone agreed to.
+
+This coexists with the **GitHub tracker** (`AGENTS.md` already cites issues #2/#3): a GH issue is the
+public-facing ticket, `issues/{slug}.md` is the pre-shaped spec behind it, and the two may link to each
+other. Neither replaces the other.
 
 ## Architecture & data flow
 

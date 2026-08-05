@@ -119,6 +119,18 @@ dependent reader/crawler phases. Set top `status: in_progress`, `current_phase` 
 `uv run --with pyyaml python .agents/factory/bin/next_phase.py spec/{slug}/TECH.md` must exit 0 and
 report the first phase.
 
+**Every deferral names its destination inline.** When a phase body says "do not fix here", "known
+limitation", or "left as a follow-up", it must also say *where the record goes* — an
+`issues/{slug}.md` (pre-shaped from [`templates/ISSUE.md`](../../factory/templates/ISSUE.md)) plus a
+`ROADMAP.md` entry, per the four-way boundary in `AGENTS.md`. **Never `META.md`**: that file is
+harness/skill feedback by its own header, so a checklist pointing code follow-ups there puts the build
+agent in the position of arbitrating a contradiction mid-work. A deferral mentioned only in a phase
+checklist evaporates — the checklist is consumed and the item goes with it.
+
+**The last phase of a cycle owns the deferral ledger.** Give it a checklist item that walks every
+earlier phase for those same phrases and confirms each has a matching `issues/` file and ROADMAP entry.
+An unrecorded deferral is a phase failure, not a tidy-up.
+
 ### Step 7 — Meta-note (self-improvement loop · silence by default)
 Before committing, reflect on the **skillset itself** — not the task, not the code. Write nothing
 unless the bar is met.

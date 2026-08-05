@@ -135,7 +135,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F6 — A phase was told to file code follow-ups in META.md, which forbids exactly that · seen again (xdu-review:step4)
-`origin=xdu-build:P6 severity=low category=instruction status=open target=.claude/skills/xdu-plan/SKILL.md`
+`origin=xdu-build:P6 severity=low category=instruction status=applied target=.claude/skills/xdu-plan/SKILL.md`
 - **What happened:** P6's checklist said to record the deferred cleanups "in `ROADMAP.md` and
   `spec/crawl-hardening/META.md` / a short assessment note". But META.md's own header, and `xdu-build`
   Step 6, both say this file is for skillset feedback and to stay silent for "a one-off content/code

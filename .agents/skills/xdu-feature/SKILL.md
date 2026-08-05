@@ -103,6 +103,15 @@ R-IDs/appetite/non-goals. Do not expand scope.
 never the suspected cause/mechanism of the bug, which is unverified until `/xdu-plan` root-causes it.** A
 criterion pinned to a wrong diagnosis has to be reinterpreted mid-lifecycle.
 
+**Promoting an `issues/{slug}.md`.** A deferral recorded earlier arrives pre-shaped (Problem, why it was
+deferred, draft R-IDs) and its body mirrors this template, so promotion is a move-and-fill. It is still
+a *candidate*: **do not copy it into `GOAL.md` verbatim.** `status: unshaped` means nobody has agreed an
+appetite, non-goals, or a final contract — that negotiation is this step's job, and skipping it hands
+`xdu-review` a contract no human ever accepted. Carry the evidence (`file:line`, mechanism, whether the
+defect is pre-existing) into **Problem**, and treat the draft R-IDs as input, not as the contract. When
+the GOAL lands, leave the `issues/` file in place with `status:` updated to name the slug that adopted
+it, so the ROADMAP index does not dangle.
+
 ### Step 5 — Coherence self-check
 Re-read the GOAL: is it solved, bounded to the appetite, and free of unresolved markers? Every
 requirement testable and observable? If not, iterate (ask the human) before committing.

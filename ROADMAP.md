@@ -146,6 +146,18 @@ making a centrally stored index explorable by anyone with a link, no shell accou
 *Horizon: long-term · Depends on: S3 as an index target · Refs: —*
 **Seed:** `/xdu-feature Build xdu-web, a Wasm progressive web app that browses an S3-backed index in the browser with list/tree views and search, mirroring xdu-view.`
 
+## `--version` is documented but rejected by every binary
+
+All four man pages document `-V, --version`, and `AGENTS.md` states the version is single-sourced from
+`Cargo.toml` via clap — but no `#[command(...)]` block in `src/cli.rs` sets `version`, so every binary
+exits with `error: unexpected argument '--version' found`. A user-facing defect in a released version,
+and an invariant §10 (man-pages-vs-code) violation narrowed to exactly that pair: the generated
+completions omit the flag correctly, and the man pages need no edit because they already describe the
+intended behaviour. Likely one attribute per struct.
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** [`issues/version-flag-missing.md`](issues/version-flag-missing.md)
+
 ## Internal cleanups surfaced by the crawl-hardening pass
 
 The crawl-hardening work produced a wider architecture assessment whose low-risk cleanups were applied
