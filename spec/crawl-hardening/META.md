@@ -34,6 +34,11 @@
   clearing the paired spread") set the decision rule *before* the numbers existed. When the capture
   landed as a null, there was nothing to rationalise — the rule already said what a null meant. A
   measurement phase that defines its stopping condition in advance cannot talk itself into a result.
+- The full self-improvement loop closed for the first time on this feature, and the STOP gate is what
+  made it work: P11 carried its prerequisite as a hard stop, refused to improvise a destination when
+  `issues/` did not exist, `/xdu-harness` landed the convention, and the phase then ran clean against
+  it. Had the gate been advisory, the deferrals would have been written somewhere provisional and the
+  harness pass would have had to undo them — which is the exact failure F6 describes.
 
 ## Friction findings
 

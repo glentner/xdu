@@ -54,6 +54,30 @@ pure functions with high test value sitting untested inside a 2,500-line binary 
 load-bearing for terminal safety (invariant §12). Worth doing; it is a sizeable move through a large
 file and deserves its own change rather than a tail-end edit here.
 
+### Restore the terminal on every exit path, including panic
+
+`xdu-view` enters raw mode and the alternate screen (`:1865-1866`) and restores them with plain
+sequential code after `run_app` (`:1873-1874`). There is no Drop guard and no panic hook —
+`grep -cE "set_hook|impl Drop|catch_unwind"` over the file returns 0 — and `Cargo.toml:49` sets
+`panic = "abort"`, so no unwind could run a destructor even if one existed. Any panic in between leaves
+the terminal wedged. The early-`?` case is real too: `Terminal::new` at `:1867` is fallible and already
+runs after both are entered. Invariant §12 requires exactly the missing thing — a Drop guard or panic
+hook, not sequential code. **Pre-existing and identical in `main`**; this branch's `xdu-view` hunks stop
+well short of that region. Not folded in here because it pairs with the TUI-helper lift above as one
+§12 pass over the same 2,500-line file. Full write-up:
+[`issues/xdu-view-terminal-safety.md`](../../issues/xdu-view-terminal-safety.md).
+
+### Truncate display names on char boundaries, not byte indices
+
+`render_list_content` (`:2211`) and `render_tree_content` (`:2356`) both build
+`format!("{}…", &name[..width.saturating_sub(1)])`. Slicing a `&str` at a non-char-boundary byte offset
+**panics**, so any multibyte filename — accented, CJK, emoji — that lands across the cut aborts the TUI;
+the width is computed in terminal columns and then used as a byte offset, which is the same
+bytes-vs-columns confusion in both places. §12's char-boundary clause covers this, and it compounds
+with the gap above: this is precisely the panic that nothing restores the terminal after.
+**Pre-existing and identical in `main`.** Same reason for deferring, same change, same file. Full
+write-up: [`issues/xdu-view-terminal-safety.md`](../../issues/xdu-view-terminal-safety.md).
+
 ### Decouple pool width from driver count, and pipeline the Parquet write
 
 Surfaced by the P5 measurements rather than by the static assessment, and written up in

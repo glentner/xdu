@@ -166,13 +166,50 @@ index-layout constants, reader awareness of the completion marker). It also reco
 risky or too large to fold in: routing the DuckDB injection surface through validated escaping on the
 `index_glob` seam, reconciling `xdu-view`'s `format_file_count` with `lib::format_count`, and lifting
 the pure TUI helpers — `strip_ansi` above all, which is load-bearing for terminal safety — out of the
-2,500-line `xdu-view` into `lib` where they can be tested. None changes what the tools do; together
-they decide how much of the codebase stays testable as it grows. The full record, including the
-performance levers the benchmark work evaluated and rejected, is
+2,500-line `xdu-view` into `lib` where they can be tested. Most of these are invisible to users and
+decide how much of the codebase stays testable as it grows; the terminal-safety pair tracked separately
+below is **not** — a wedged terminal and a filename that crashes the TUI are both user-facing. The full
+record, including the performance levers the benchmark work evaluated and rejected, is
 [`spec/crawl-hardening/ASSESSMENT.md`](spec/crawl-hardening/ASSESSMENT.md).
 
-*Horizon: near-term, low priority · Depends on: — · Refs: —*
-**Seed:** `/xdu-feature Work through the deferred cleanups recorded in spec/crawl-hardening/ASSESSMENT.md: escape the DuckDB injection surface behind lib::index_glob, reconcile the duplicated count formatters, and lift the pure xdu-view helpers into lib with tests.`
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** `/xdu-feature Work through the deferred cleanups recorded in spec/crawl-hardening/ASSESSMENT.md: escape the DuckDB injection surface behind lib::index_glob, reconcile the duplicated count formatters, and lift the pure xdu-view helpers into lib with tests — coordinating with the xdu-view terminal-safety fix, which touches the same file.`
+
+## `xdu-view` terminal safety: panic-safe restore and multibyte truncation
+
+Two invariant §12 gaps in `xdu-view`, both pre-existing and both user-facing. The terminal restore is
+plain sequential code after `run_app` with no Drop guard and no panic hook, and `panic = "abort"` means
+no unwind would run one anyway — so any panic, or an early `?` from the fallible `Terminal::new` that
+already runs after raw mode is entered, leaves the terminal wedged. Separately, both renderers truncate
+display names by slicing `&str` at a byte offset computed in terminal columns, which panics outright on
+a multibyte filename. The two compound: the second is exactly the panic the first fails to clean up
+after. One change to one file, best done together with the `strip_ansi` lift above.
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** [`issues/xdu-view-terminal-safety.md`](issues/xdu-view-terminal-safety.md)
+
+## Completion marker: scoped runs should not speak for the whole index
+
+`xdu` clears the completion marker on every run — including `xdu -p onepartition` — and rewrites it
+from that run's stats alone. So a clean partition-scoped re-index resets `errors=0` and silently retires
+the tolerated-error warning that an earlier `--allow-errors` run recorded, while the skipped regions in
+other partitions remain missing. The readers, `xdu-rm` included, then report a clean bill of health for
+an index that is still incomplete. Needs per-partition attestation, or a scoped run declining to write a
+whole-index marker — marker-format or CLI-semantics work either way.
+
+*Horizon: near-term · Depends on: — · Refs: On-disk index schema versioning*
+**Seed:** [`issues/marker-scoped-run-attestation.md`](issues/marker-scoped-run-attestation.md)
+
+## Benchmark harness: stop `baseline` mode overwriting the committed reference
+
+`bench/run.sh baseline` defaults `--out` to `bench/results/baseline.json`, and `baseline` mode is also
+the configuration set anyone reaches for to capture a comparison — so the natural command for "measure
+my build against the reference" destroys the reference. It is the one file in `bench/results/` that is
+not reproducible on demand: regenerating it yields a *different* baseline, silently redefining what "no
+regression" means. A `usage()` warning exists; the loaded default does not.
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** [`issues/bench-baseline-overwrite-guard.md`](issues/bench-baseline-overwrite-guard.md)
 
 ## Native OS packages (DEB / RPM)
 

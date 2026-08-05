@@ -3,10 +3,10 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: in_progress
+status: in_review
 branch: feature/crawl-hardening
 base: main
-current_phase: P11
+current_phase: done
 last_updated: '2026-08-05'
 phases:
 - id: P1
@@ -150,7 +150,7 @@ phases:
     clippy --all-targets --all-features -- -D warnings && cargo test
 - id: P11
   name: Record every follow-up this cycle defers (F5 + the P9/P10 deferrals)
-  status: pending
+  status: done
   satisfies:
   - R8
   depends_on:
@@ -972,25 +972,25 @@ nothing in the raw-mode region. So it does **not** block, and fixing it here wou
 reader rewrite. R8 requires it be *recorded* as an explicit follow-up, and the R8 record currently omits
 it. The design pass found a **second**, related pre-existing §12 gap worth the same treatment.
 
-- [ ] Add two `###` sections to `ASSESSMENT.md`'s "Deferred, with reasons" list, after "Lift the pure
+- [x] Add two `###` sections to `ASSESSMENT.md`'s "Deferred, with reasons" list, after "Lift the pure
       TUI helpers into `lib`" and before "Decouple pool width from driver count", matching the file's
       format and ~100-col wrap: **"Restore the terminal on every exit path, including panic"** and
       **"Truncate display names on char boundaries, not byte indices"**.
-- [ ] The first must state all four facts: restore is plain sequential code after `run_app`;
+- [x] The first must state all four facts: restore is plain sequential code after `run_app`;
       `panic = "abort"` removes the unwind that would otherwise run it; the fix is a `Drop` guard or
       panic hook; invariant §12 requires exactly that. Note the early-`?` case is real too —
       `Terminal::new` at `:1867` already runs after raw mode and the alternate screen are entered.
-- [ ] The second must name `render_list_content` and `render_tree_content`, the
+- [x] The second must name `render_list_content` and `render_tree_content`, the
       `&name[..width.saturating_sub(1)]` byte index, the bytes-vs-columns confusion, and §12's
       char-boundary clause, and tie the reachable panic back to the missing restore guard.
-- [ ] Both sections state they are pre-existing (identical in `main`) and give the reason they were not
+- [x] Both sections state they are pre-existing (identical in `main`) and give the reason they were not
       folded into this pass: they pair with the already-deferred TUI-helper lift as one §12
       terminal-safety change to the same 2,500-line file.
-- [ ] Extend `ROADMAP.md`'s "Internal cleanups surfaced by the crawl-hardening pass" with both gaps,
+- [x] Extend `ROADMAP.md`'s "Internal cleanups surfaced by the crawl-hardening pass" with both gaps,
       replace the now-false "None changes what the tools do" sentence, and update the `**Seed:**` line to
       name the terminal-safety work so a future `/xdu-feature` does not drop it. Consider dropping
       ", low priority" — the bundle now includes a user-visible wedged terminal and a reachable panic.
-- [ ] Write **`issues/marker-scoped-run-attestation.md`**: `xdu.rs:58` clears the marker on every run
+- [x] Write **`issues/marker-scoped-run-attestation.md`**: `xdu.rs:58` clears the marker on every run
       including `xdu -p one`, and `:628` writes a whole-index marker from only that run's stats, so a
       later clean partition-scoped run resets `errors=0` and silently retires the tolerated-error warning
       while the other partitions' skipped regions remain. Record that it is a pre-existing limitation of
@@ -998,33 +998,65 @@ it. The design pass found a **second**, related pre-existing §12 gap worth the 
       over an index that said nothing at all, and that the fix is marker-format or CLI-semantics work
       (per-partition attestation, or refusing to write a whole-index marker from a scoped run) — both
       GOAL non-goals here, so it needs its own change.
-- [ ] Write **`issues/bench-baseline-overwrite-guard.md`**: `baseline` mode defaults `--out` to
+- [x] Write **`issues/bench-baseline-overwrite-guard.md`**: `baseline` mode defaults `--out` to
       `bench/results/baseline.json` (`run.sh:300`), so an operator running a comparison the way the three
       existing comparison documents were captured silently destroys the R4 reference. Record that P10
       added a `usage()` warning but deliberately left the default unchanged, and that the fix is to
       require an explicit `--out` for any non-baseline capture (or refuse to overwrite an existing
       `baseline.json` without a flag).
-- [ ] Write **`issues/xdu-view-terminal-safety.md`** covering **both** §12 gaps as one change to one file
+- [x] Write **`issues/xdu-view-terminal-safety.md`** covering **both** §12 gaps as one change to one file
       (they are the same fix in the same 2,500-line binary, and pair with the already-recorded TUI-helper
       lift): the missing restore guard and the byte-index truncation. This is the `issues/` counterpart of
       the two `ASSESSMENT.md` sections above — write the mechanism and evidence here, and keep the
       `ASSESSMENT.md` sections short with a link, so R8's record stands alone without duplicating.
-- [ ] Add one `ROADMAP.md` entry per new issue in the established `## Title` + prose + `**Horizon:**` +
+- [x] Add one `ROADMAP.md` entry per new issue in the established `## Title` + prose + `**Horizon:**` +
       `**Seed:**` shape, with `**Seed:**` pointing at the `issues/` file rather than carrying a one-line
       prompt, and **place them in intended remediation order** relative to the existing entries.
-- [ ] Do **not** touch `research/04-architecture.md` (a point-in-time input; `ASSESSMENT.md` is the R8
+- [x] Do **not** touch `research/04-architecture.md` (a point-in-time input; `ASSESSMENT.md` is the R8
       deliverable and carries the correction). Add no test and change no code: the phase commit must
       touch only `ASSESSMENT.md`, `ROADMAP.md`, and new files under `issues/`, with zero paths under
       `src/`, `tests/`, `bench/`, `doc/`, or `Cargo.toml`/`Cargo.lock`.
-- [ ] Every new `issues/` file carries `status: unshaped` and the header line naming `/xdu-feature` as the
+- [x] Every new `issues/` file carries `status: unshaped` and the header line naming `/xdu-feature` as the
       promotion step — these are pre-shaped candidates, **not** locked contracts. Do not let one be copied
       into `spec/{slug}/GOAL.md` from this phase.
-- [ ] Cross-check before closing: walk P7–P10's checklists for every "do not fix" / "known limitation" /
+- [x] Cross-check before closing: walk P7–P10's checklists for every "do not fix" / "known limitation" /
       "left as a follow-up" line and confirm each has a matching `issues/` file **and** a ROADMAP entry.
       This phase closes the cycle's deferral ledger, so an unrecorded deferral is a phase failure.
 - **Verify:** the grep assertions for all four new sections and the ROADMAP edits, a clean `src`/`tests`/
   `bench`/`doc` diff, `cargo fmt --all -- --check`, then `PHASE-OK`.
+  *(Result: `PHASE-OK`. Every fact was re-derived from source rather than taken from this checklist,
+  and all of it held: `grep -cE "set_hook|impl Drop|catch_unwind" src/bin/xdu-view.rs` → **0**;
+  `Cargo.toml:49` `panic = "abort"`; raw mode `:1865`, alternate screen `:1866`, the fallible
+  `Terminal::new` `:1867` **after** both, `run_app` `:1870`, restore `:1873-1874`; byte-index truncation
+  at `:2211` in `render_list_content` and `:2356` in `render_tree_content` — two sites, as named. Both
+  gaps confirmed **pre-existing**: this branch's `xdu-view` hunks end around `:1848`, touching neither
+  region. Marker sites confirmed at `xdu.rs:92` (clear, not partition-filtered) and `:636` (write), with
+  P9's `// Known limitation:` comment present at `:628`; the `baseline` `--out` default confirmed at
+  `run.sh:458`.)*
 - **Touches:** `spec/crawl-hardening/ASSESSMENT.md`, `ROADMAP.md`.
+  *(Amendment — also `issues/`, which did not exist when this phase was written. The prerequisite
+  landed via `/xdu-harness` (commits `de3e4ee`…`a64a9f1`) between this phase being blocked and run, so
+  the three files follow `factory/templates/ISSUE.md` and sit alongside `issues/version-flag-missing.md`,
+  which that pass created as the convention's worked example.)*
+
+> **Ledger cross-check — the result.** Sweeping P7–P10 for every "do not fix" / "known limitation" /
+> "left as a follow-up" / "out of scope" line returned 14 matches. **Three are genuine deferrals**, and
+> each now has both an `issues/` file and a ROADMAP entry: P9's partition-scoped marker, P10's
+> `baseline --out` footgun, and the §12 terminal-safety pair. The other eleven need no record and are
+> accounted for rather than ignored: **scope boundaries** that are deliberate non-features, not defects
+> (P8's decision to leave the stale-chunk case undocumented; P9's refusals to widen the warning to
+> `vanished`/`lossy_paths`, add an `xdu-rm` prompt, a suppression flag, or a marker `format=` key; P7's
+> instruction not to hoist the `-p` validation, which would *change* pre-existing behavior the GOAL's
+> non-goals protect); **already fixed** (P10's `--bin` no-auto-build shipped in that phase, and its
+> `temp_index.sh` analogue landed as META F10); and P11's own instructions.
+>
+> **Known gap, stated rather than silently left:** the five pre-P7 deferrals in `ASSESSMENT.md` (the
+> `--version` defect, the DuckDB injection surface, the duplicated count formatters, the TUI-helper
+> lift, and the perf levers) keep their existing homes — `ASSESSMENT.md`, `bench/scenarios.md`, and the
+> ROADMAP "Internal cleanups" entry — and were **not** migrated to `issues/`. `--version` is the
+> exception, promoted by the harness pass. That migration is the remaining half of META F6 item 5; it
+> sits outside this phase's P7–P10 cross-check scope, and doing it here would have widened a
+> records-only phase into a rewrite of records that are already durable.
 
 > **BLOCKED 2026-08-05 — the prerequisite above is not met; no work was attempted.** Checked at the top
 > of this phase, as instructed: `issues/` **does not exist** (absent from the working tree and untracked
