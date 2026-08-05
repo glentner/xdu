@@ -214,15 +214,20 @@ phases:
 review:
   last_reviewed_commit: 0c77ccbf1de150bb271284dc36286a0fed390407
   verdict: changes-requested
-  blocked_reason: 'review cycle 4 (human-gated, second overrun of the <=3 bound):
-    4 CONFIRMED, none a regression - C4-F1 MEDIUM (unreadable partition''s finalize
-    prunes its prior chunks; proven identical on main, which exits 0 silently) recommend
-    record in issues/+ROADMAP + one --allow-errors man-page sentence, do not fix here;
-    C4-F2 LOW fix (AGENTS.md:48 + invariants.md:183 assert clap derives --version,
-    false); C4-F3 LOW fix (xdu.rs:39 names nonexistent record_from_metadata); C4-F4
-    LOW human call (FileRecord dead but named by invariant 1). Injection surface and
-    orphan partition re-raised and dismissed as recorded deferrals. Recommendation:
-    land the two doc fixes, record C4-F1, publish without a cycle 5.'
+  blocked_reason: 'review cycle 4 (human gate CLEARED 2026-08-05): land one P14 with
+    exactly three parts. (1) C4-F1 - RECORD, DO NOT FIX: new issues/{slug}.md at status:
+    unshaped for finalize''s prune scope destroying a partition''s prior chunks when
+    its directory is unreadable (pre-existing in main, proven by differential drive;
+    same mechanism as the recorded C3-F2), a ROADMAP **Seed:** entry, AND one sentence
+    in doc/xdu.1.scd''s --allow-errors text warning that a tolerated error can prune
+    previously-indexed rows. (2) C4-F2 + C4-F3 - FIX: correct AGENTS.md:48 and .agents/factory/invariants.md:183
+    (clap does NOT derive --version; point at issues/version-flag-missing.md), and
+    fix the stale record_from_metadata name at src/bin/xdu.rs:39 (it is crawl::file_size_and_atime).
+    (3) C4-F4 - DELETE FileRecord from src/lib.rs with its unit tests, and drop its
+    mention from invariant #1''s wording in AGENTS.md + invariants.md so get_schema()
+    is named as the sole schema contract. No other src/ logic change; the SQL-escaping
+    and orphan-partition deferrals stand. Human decided NO cycle 5: after P14 verifies
+    clean, go straight to /xdu-publish.'
   cycle: 4
 ---
 # TECH.md — Harden & optimize the index-build crawl
