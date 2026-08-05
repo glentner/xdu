@@ -116,7 +116,7 @@
   one change's regression behind another's win. Strengthens the gate; weakens nothing.
 - **Confidence:** high · **Effort:** small
 
-## F6 — A phase was told to file code follow-ups in META.md, which forbids exactly that
+## F6 — A phase was told to file code follow-ups in META.md, which forbids exactly that · seen again (xdu-review:step4)
 `origin=xdu-build:P6 severity=low category=instruction status=open target=.claude/skills/xdu-plan/SKILL.md`
 - **What happened:** P6's checklist said to record the deferred cleanups "in `ROADMAP.md` and
   `spec/crawl-hardening/META.md` / a short assessment note". But META.md's own header, and `xdu-build`
@@ -129,6 +129,16 @@
 - **Recommended fix:** in `xdu-plan`'s phase authoring, point follow-up records at `ROADMAP.md` or a
   spec-local assessment note, never `META.md`; optionally state in the META template that it is
   *skill* feedback only, so the boundary is unmissable from either side.
+- **Seen again while authoring the cycle-1 remediation phases (independent evidence of the same gap):**
+  two phases (P9's partition-scoped marker limitation, P10's `baseline --out` footgun) were written with
+  "record it; do not fix here" and **no destination named**, because no part of the factory states where a
+  deferral goes. The human reading the hand-back then asked whether they should go in `META.md` — i.e. an
+  outside reader independently reached for the one file the contract forbids. That is the clearest signal
+  yet that the destination is undocumented rather than merely mis-stated in one checklist. **Extend the
+  fix:** whenever a phase defers work, the authoring skill should require the destination be named inline
+  (`ROADMAP.md` and/or the spec-local assessment), and the cycle's last phase should own a deferral ledger
+  that cross-checks every "do not fix" line for a matching record — a deferral mentioned only in a
+  consumed checklist evaporates. Fixed locally by making P11 that ledger.
 - **Confidence:** high · **Effort:** small
 
 ## F7 — The evidence spine requires an `scdoc` render with no fallback when `scdoc` is absent

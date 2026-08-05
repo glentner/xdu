@@ -149,7 +149,7 @@ phases:
     && git diff --quiet HEAD -- src doc tests && cargo fmt --all -- --check && cargo
     clippy --all-targets --all-features -- -D warnings && cargo test
 - id: P11
-  name: 'F5: record the two pre-existing xdu-view terminal-safety gaps as R8 follow-ups'
+  name: Record every follow-up this cycle defers (F5 + the P9/P10 deferrals)
   status: pending
   satisfies:
   - R8
@@ -161,10 +161,12 @@ phases:
   verify: grep -qF "### Restore the terminal on every exit path, including panic"
     spec/crawl-hardening/ASSESSMENT.md && grep -qF "### Truncate display names on
     char boundaries, not byte indices" spec/crawl-hardening/ASSESSMENT.md && grep
-    -qF "panic = \"abort\"" spec/crawl-hardening/ASSESSMENT.md && grep -qF "Drop"
-    ROADMAP.md && ! grep -qF "None changes what the tools do" ROADMAP.md && git diff
-    --quiet HEAD -- src tests bench doc Cargo.toml Cargo.lock && cargo fmt --all --
-    --check && echo PHASE-OK
+    -qF "panic = \"abort\"" spec/crawl-hardening/ASSESSMENT.md && grep -q "partition-scoped
+    run rewrites it" spec/crawl-hardening/ASSESSMENT.md && grep -q "overwrite the
+    committed reference" spec/crawl-hardening/ASSESSMENT.md && grep -qF "Drop" ROADMAP.md
+    && ! grep -qF "None changes what the tools do" ROADMAP.md && git diff --quiet
+    HEAD -- src tests bench doc Cargo.toml Cargo.lock && cargo fmt --all -- --check
+    && echo PHASE-OK
 review:
   last_reviewed_commit: e1f5d7e93138ed38b607bb6097c67ca720fc6979
   verdict: changes-requested
@@ -682,10 +684,13 @@ consent given by one operator at build time does not transport to whoever runs `
 - [ ] Append one sentence to `doc/xdu.1.scd`'s `--allow-errors` paragraph: such a run still writes the
       marker, the marker carries the tolerated-error count, and the readers warn on stderr on a non-zero
       count. Coordinate with P8's rewrite of the same section; leave the three reader man pages alone.
-- [ ] Record as a known limitation (do **not** fix — marker-format/CLI-semantics work is a non-goal):
-      `xdu.rs:58` clears the marker on *every* run including a partition-scoped one, and `:628` writes a
-      whole-index marker from that run's stats, so a later clean `xdu -p onepartition` rewrites
-      `errors=0` and silently retires the warning while other partitions' skipped regions remain.
+- [ ] Do **not** fix the partition-scoped marker limitation (marker-format/CLI-semantics work is a
+      non-goal): `xdu.rs:58` clears the marker on *every* run including a partition-scoped one, and
+      `:628` writes a whole-index marker from that run's stats, so a later clean `xdu -p onepartition`
+      rewrites `errors=0` and silently retires the warning while other partitions' skipped regions
+      remain. **Recording it is P11's job, not this phase's** — leave a `// Known limitation:` comment at
+      the marker-write site stating the behavior, and let P11 carry the follow-up record. (Do not file it
+      in `META.md`: that file is harness feedback only, per its own header and its F6 finding.)
 - [ ] Do **not** extend the warning to `vanished`/`lossy_paths`, add an `xdu-rm` refusal or extra
       prompt, add a suppression flag, or add a `format=`/version key to the marker body.
 - **Verify:** fmt, clippy, `cargo test --lib`, `cargo test --test crawl_tests -- --nocapture` (confirm
@@ -802,10 +807,23 @@ re-capture, write the claims from the new document.**
   `bench/results/comparison-p5-ab.json` (new; `.gitignore:14` already whitelists `comparison-*.json`),
   `AGENTS.md`, this file. **No `src/` change** — the perf code is kept by decision.
 - **Known footgun left as a follow-up:** `baseline` mode still defaults `--out` to the committed
-  `baseline.json`, so an operator can silently destroy the R4 reference. Record it; do not fix here.
+  `baseline.json`, so an operator running a comparison the way the three existing comparison documents
+  were captured can silently destroy the R4 reference. Do not fix here (it is CLI-surface work on the
+  harness, and this phase is already the largest). **P11 carries the follow-up record** — this phase only
+  needs the `--out` warning in `usage()` and a note in `scenarios.md`'s provenance table. (Not
+  `META.md`: harness feedback only.)
 
-## Phase P11 — F5: record the pre-existing `xdu-view` terminal-safety gaps as R8 follow-ups
+## Phase P11 — Record every follow-up this cycle defers (F5 + the P9/P10 deferrals)
 **Satisfies:** R8 · **Depends on:** P10
+
+> **This phase is the single home for every follow-up P7–P10 deliberately did not fix.** R8 requires that
+> "anything larger or riskier SHALL be recorded as an explicit follow-up rather than attempted here", and
+> a deferral that is only mentioned in a phase checklist is not a record — the checklist is consumed and
+> the item evaporates. Destinations are `ROADMAP.md` (forward-looking) and `ASSESSMENT.md`'s "Deferred,
+> with reasons" (the R8 deliverable). **Never `META.md`** — that file is the harness feedback log, scoped
+> by its own header to "was this the skill's fault", and its F6 finding records a prior phase being
+> wrongly told to file code follow-ups there. A code/engineering follow-up in `META.md` is a contract
+> violation, not a filing preference.
 **Goal:** `xdu-view`'s terminal restore is plain sequential code after `run_app` — no `Drop` guard, no
 panic hook, whole-file grep for `set_hook`/`impl Drop`/`catch_unwind` returns zero hits — and
 `Cargo.toml:49` sets `panic = "abort"`, so `:1873-1874` are unreachable on any panic path. That is a
@@ -833,11 +851,31 @@ it. The design pass found a **second**, related pre-existing §12 gap worth the 
       replace the now-false "None changes what the tools do" sentence, and update the `**Seed:**` line to
       name the terminal-safety work so a future `/xdu-feature` does not drop it. Consider dropping
       ", low priority" — the bundle now includes a user-visible wedged terminal and a reachable panic.
+- [ ] Add a third `###` section to `ASSESSMENT.md`'s deferred list: **"The completion marker is
+      whole-index, but a partition-scoped run rewrites it"** — `xdu.rs:58` clears the marker on every run
+      including `xdu -p one`, and `:628` writes a whole-index marker from only that run's stats, so a
+      later clean partition-scoped run resets `errors=0` and silently retires the tolerated-error warning
+      while the other partitions' skipped regions remain. State that it is a pre-existing limitation of
+      the marker's semantics as introduced in this pass, that P9's warning is still a strict improvement
+      over an index that said nothing at all, and that the fix is marker-format or CLI-semantics work
+      (per-partition attestation, or refusing to write a whole-index marker from a scoped run) — both
+      GOAL non-goals here, so it needs its own change.
+- [ ] Add a fourth `###` section: **"`bench/run.sh baseline` can overwrite the committed reference"** —
+      `baseline` mode defaults `--out` to `bench/results/baseline.json` (`run.sh:300`), so an operator
+      running a comparison the way the three existing comparison documents were captured silently
+      destroys the R4 reference. Note that P10 added a `usage()` warning but deliberately left the
+      default unchanged, and that the fix is to require an explicit `--out` for any non-baseline capture
+      (or refuse to overwrite an existing `baseline.json` without a flag).
+- [ ] Extend the `ROADMAP.md` entry to cover all four deferred items, not just the two terminal-safety
+      ones, so a future `/xdu-feature` sees the whole set.
 - [ ] Do **not** touch `research/04-architecture.md` (a point-in-time input; `ASSESSMENT.md` is the R8
       deliverable and carries the correction). Add no test and change no code: the phase commit must
       touch only `ASSESSMENT.md` and `ROADMAP.md`, with zero paths under `src/`, `tests/`, `bench/`,
       `doc/`, or `Cargo.toml`/`Cargo.lock`.
-- **Verify:** the grep assertions for both new headings and the ROADMAP edits, a clean `src`/`tests`/
+- [ ] Cross-check before closing: walk P7–P10's checklists for every "do not fix" / "known limitation" /
+      "left as a follow-up" line and confirm each has a matching section here. This phase closes the
+      cycle's deferral ledger, so an unrecorded deferral is a phase failure.
+- **Verify:** the grep assertions for all four new sections and the ROADMAP edits, a clean `src`/`tests`/
   `bench`/`doc` diff, `cargo fmt --all -- --check`, then `PHASE-OK`.
 - **Touches:** `spec/crawl-hardening/ASSESSMENT.md`, `ROADMAP.md`.
 
