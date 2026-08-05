@@ -292,7 +292,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F10 — `temp_index.sh` rebuilds release binaries only when absent, so a CLI drive can silently test stale code
-`origin=xdu-build:P9 severity=high category=tooling status=open target=.agents/factory/bin/temp_index.sh`
+`origin=xdu-build:P9 severity=high category=tooling status=applied target=.agents/factory/bin/temp_index.sh`
 - **What happened:** P9 changed `lib::index_completion_warning`, then drove the readers through
   `temp_index.sh` per Step 4. The drive reported **no warning** on an `errors=3` marker and a **clean pass
   on the FIFO hang case** — both wrong. `temp_index.sh` guards its build with
