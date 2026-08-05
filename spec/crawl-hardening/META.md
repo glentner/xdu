@@ -105,3 +105,18 @@
   report a verdict per change; report per-scenario numbers, never a single mean. An aggregate can hide
   one change's regression behind another's win. Strengthens the gate; weakens nothing.
 - **Confidence:** high · **Effort:** small
+
+## F6 — A phase was told to file code follow-ups in META.md, which forbids exactly that
+`origin=xdu-build:P6 severity=low category=instruction status=open target=.claude/skills/xdu-plan/SKILL.md`
+- **What happened:** P6's checklist said to record the deferred cleanups "in `ROADMAP.md` and
+  `spec/crawl-hardening/META.md` / a short assessment note". But META.md's own header, and `xdu-build`
+  Step 6, both say this file is for skillset feedback and to stay silent for "a one-off content/code
+  issue". Filing engineering follow-ups there would have contradicted the file's stated contract, so I
+  put them in a new `ASSESSMENT.md` plus a `ROADMAP.md` entry and noted the divergence.
+- **Skill cause:** `xdu-plan` authored a phase checklist naming META.md as a home for code follow-ups,
+  which the META template explicitly excludes. Two parts of the factory disagree about what that file
+  is for, and a build phase has to arbitrate mid-work.
+- **Recommended fix:** in `xdu-plan`'s phase authoring, point follow-up records at `ROADMAP.md` or a
+  spec-local assessment note, never `META.md`; optionally state in the META template that it is
+  *skill* feedback only, so the boundary is unmissable from either side.
+- **Confidence:** high · **Effort:** small

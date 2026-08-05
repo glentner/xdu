@@ -3,10 +3,10 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: in_progress
+status: in_review
 branch: feature/crawl-hardening
 base: main
-current_phase: P6
+current_phase: done
 last_updated: '2026-08-04'
 phases:
 - id: P1
@@ -75,7 +75,7 @@ phases:
 - id: P6
   name: 'Wider cleanups: lib::index_glob dedup across readers + tests/common + assessment
     & follow-ups'
-  status: pending
+  status: done
   satisfies:
   - R8
   depends_on:
@@ -356,12 +356,21 @@ document the remaining ceiling ([research/02](research/02-jwalk-perf.md)).
 ([research/04](research/04-architecture.md) (d)). **Hammerable** — trim to the assessment doc if
 appetite runs short.
 
-- [ ] **Do-now:** extract `lib::index_glob(index, partition) -> String` and replace the duplicated
+- [x] **Do-now:** extract `lib::index_glob(index, partition) -> String` and replace the duplicated
       `read_parquet` glob sites in `xdu-find`, `xdu-rm`, and the inline ones in `xdu-view` — pure,
       behavior-identical, unit-tested; this also creates the single seam for the future §5 escaping.
-- [ ] **Do-now (reader marker awareness):** a shared helper that emits a **soft stderr warning** when a
+      *(Eight sites: 1 in `xdu-find`, 1 in `xdu-rm`, 6 in `xdu-view`. Amendment beyond the checklist:
+      `xdu-view` also carried its own `const ROOT_PARTITION = "__root__"`, a second copy of a name that
+      defines the on-disk layout — exactly the drift hazard §3 exists to prevent. `ROOT_PARTITION` and
+      `COMPLETION_MARKER` moved to `lib` as index-layout constants shared by writer and readers, with
+      `crawl` re-exporting them so no crawl-side code changed.)*
+- [x] **Do-now (reader marker awareness):** a shared helper that emits a **soft stderr warning** when a
       queried index lacks `.xdu-complete`; wire into the readers. **Not** a hard failure (backward
       compatibility with pre-existing markerless indexes).
+      *(`lib::index_completion_warning` returns `Option<String>` rather than printing, so the decision
+      is unit-testable and each bin owns its own output moment — `xdu-view` prints before the alternate
+      screen takes over, so the message survives on the terminal after the TUI exits. `xdu-rm`'s comment
+      states the deletion-specific stake: a partial index means files it will never consider.)*
 - [ ] Record the follow-ups (do **not** implement here) in `ROADMAP.md` and `spec/crawl-hardening/META.md`
       / a short assessment note: centralize the DuckDB injection surface (§5) on `index_glob`; reconcile
       `xdu-view::format_file_count` vs `lib::format_count`; lift TUI `strip_ansi`/file-sniff helpers to
@@ -371,11 +380,25 @@ appetite runs short.
       sets `version`, so every binary rejects the flag. A one-line-per-struct fix, but it is a CLI
       change (invariant §10) and does not belong in a benchmark commit — evaluate for this phase or a
       standalone fix branch.
-- [ ] Confirm nothing here touched `get_schema`/`FileRecord`/reader column lists (§1) or CLI semantics
-      (§10).
+      *(Amendment: recorded in [`ASSESSMENT.md`](ASSESSMENT.md) — the R8 "what was applied, what was
+      deferred" artifact — plus one `ROADMAP.md` entry in that file's own register that seeds a future
+      `/xdu-feature`. **Not** in `META.md`: that file's stated bar excludes one-off code issues, which
+      belong in `REVIEW.md` or the roadmap, so filing code follow-ups there would contradict its
+      contract. `--version` is written up as a defect to fix on its own `fix/` branch, not as a feature
+      to shape.)*
+- [x] Confirm nothing here touched `get_schema`/`FileRecord`/reader column lists (§1) or CLI semantics
+      (§10). *(Verified against the diff: `src/cli.rs` has zero changed lines; no `get_schema`,
+      `FileRecord` or `Field::new` edits; no reader `SELECT` column list touched.)*
 - **Verify:** `cargo test && .agents/factory/bin/temp_index.sh sh -c 'xdu-find -i "$XDU_INDEX" --count'`
       (readers still work after the `index_glob` refactor). Optional: drive `xdu-rm -n` and `xdu-view`
       startup against the temp index.
+      *(Result: green — the verify command returns **4**, the fixture's exact row count; 63 lib + 18
+      crawl + 16 rm tests pass; fmt/clippy clean. Drives: `xdu-find` 4/2/1 across total/alice/`__root__`
+      and `xdu-rm --dry-run` reporting 1 file, both unchanged from before the refactor. Markerless
+      index drive: stdout still exactly `4` with the warning on **stderr only**, and no warning at all
+      when the marker is present. `xdu-view` cannot be driven headless — `enable_raw_mode` fails with
+      "Device not configured" without a tty, which is pre-existing TUI behavior, and the marker warning
+      was seen to print before that.)*
 - **Touches:** `src/lib.rs` (`index_glob` + reader marker helper), `src/bin/xdu-find.rs`,
   `src/bin/xdu-rm.rs`, `src/bin/xdu-view.rs`, `ROADMAP.md`, `spec/crawl-hardening/META.md`.
 

@@ -20,7 +20,10 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
-use xdu::{QueryFilters, SortMode, format_bytes, parse_size};
+use xdu::{
+    QueryFilters, ROOT_PARTITION, SortMode, format_bytes, index_completion_warning, index_glob,
+    parse_size,
+};
 
 /// Detect file type from magic bytes, shebangs, text content, and extension.
 ///
@@ -423,9 +426,6 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
-/// Special partition name for files directly in the top-level directory.
-const ROOT_PARTITION: &str = "__root__";
-
 /// Maximum lines to keep in the sliding window buffer.
 const MAX_BUFFER_LINES: usize = 100_000;
 /// Chunk size for streaming reads (64KB).
@@ -577,7 +577,7 @@ impl App {
     /// Query individual files from the __root__ partition.
     /// Returns DirEntry items with is_dir=false and file_count=1.
     fn query_root_files(&self) -> Result<Vec<DirEntry>> {
-        let glob = format!("{}/{}/*.parquet", self.index_path.display(), ROOT_PARTITION);
+        let glob = index_glob(&self.index_path, Some(ROOT_PARTITION));
         let where_clause = self.filters.to_full_where_clause();
 
         let sql = format!(
@@ -640,7 +640,7 @@ impl App {
         let start = Instant::now();
 
         // Use DuckDB's hive partitioning to get partition names directly from directory structure
-        let glob = format!("{}/*/*.parquet", self.index_path.display());
+        let glob = index_glob(&self.index_path, None);
 
         // Build filter clause — exclude __root__ (its files are merged as individual entries)
         let filter_clause = self.filters.to_where_clause();
@@ -734,7 +734,7 @@ impl App {
 
     /// Discover the common root path for a partition
     fn discover_partition_root(&self, partition: &str) -> Result<String> {
-        let glob = format!("{}/{}/*.parquet", self.index_path.display(), partition);
+        let glob = index_glob(&self.index_path, Some(partition));
 
         // Get the shortest path to find the common root
         let sql = format!(
@@ -762,7 +762,7 @@ impl App {
         let start = Instant::now();
 
         let partition = self.current_partition.as_ref().unwrap();
-        let glob = format!("{}/{}/*.parquet", self.index_path.display(), partition);
+        let glob = index_glob(&self.index_path, Some(partition));
 
         // If we don't have a partition root yet, discover it
         if self.partition_root.is_empty() {
@@ -1125,7 +1125,7 @@ impl App {
 
     /// Create a Column for the partition list.
     fn make_partition_column(&self) -> Result<Column> {
-        let glob = format!("{}/*/*.parquet", self.index_path.display());
+        let glob = index_glob(&self.index_path, None);
         let filter_clause = self.filters.to_where_clause();
         // Exclude __root__ — its files are merged as individual entries
         let having_clause = if filter_clause.is_empty() {
@@ -1231,7 +1231,7 @@ impl App {
         partition_root: &str,
         path: &str,
     ) -> Result<Column> {
-        let glob = format!("{}/{}/*.parquet", self.index_path.display(), partition);
+        let glob = index_glob(&self.index_path, Some(partition));
         let prefix = format!("{}/", path);
         let prefix_len = prefix.len();
 
@@ -1835,6 +1835,12 @@ fn main() -> Result<()> {
         .index
         .canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
+
+    // Warn before the alternate screen takes over, so the message is still on the
+    // terminal after the TUI exits rather than being wiped with the screen.
+    if let Some(warning) = index_completion_warning(&index_path) {
+        eprintln!("{}", warning);
+    }
 
     // Parse sort mode
     let sort_mode: SortMode = args.sort.parse().map_err(|e: String| anyhow::anyhow!(e))?;

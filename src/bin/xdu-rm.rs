@@ -10,7 +10,9 @@ use duckdb::Connection;
 use rayon::prelude::*;
 
 use xdu::cli::XduRmArgs;
-use xdu::{QueryFilters, deterministic_limit_clause, parse_size};
+use xdu::{
+    QueryFilters, deterministic_limit_clause, index_completion_warning, index_glob, parse_size,
+};
 
 /// File info from the index query
 #[allow(dead_code)]
@@ -35,12 +37,13 @@ fn main() -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
 
-    // Build the glob pattern for Parquet files
-    let glob_pattern = if let Some(ref partition) = args.partition {
-        format!("{}/{}/*.parquet", index_path.display(), partition)
-    } else {
-        format!("{}/*/*.parquet", index_path.display())
-    };
+    // An index from an interrupted run is missing rows, which for a deletion tool means
+    // files it will not consider — worth saying out loud before anything is unlinked.
+    if let Some(warning) = index_completion_warning(&index_path) {
+        eprintln!("{}", warning);
+    }
+
+    let glob_pattern = index_glob(&index_path, args.partition.as_deref());
 
     // Connect to DuckDB (in-memory)
     let conn = Connection::open_in_memory()?;

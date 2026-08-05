@@ -366,6 +366,44 @@ fn test_completion_marker_written_on_success_and_cleared_on_failure() {
 }
 
 // =============================================================================
+// A markerless index still queries: readers warn on stderr, they do not refuse
+// =============================================================================
+
+#[test]
+fn test_reader_warns_but_still_queries_markerless_index() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("p/f1.txt"), 100).unwrap();
+    create_test_file(&source.join("p/f2.txt"), 100).unwrap();
+
+    build_index(&source, &index);
+
+    // A complete index is quiet.
+    let (out, err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(ok);
+    assert_eq!(out.trim(), "2");
+    assert!(
+        !err.contains("completion marker"),
+        "a complete index must not warn: {err}"
+    );
+
+    // Indexes built before the marker existed have no marker; they must keep working.
+    fs::remove_file(index.join(COMPLETION_MARKER)).unwrap();
+
+    let (out, err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(ok, "a markerless index must still be queryable: {err}");
+    assert_eq!(out.trim(), "2", "the warning must not change the results");
+    assert!(
+        err.contains("completion marker"),
+        "stderr should carry the soft warning, got: {err}"
+    );
+    // Diagnostics stay off stdout so a piped count is still just a number.
+    assert!(!out.contains("warning"));
+}
+
+// =============================================================================
 // A loose top-level symlink is not a root file: no empty __root__ partition
 // =============================================================================
 

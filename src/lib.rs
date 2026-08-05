@@ -4,6 +4,7 @@ pub mod cli;
 pub mod crawl;
 
 use std::fmt;
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,6 +17,48 @@ pub struct FileRecord {
     pub path: String,
     pub size: i64,
     pub atime: i64,
+}
+
+/// Partition name reserved for files lying directly in the indexed root.
+///
+/// Part of the on-disk layout contract rather than of the crawl, so the writer and every
+/// reader name it from one place: two copies of this string could drift apart and quietly
+/// break the depth-1 partition.
+pub const ROOT_PARTITION: &str = "__root__";
+
+/// Run-level completion marker written at the index root when a crawl succeeds.
+///
+/// A dotfile, so the readers' `*/*.parquet` glob never mistakes it for a partition.
+pub const COMPLETION_MARKER: &str = ".xdu-complete";
+
+/// The `read_parquet` glob for an index, optionally scoped to a single partition.
+///
+/// Every reader goes through here, so the index layout (`<index>/<partition>/*.parquet`)
+/// is expressed once. It is also the single seam where index paths and partition names
+/// reach SQL, which is where escaping belongs when it is added.
+pub fn index_glob(index: &Path, partition: Option<&str>) -> String {
+    match partition {
+        Some(partition) => format!("{}/{}/*.parquet", index.display(), partition),
+        None => format!("{}/*/*.parquet", index.display()),
+    }
+}
+
+/// A warning to print when an index carries no completion marker, else `None`.
+///
+/// The crawler writes the marker only when a run finishes, so its absence means the index
+/// came from a failed or interrupted run — or predates the marker entirely. Readers warn
+/// and carry on rather than refusing: every index built before the marker existed is still
+/// perfectly queryable, and breaking those would be worse than the risk being flagged.
+pub fn index_completion_warning(index: &Path) -> Option<String> {
+    if index.join(COMPLETION_MARKER).exists() {
+        return None;
+    }
+    Some(format!(
+        "warning: {} has no completion marker ({}); it may be from an interrupted \
+         run or predate the marker, so results may be incomplete",
+        index.display(),
+        COMPLETION_MARKER
+    ))
 }
 
 /// Round size up to the nearest block boundary.
@@ -844,5 +887,43 @@ mod tests {
     fn test_deterministic_limit_clause_some() {
         assert_eq!(deterministic_limit_clause(Some(1)), "ORDER BY path LIMIT 1");
         assert_eq!(deterministic_limit_clause(Some(5)), "ORDER BY path LIMIT 5");
+    }
+
+    // index layout: the glob every reader shares
+
+    #[test]
+    fn test_index_glob_all_partitions() {
+        assert_eq!(
+            index_glob(Path::new("/index/scratch"), None),
+            "/index/scratch/*/*.parquet"
+        );
+    }
+
+    #[test]
+    fn test_index_glob_single_partition() {
+        assert_eq!(
+            index_glob(Path::new("/index/scratch"), Some("alice")),
+            "/index/scratch/alice/*.parquet"
+        );
+        // The reserved loose-file partition is addressed like any other.
+        assert_eq!(
+            index_glob(Path::new("/index/scratch"), Some(ROOT_PARTITION)),
+            "/index/scratch/__root__/*.parquet"
+        );
+    }
+
+    #[test]
+    fn test_index_completion_warning() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let index = dir.path();
+
+        // No marker: a reader should say so, naming the index and the marker.
+        let warning = index_completion_warning(index).expect("markerless index must warn");
+        assert!(warning.contains(&index.display().to_string()));
+        assert!(warning.contains(COMPLETION_MARKER));
+
+        // Marker present: silence.
+        std::fs::write(index.join(COMPLETION_MARKER), "xdu=test\n").unwrap();
+        assert_eq!(index_completion_warning(index), None);
     }
 }

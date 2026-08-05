@@ -146,6 +146,22 @@ making a centrally stored index explorable by anyone with a link, no shell accou
 *Horizon: long-term · Depends on: S3 as an index target · Refs: —*
 **Seed:** `/xdu-feature Build xdu-web, a Wasm progressive web app that browses an S3-backed index in the browser with list/tree views and search, mirroring xdu-view.`
 
+## Internal cleanups surfaced by the crawl-hardening pass
+
+The crawl-hardening work produced a wider architecture assessment whose low-risk cleanups were applied
+at the time (a shared `lib::index_glob` behind every reader's Parquet glob, one home for the
+index-layout constants, reader awareness of the completion marker). It also recorded what was too
+risky or too large to fold in: routing the DuckDB injection surface through validated escaping on the
+`index_glob` seam, reconciling `xdu-view`'s `format_file_count` with `lib::format_count`, and lifting
+the pure TUI helpers — `strip_ansi` above all, which is load-bearing for terminal safety — out of the
+2,500-line `xdu-view` into `lib` where they can be tested. None changes what the tools do; together
+they decide how much of the codebase stays testable as it grows. The full record, including the
+performance levers the benchmark work evaluated and rejected, is
+[`spec/crawl-hardening/ASSESSMENT.md`](spec/crawl-hardening/ASSESSMENT.md).
+
+*Horizon: near-term, low priority · Depends on: — · Refs: —*
+**Seed:** `/xdu-feature Work through the deferred cleanups recorded in spec/crawl-hardening/ASSESSMENT.md: escape the DuckDB injection surface behind lib::index_glob, reconcile the duplicated count formatters, and lift the pure xdu-view helpers into lib with tests.`
+
 ## Native OS packages (DEB / RPM)
 
 Installation today is a release tarball plus `install.sh`. Native `.deb` and `.rpm` packages would

@@ -24,22 +24,19 @@ use parquet::file::properties::WriterProperties;
 
 use crate::SizeMode;
 
-/// Special partition name for files directly in the top-level directory.
+/// The index-layout names, which readers share — re-exported so crawl-side code reads
+/// in one place.
 ///
-/// Reserved: a real top-level subdirectory of this name would collide with the
-/// synthetic depth-1 partition holding loose root files, so `build_work_queue`
+/// `ROOT_PARTITION` is reserved: a real top-level subdirectory of that name would collide
+/// with the synthetic depth-1 partition holding loose root files, so `build_work_queue`
 /// rejects one rather than letting two work items clobber the same chunk ids.
-pub const ROOT_PARTITION: &str = "__root__";
-
-/// Run-level completion marker written at the root of a finished index.
 ///
-/// Per-chunk `partial`→`rename` finalization is atomic for one file but cannot
-/// express whether the *run* finished: when one driver fails, the partitions that
-/// already succeeded remain on disk as real `.parquet` chunks, indistinguishable
-/// from a complete index. The marker is removed when a run starts and written only
-/// when it succeeds, so its presence attests to the whole run. Readers glob
-/// `*/*.parquet`, so a top-level dotfile is never mistaken for a partition.
-pub const COMPLETION_MARKER: &str = ".xdu-complete";
+/// `COMPLETION_MARKER` exists because per-chunk `partial`→`rename` finalization is atomic
+/// for one file but cannot express whether the *run* finished: when one driver fails, the
+/// partitions that already succeeded remain on disk as real `.parquet` chunks,
+/// indistinguishable from a complete index. The marker is removed when a run starts and
+/// written only when it succeeds, so its presence attests to the whole run.
+pub use crate::{COMPLETION_MARKER, ROOT_PARTITION};
 
 /// Location of the completion marker for an index directory.
 pub fn completion_marker_path(index: &Path) -> PathBuf {
