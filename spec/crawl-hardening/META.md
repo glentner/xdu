@@ -42,7 +42,7 @@
   else feature` (or generally map category from kind). Same in `xdu-plan` Step 8.
 - **Confidence:** high · **Effort:** small
 
-## F2 — No guidance for an R-ID satisfied by a research/doc artifact, not a build phase
+## F2 — No guidance for an R-ID satisfied by a research/doc artifact, not a build phase · seen again (xdu-review:step2)
 `origin=xdu-plan:step6 severity=low category=missing-guidance status=open target=.agents/factory/templates/TECH.md`
 - **What happened:** GOAL R1 ("produce a written concurrency audit") and R9 ("HPC protocol doc") are
   satisfied by artifacts (`research/01`, a `bench/` doc), not by CLI-observable behavior. The FSM
@@ -56,6 +56,16 @@
   is a committed artifact may be `satisfies`ed by the phase that produces/commits it, with a
   file-existence/content `verify:` (e.g. `test -f …`) instead of a CLI drive; flag it so `xdu-review`
   grades it by inspecting the artifact, not by driving a binary.
+- **Seen again from the review side (worse there):** that fix says "flag it so `xdu-review` grades it by
+  inspecting the artifact" — but `xdu-review` blinds the reviewer to **all** of `spec/`, and R1's audit
+  (`research/01`) and R8's `ASSESSMENT.md` live exactly there, so the blind reviewer *structurally
+  cannot* verify 2 of 10 R-IDs. I improvised: hand-wrote an instruction telling the reviewer to treat R8
+  as satisfied-by-filename while I verified the content myself as orchestrator. It works, but it is
+  ad-hoc and it silently splits the evidence spine across two contexts. **Extend the fix to
+  `xdu-review` Step 2:** state that artifact-deliverable R-IDs are graded by the *orchestrator* (who may
+  read them), name them explicitly in the delegation prompt as out-of-scope-for-the-reviewer, and have
+  `REVIEW.md` record who verified each. Does not weaken blindness — it makes the existing workaround a
+  rule.
 - **Confidence:** med · **Effort:** small
 
 ## F3 — A self-skipping test reports `ok`, so a green `cargo test` can hide an unrun case
@@ -119,4 +129,20 @@
 - **Recommended fix:** in `xdu-plan`'s phase authoring, point follow-up records at `ROADMAP.md` or a
   spec-local assessment note, never `META.md`; optionally state in the META template that it is
   *skill* feedback only, so the boundary is unmissable from either side.
+- **Confidence:** high · **Effort:** small
+
+## F7 — The evidence spine requires an `scdoc` render with no fallback when `scdoc` is absent
+`origin=xdu-review:step2 severity=low category=tooling status=open target=.claude/skills/xdu-review/SKILL.md`
+- **What happened:** the skill lists "the man-page render via `scdoc` when a `doc/*.scd` is touched" as
+  part of the mandatory executed-evidence spine. `doc/xdu.1.scd` changed on this branch, but `scdoc` is
+  not installed on this host, so that evidence line could not be produced. The reviewer substituted a
+  `xdu --help` ↔ man-page flag-set comparison and flagged the gap; nothing in the skill sanctioned that
+  substitution or told it what to do instead.
+- **Skill cause:** the spine names a specific external tool as required evidence without stating a
+  fallback or how to report its absence, so the reviewer has to invent both mid-pass — and a less
+  careful one would either skip the check silently or report an unearned pass.
+- **Recommended fix:** in `xdu-review` Step 2, make the man-page check conditional and explicit: render
+  with `scdoc` when available, else compare `<bin> --help`'s flag set against the `.scd` by inspection
+  **and record in `REVIEW.md` that the render was unavailable**. Keeps the evidence requirement; only
+  removes the ambiguity about an absent tool.
 - **Confidence:** high · **Effort:** small

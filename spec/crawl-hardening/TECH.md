@@ -3,7 +3,7 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: in_review
+status: blocked
 branch: feature/crawl-hardening
 base: main
 current_phase: done
@@ -86,10 +86,11 @@ phases:
   verify: cargo test && .agents/factory/bin/temp_index.sh sh -c 'xdu-find -i "$XDU_INDEX"
     --count'
 review:
-  last_reviewed_commit: ''
-  verdict: none
-  blocked_reason: ''
-  cycle: 0
+  last_reviewed_commit: e1f5d7e93138ed38b607bb6097c67ca720fc6979
+  verdict: changes-requested
+  blocked_reason: Marker cleared before work-queue validation (xdu.rs); R5 perf evidence
+    overclaims vs committed baseline
+  cycle: 1
 ---
 # TECH.md — Harden & optimize the index-build crawl
 
