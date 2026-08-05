@@ -104,6 +104,17 @@ Launch a fresh `general-purpose` reviewer via the `Agent` tool. Give it, inline,
   scenario, the executed evidence) + a requirement→evidence matrix (every R-ID: implemented? verified
   how?) + any unmapped (scope-creep) changes.
 
+**Artifact-deliverable R-IDs are graded by you, not by the reviewer.** Some requirements are satisfied
+by a committed document (a research audit, a protocol doc, an assessment) that lives under `spec/` —
+which the reviewer is blinded to, and which the `':(exclude)spec/'` pathspec strips from its diff. The
+reviewer therefore *structurally cannot* verify them, and left unsaid it will either report them as
+unverifiable or guess. So: identify them from `TECH.md`'s `satisfies` notes before delegating, **name
+them explicitly in the delegation prompt as out of scope** ("R1 and R8 are satisfied by committed
+artifacts under `spec/`; do not attempt them — the orchestrator grades those"), verify them yourself by
+reading the artifact, and have `REVIEW.md`'s requirement→evidence matrix **record who verified each**.
+This does not weaken blindness: the reviewer still never reads `spec/`. It stops the evidence spine
+from silently splitting across two contexts with neither owning the gap.
+
 `debate`: launch **two** independent reviewers (one instructed to argue "ship", one "block") and
 reconcile their findings.
 

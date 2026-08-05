@@ -52,7 +52,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F2 — No guidance for an R-ID satisfied by a research/doc artifact, not a build phase · seen again (xdu-review:step2)
-`origin=xdu-plan:step6 severity=low category=missing-guidance status=open target=.agents/factory/templates/TECH.md`
+`origin=xdu-plan:step6 severity=low category=missing-guidance status=applied target=.agents/factory/templates/TECH.md`
 - **What happened:** GOAL R1 ("produce a written concurrency audit") and R9 ("HPC protocol doc") are
   satisfied by artifacts (`research/01`, a `bench/` doc), not by CLI-observable behavior. The FSM
   models every R-ID as `satisfies` on a build phase, and the skill steers `verify:` toward driving the

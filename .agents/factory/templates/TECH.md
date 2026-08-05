@@ -54,6 +54,14 @@ checklists below are the work. `xdu-build` executes the next actionable phase, r
 - `appetite`: `small | big` — caps phase count and build-iteration budget (circuit breaker).
 - phase `status`: `pending | in_progress | done | blocked`
 - `satisfies`: GOAL R-IDs this phase delivers (traceability anchor for `xdu-review`).
+  **Artifact-deliverable R-IDs.** Some requirements are met by a *committed document* — a research
+  audit, a protocol doc, an assessment — not by CLI-observable behaviour. Attach such an R-ID to the
+  phase that produces and commits the artifact, and give that phase a content `verify:`
+  (`test -f …`, a `grep -q` for the sections that must exist) rather than forcing a CLI drive.
+  **Say so in the phase body**, because it changes who can grade it: `xdu-review` blinds its reviewer
+  to all of `spec/`, so an R-ID whose evidence lives there is graded by the *orchestrator*, not the
+  blind reviewer. Naming it in `TECH.md` is what lets the review skill route it correctly instead of
+  reporting an unverifiable requirement.
 - `depends_on`: phase ids that must be `done` first (a phase is actionable only when met).
 - `parallel`: `true` only for genuinely independent, non-coupled work (docs, tests, isolated `lib`
   helpers). The coupled core (`src/bin/xdu-rm.rs`, `src/bin/xdu.rs`, `src/lib.rs`, `src/cli.rs`) is
