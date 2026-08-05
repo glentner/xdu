@@ -3,7 +3,7 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: in_review
+status: blocked
 branch: feature/crawl-hardening
 base: main
 current_phase: done
@@ -194,13 +194,16 @@ phases:
     tests bench Cargo.toml Cargo.lock && cargo fmt --all -- --check && cargo clippy
     --all-targets --all-features -- -D warnings && cargo test && echo PHASE-OK
 review:
-  last_reviewed_commit: 08fe099389199f223bafcf621117c80124b8f3fc
+  last_reviewed_commit: a6b8a385869cc80d7cebb202c8da77503050e195
   verdict: changes-requested
-  blocked_reason: 'review cycle 2 (human-gated): remediate C2-F2 AGENTS.md + invariants.md
-    drift and C2-F3 scenarios.md noise-floor range; docs only, no src/ change. C2-F1
-    accepted as recorded on issues/marker-scoped-run-attestation.md; C2-F4 is a host-coverage
-    limitation (see META F3).'
-  cycle: 2
+  blocked_reason: 'review cycle 3 (human-gated, loop bound exhausted): C3-F1 MEDIUM
+    CONFIRMED in src/crawl.rs:232 + src/lib.rs:33 - .xdu-complete is a second reserved
+    index-root name but build_work_queue guards only ROOT_PARTITION, so a source dir
+    of that name bricks the outdir for all future runs. C3-F2 LOW CONFIRMED (src/crawl.rs:443)
+    - a removed top-level dir leaves a phantom partition that the new marker attests
+    as clean; pre-existing prune scope, but recorded nowhere. Cycle 3 of <=3: human
+    must choose fix-in-P13 / record-and-publish / follow-up fix branch.'
+  cycle: 3
 ---
 # TECH.md — Harden & optimize the index-build crawl
 

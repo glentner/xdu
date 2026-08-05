@@ -46,6 +46,12 @@
   `issues/` did not exist, `/xdu-harness` landed the convention, and the phase then ran clean against
   it. Had the gate been advisory, the deferrals would have been written somewhere provisional and the
   harness pass would have had to undo them — which is the exact failure F6 describes.
+- `xdu-review`'s rule that **a later cycle defaults to a fresh full blind pass**, not a narrow
+  re-verification of the named findings, earned cycle 3 outright. The delta under review was documentation
+  only, and a scoped "did the two doc findings get fixed" pass would have returned clean and shipped. The
+  full pass instead found C3-F1 — a MEDIUM coupled-core defect in `src/crawl.rs` + `src/lib.rs` that
+  cycles 1 and 2 had both walked past. The cheap-looking option was the wrong one, and the skill had
+  already decided that in advance.
 
 ## Friction findings
 
@@ -386,3 +392,34 @@
   than restating paths in two files that drift independently. Note this cuts against a non-negotiable
   gate (the human sign-off), so it must only ever *widen* the list, never narrow it.
 - **Confidence:** med · **Effort:** small
+
+## F13 — A newly-reserved on-disk name is documented for one collision direction only, so no gate asks about the other
+
+`origin=xdu-review:step2 severity=medium category=missing-guidance status=open target=.agents/factory/invariants.md`
+
+- **What happened:** cycle 3 found C3-F1 — this pass introduced `.xdu-complete` as a second reserved name
+  at the index root and guarded only the first (`build_work_queue` rejects a source directory named
+  `__root__`, not one named `.xdu-complete`, which bricks the outdir for every future run). Two prior full
+  blind passes missed it, and so did the P12 build that had just finished writing the marker's invariant
+  text. Every artifact in the chain states the *one-way* property and stops there: `invariants.md` §2b
+  ("a dotfile, so the readers' `*/*.parquet` glob never mistakes it for a partition"),
+  `COMPLETION_MARKER`'s doc comment (same sentence), and the man page. The reverse question — *can a
+  partition be mistaken for the marker?* — is asked nowhere, so no reviewer working the checklist was
+  ever pointed at it.
+- **Skill cause:** §3 carries the reserved-name collision check as a fact about one specific name
+  (`__root__`) rather than as a **class**, even though the guard's own in-code comment states the general
+  principle ("the collision is with what is already on disk, not with what this run happens to select").
+  When this pass added a second name in the same namespace, there was no checklist item of the form "for
+  each reserved name in the index-root namespace, is the collision rejected in **both** directions?" —
+  so the gate could be fully satisfied while half the question went unasked. This is the same
+  shape as F12 (a gate keyed to enumerated specifics goes stale when the code adds a new instance), but
+  the failing artifact is an *invariant clause* rather than a file-path list.
+- **Recommended fix:** restate §3's collision item as a namespace rule rather than a `__root__` fact —
+  "`<index>/` holds exactly two kinds of entry: partition directories, and the reserved
+  `COMPLETION_MARKER` dotfile. Every reserved name in that namespace must be rejected as a source-tree
+  top-level name, unconditionally, and a change that adds a reserved name must extend the guard in
+  `build_work_queue` in the same commit" — and add the paired check to the review footgun checklist:
+  *does this diff introduce a new reserved on-disk name, and is the collision guarded symmetrically?*
+  Cheap and checkable: the guard should iterate a single list of reserved names that `lib` owns, so
+  adding a constant to that list is what extends the guard.
+- **Confidence:** high · **Effort:** small
