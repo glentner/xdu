@@ -3,7 +3,7 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: blocked
+status: in_progress
 branch: feature/crawl-hardening
 base: main
 current_phase: P11
@@ -150,7 +150,7 @@ phases:
     clippy --all-targets --all-features -- -D warnings && cargo test
 - id: P11
   name: Record every follow-up this cycle defers (F5 + the P9/P10 deferrals)
-  status: blocked
+  status: pending
   satisfies:
   - R8
   depends_on:
