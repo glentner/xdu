@@ -34,6 +34,13 @@
   clearing the paired spread") set the decision rule *before* the numbers existed. When the capture
   landed as a null, there was nothing to rationalise — the rule already said what a null meant. A
   measurement phase that defines its stopping condition in advance cannot talk itself into a result.
+- F3's own lesson — *a gate should be seen to fail once before it is trusted* — paid for itself in P10
+  and P12, and not in the way expected. Both new gates did pass their negative test, but the first
+  attempt at negative-testing P10's was itself broken: byte-mode `perl` silently failed to substitute a
+  UTF-8 en-dash, so the "wrong" file was never actually wrong and the gate printed `ok`. Reading that as
+  "gate verified" would have shipped an unexercised gate on the strength of a test that never ran. The
+  discipline caught a false green one level up from where it was aimed — worth generalising as *when a
+  negative test passes, first confirm the mutation happened.*
 - The full self-improvement loop closed for the first time on this feature, and the STOP gate is what
   made it work: P11 carried its prerequisite as a hard stop, refused to improvise a destination when
   `issues/` did not exist, `/xdu-harness` landed the convention, and the phase then ran clean against
@@ -347,7 +354,7 @@
   load-bearing half. Framed any looser it would weaken the executed-evidence spine.
 - **Confidence:** high · **Effort:** small
 
-## F12 — No severity slot for AGENTS.md drifting from the code a pass just landed
+## F12 — No severity slot for AGENTS.md drifting from the code a pass just landed · seen again (xdu-build:P12)
 `origin=xdu-review:step3 severity=low category=instruction status=open target=.agents/factory/review-rubric.md`
 - **What happened:** C2-F2 is a real, greppable gap — `src/crawl.rs`, `--allow-errors`, and the new
   `.xdu-complete` marker appear nowhere in `AGENTS.md`, `ROOT_PARTITION` is misattributed to `xdu.rs`,
@@ -367,4 +374,15 @@
   `invariants.md` or an `AGENTS.md` invariant (it degrades a downstream gate) and MEDIUM otherwise. A
   concrete check worth naming: for a `kind: refactor` diff, grep `AGENTS.md` + `invariants.md` for each
   new/moved module and each new CLI flag or on-disk artifact.
+- **Seen again at `xdu-build:P12`, and the sharp case is worse than documentation.** While remediating
+  this finding I found that `finalize()` moving from `bin/xdu.rs` to `crawl.rs` had left the
+  **high-blast-radius file lists stale** in *both* `invariants.md` and `review-rubric.md`. Those lists
+  are not prose — they are the trigger condition for `xdu-review`'s **mandatory human sign-off gate**.
+  With `src/crawl.rs` missing from them, a CONFIRMED finding in the atomic-finalize code would not have
+  fired the gate. So a pure code *move*, touching no behavior, silently disarmed a safety gate, and
+  nothing in the build or review flow re-derives that list. **Raise this finding to `severity=high`
+  scope-wise:** the fix must include a check that any file-path-keyed gate list is re-verified when code
+  moves between modules — ideally by deriving the high-blast-radius list from something checkable rather
+  than restating paths in two files that drift independently. Note this cuts against a non-negotiable
+  gate (the human sign-off), so it must only ever *widen* the list, never narrow it.
 - **Confidence:** med · **Effort:** small

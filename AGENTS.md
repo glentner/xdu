@@ -89,7 +89,12 @@ src/
                  # SortMode, QueryFilters (DuckDB WHERE/ORDER BY builders), format_{count,bytes,speed}
   cli.rs         # the SINGLE clap CLI definition (XduArgs/XduFindArgs/XduViewArgs/XduRmArgs) —
                  # gen-completions + man pages describe exactly this
-  bin/xdu.rs     # indexer: shared-rayon-pool concurrent walk, PartitionBuffer, atomic finalize, progress
+  crawl.rs       # index-build hot path lifted out of the bin so it is unit-testable: work-queue
+                 # construction (incl. the __root__ collision rejection), per-file record building,
+                 # PartitionBuffer + atomic finalize, completion-marker read/write. Only the crawler
+                 # uses it; the reader tools never do. The concurrency scaffold stays in bin/xdu.rs.
+  bin/xdu.rs     # indexer: shared-rayon-pool concurrent walk, driver threads, thread::scope error
+                 # propagation, progress — the scaffold around lib::crawl
   bin/xdu-find.rs   # DuckDB query CLI
   bin/xdu-view.rs   # 2487-line ratatui/crossterm TUI (read-only)
   bin/xdu-rm.rs     # destructive bulk delete (safe mode, confirm, dry-run, parallel)
@@ -135,13 +140,30 @@ other. Neither replaces the other.
 
 ```
 xdu ──walk (jwalk + shared rayon pool)──▶ PartitionBuffer ──.partial──▶ fs::rename ──▶ <index>/<part>/NNNNNN.parquet
-                                                                                              │
-xdu-find / xdu-view / xdu-rm ◀── DuckDB read_parquet('<index>/<part-or-*>/*.parquet') ◀───────┘
+                                    │                                                         │
+                        on success  └──▶ <index>/.xdu-complete  (run-level attestation)        │
+                                                     │                                         │
+xdu-find / xdu-view / xdu-rm ◀── warn if absent/errors ┘  ◀── DuckDB read_parquet('<index>/<part-or-*>/*.parquet') ◀┘
 ```
 
 - **Index layout:** `<outdir>/<partition>/NNNNNN.parquet`, where `partition` is a top-level
   subdirectory name. Loose files directly under the indexed root go to the reserved partition
-  **`__root__`** (`ROOT_PARTITION`, `xdu.rs`), crawled with `max_depth(1)`. Readers glob `*/*.parquet`.
+  **`__root__`** (`ROOT_PARTITION`, `lib.rs`), crawled with `max_depth(1)`. Readers glob `*/*.parquet`.
+  A real top-level subdirectory *named* `__root__` would collide with that synthetic partition and
+  clobber its chunk ids, so `crawl::build_work_queue` **rejects** one instead.
+- **Run-level completion marker:** `<outdir>/.xdu-complete` (`COMPLETION_MARKER`, `lib.rs`) — a
+  dotfile, so the readers' `*/*.parquet` glob never mistakes it for a partition. Per-chunk
+  `.partial`→rename is atomic for one *file* but cannot express whether the **run** finished: when one
+  driver fails, partitions that already succeeded stay on disk as real `.parquet` chunks,
+  indistinguishable from a complete index. So the marker is **cleared once pre-flight has passed** and
+  the crawl is about to write, and **written only on the success path** — its presence attests to the
+  whole run. Body is `key=value` lines (`xdu`, `completed_at`, `files`, `bytes`, `vanished`, `errors`,
+  `lossy_paths`), so an `--allow-errors` run still records how much it skipped. All three readers call
+  `lib::index_completion_warning` and emit a **soft stderr warning** (never a refusal) when the marker
+  is absent or records tolerated errors; reads are capped (`MARKER_READ_LIMIT`) and non-blocking, so a
+  FIFO or huge file left at that path cannot hang or exhaust a reader. **Known limitation:** the marker
+  describes the whole index but its counts come from one run, so a `--partition`-scoped run rewrites it
+  from its own stats — see `issues/marker-scoped-run-attestation.md`.
 - **Concurrency (indexer):** a **single** rayon pool (`Parallelism::RayonExistingPool`) backs **all**
   jwalk walkers; up to `--jobs` driver `std::thread`s pull partitions from a `Mutex<VecDeque>` work
   queue; rayon work-stealing balances directory reads across all active walkers so one huge partition
@@ -156,7 +178,10 @@ xdu-find / xdu-view / xdu-rm ◀── DuckDB read_parquet('<index>/<part-or-*>/
 ## CLI surface (`src/cli.rs` is the one definition)
 
 - `xdu DIR -o/--outdir DIR [-j/--jobs N (env XDU_JOBS, dflt 4)] [-B/--buffsize N (100000)]
-  [--apparent-size] [-k/--block-size SIZE] [-p/--partition NAMES]`
+  [--apparent-size] [-k/--block-size SIZE] [-p/--partition NAMES] [--allow-errors]`
+  — `--allow-errors` is **opt-in**: by default any walk/stat error fails the run non-zero and no
+  completion marker is written; with it, unreadable entries are counted, reported on stderr, the run
+  exits 0, and the marker records the tolerated `errors=N`.
 - `xdu-find -i/--index DIR (env XDU_INDEX) [-p/--pattern REGEX] [-u/--partition NAME]
   [--min-size/--max-size SIZE] [--older-than/--newer-than DAYS] [-f/--format path|size|atime|csv|json]
   [-l/--limit N] [-c/--count] [--top N]`
@@ -181,11 +206,16 @@ kept **in lockstep** with this section (this file wins if they drift). The `xdu-
    `FileRecord`, or a reader's column list is a breaking, cross-cutting index-format change (issues
    #2/#3 — owner/group/perms — are exactly this: add a schema version first).
 2. **Atomic finalization.** Write `NNNNNN.parquet.partial` → `fs::rename` (same dir) → prune stale
-   higher chunks (`xdu.rs::finalize()`). Never `File::create` a final `.parquet`, never cross-dir
-   rename, never let a reader glob `.partial`. **Known limitation:** finalize is per-file, not
-   per-partition atomic — do not index a partition while purging it.
+   higher chunks (`crawl.rs::PartitionBuffer::finalize()`). Never `File::create` a final `.parquet`,
+   never cross-dir rename, never let a reader glob `.partial`. **Known limitation:** finalize is
+   per-file, not per-partition atomic — do not index a partition while purging it. Run-level
+   completeness is a *separate* mechanism: the `.xdu-complete` marker (see Architecture), cleared after
+   pre-flight and written only on success. Never write it on a failure path.
 3. **Partition scheme.** `<index>/<partition>/NNNNNN.parquet`; `__root__` reserved for loose
-   top-level files (depth-1 walk); zero-padded sequential chunk ids; readers glob `*/*.parquet`.
+   top-level files (depth-1 walk); zero-padded sequential chunk ids; readers glob `*/*.parquet`. A real
+   top-level dir named `__root__` is **rejected** by `crawl::build_work_queue` (it would clobber the
+   synthetic partition's chunk ids), unconditionally — even when a `--partition` filter would exclude
+   it, because the collision is with the layout, not with the selection.
 4. **`xdu-rm` destructive safety.** Default requires interactive `y/N` (anything but `y`/`yes`
    aborts); `--dry-run` deletes nothing; `--force` skips the prompt; `--safe` re-stats each file
    immediately before unlink. **Any deletion combined with `--limit` MUST carry a deterministic
@@ -219,9 +249,13 @@ kept **in lockstep** with this section (this file wins if they drift). The `xdu-
 - **`src/bin/xdu-rm.rs`** — destructive. `--limit` needs a deterministic `ORDER BY`; `--safe` must
   re-verify the criteria it claims to (atime/size today; min-size/newer-than/pattern are gaps); the
   confirm/dry-run/force gates are load-bearing.
-- **`src/lib.rs`** — `get_schema()` (schema stability) and `QueryFilters` (the SQL/injection surface).
-- **`src/bin/xdu.rs`** — `finalize()` atomicity + stale-chunk pruning; `__root__` handling; the
-  shared-pool concurrency model.
+- **`src/lib.rs`** — `get_schema()` (schema stability), `QueryFilters` (the SQL/injection surface),
+  `index_glob` (the one place the index layout becomes SQL), and the `ROOT_PARTITION` /
+  `COMPLETION_MARKER` layout constants.
+- **`src/crawl.rs`** — `PartitionBuffer::finalize()` atomicity + stale-chunk pruning; the `__root__`
+  collision rejection in `build_work_queue`; completion-marker write/clear ordering.
+- **`src/bin/xdu.rs`** — the shared-pool concurrency model (driver threads, `thread::scope` error
+  propagation); marker clear-after-pre-flight / write-on-success sequencing.
 - **`src/bin/xdu-view.rs`** — terminal restore on panic; multibyte-safe truncation; empty-list
   bounds; unbounded preview memory.
 

@@ -3,10 +3,10 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: in_progress
+status: in_review
 branch: feature/crawl-hardening
 base: main
-current_phase: P12
+current_phase: done
 last_updated: '2026-08-05'
 phases:
 - id: P1
@@ -177,7 +177,7 @@ phases:
     && echo PHASE-OK'
 - id: P12
   name: 'C2-F2: resync AGENTS.md + invariants.md with the code this cycle landed'
-  status: pending
+  status: done
   satisfies:
   - R10
   depends_on:
@@ -1128,6 +1128,60 @@ it. The design pass found a **second**, related pre-existing §12 gap worth the 
 > cleared before work-queue validation; R5 perf evidence overclaims") named two findings that **P7 and
 > P10 have since fixed**, so leaving it would have described a blocker that no longer exists. The full
 > cycle-1 record remains in [`REVIEW.md`](REVIEW.md).
+
+---
+
+## Phase P12 — C2-F2: resync `AGENTS.md` + `invariants.md` with the code this cycle landed
+**Satisfies:** R6, R10 · **Depends on:** P11
+**Goal:** review cycle 2 found the operating manual drifted against the code this branch landed.
+`AGENTS.md` opens by declaring itself the map and instructing that when it disagrees with the code,
+**the code is ground truth — fix this file**; R6's outcome is that a maintainer can reason from "the
+code and its documented invariants without re-deriving them". Four greppable gaps, all confirmed at
+zero occurrences: `src/crawl.rs` (a new 874-line module holding the crawl's testable core) absent from
+the repository map; `--allow-errors` absent from the CLI-surface list that enumerates every other `xdu`
+flag; `ROOT_PARTITION` still attributed to `xdu.rs` though it moved to `lib.rs`; and the
+`.xdu-complete` marker — a **new on-disk artifact at the index root**, load-bearing for all three
+readers — documented nowhere, in neither file.
+
+The compounding half is why this is not cosmetic: `invariants.md` is the curated gate that **both**
+`/xdu-plan` and the next `/xdu-review` draw from. Stale there, it silently narrows every future cycle —
+the next review would not check the marker contract or the `__root__` collision rejection at all.
+
+- [x] `AGENTS.md` repository map: add `crawl.rs` with what it holds (work-queue construction incl. the
+      `__root__` collision rejection, per-file record building, `PartitionBuffer` + atomic finalize,
+      marker read/write) and the boundary that makes it testable — only the crawler uses it, the
+      concurrency scaffold stays in `bin/xdu.rs`. Retune the `bin/xdu.rs` line to the scaffold role it
+      now has.
+- [x] `AGENTS.md` Architecture: re-attribute `ROOT_PARTITION` to `lib.rs`, state the `__root__`
+      collision rejection, and add a **Run-level completion marker** bullet — path, dotfile rationale,
+      the clear-after-pre-flight / write-on-success ordering and *why* per-chunk atomicity cannot express
+      it, the `key=value` body, the soft-warning reader contract with its bounded non-blocking read, and
+      the recorded scoped-run limitation. Extend the data-flow diagram to show the marker and the
+      readers' warning path.
+- [x] `AGENTS.md` CLI surface: add `--allow-errors` with its opt-in semantics (default fails non-zero
+      and writes no marker; with it, errors are counted/reported, exit 0, `errors=N` recorded).
+- [x] `AGENTS.md` invariants §2/§3 + the high-risk-files quick reference: point atomic finalize at
+      `crawl.rs::PartitionBuffer::finalize()`, add the marker as a separate run-level mechanism, add the
+      unconditional `__root__` rejection, and add `src/crawl.rs` as its own high-risk entry.
+- [x] `.agents/factory/invariants.md`: same resync, as the curated gate — retitle §2 to the new
+      finalize location, add **§2b** (the full marker contract, incl. the recorded scoped-run limitation
+      marked *do not fix incidentally*) and **§2c** (fail-loud default + `--allow-errors` stays opt-in,
+      with the jwalk one-`Err`-per-subtree reason it exists), and extend §3 with the collision rejection
+      and `index_glob` as the single layout→SQL seam.
+- [x] **Beyond the finding, same root cause:** `finalize()` moved to `crawl.rs`, so the
+      **high-blast-radius file lists were stale** — and those lists are exactly what fires the review's
+      mandatory human gate. A CONFIRMED finding in the atomic-finalize code would no longer have
+      triggered it. Added `src/crawl.rs` to the list in both `invariants.md` and
+      `review-rubric.md` (which duplicates it for the gate).
+- **Verify:** greps asserting each of the eight facts above (including the *negative* assertion that
+  the stale `ROOT_PARTITION`, `xdu.rs` attribution is gone), all four `doc/*.scd` still render under
+  `scdoc`, **no `src`/`tests`/`bench` diff**, and the full Rust gate green.
+  *(Result: green — `PHASE-OK`, 9 test-result blocks ok, 104 tests. Each of the eight assertions was
+  then run individually to confirm none passes vacuously, and the gate was **seen to fail**: reverting
+  the `ROOT_PARTITION` attribution in an isolated copy flips both the positive `lib.rs` assertion and
+  the negative `xdu.rs` one.)*
+- **Touches:** `AGENTS.md`, `.agents/factory/invariants.md`, `.agents/factory/review-rubric.md`, this
+  file. **No `src/` change** — this phase is documentation resync only, per the cycle-2 human gate.
 
 ---
 
