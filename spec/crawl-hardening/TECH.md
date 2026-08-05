@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: feature/crawl-hardening
 base: main
-current_phase: P5
+current_phase: P6
 last_updated: '2026-08-04'
 phases:
 - id: P1
@@ -62,7 +62,7 @@ phases:
 - id: P5
   name: 'Perf: relocate stat into process_read_dir (L1) + direct-to-Arrow builders
     (L2), measured vs baseline'
-  status: pending
+  status: done
   satisfies:
   - R5
   - R10
@@ -295,24 +295,58 @@ P5's measured-win gate) and a written HPC protocol ([research/03](research/03-be
 **Goal:** Apply the highest-leverage, behavior-preserving levers and prove them against the baseline;
 document the remaining ceiling ([research/02](research/02-jwalk-perf.md)).
 
-- [ ] **L1:** `WalkDir` → `WalkDirGeneric<C>` with `DirEntryState = Option<(i64 size, i64 atime)>`;
+- [x] **L1:** `WalkDir` → `WalkDirGeneric<C>` with `DirEntryState = Option<(i64 size, i64 atime)>`;
       compute `blocks()*512`/`len()`/`atime()` (via `e.metadata()` = `symlink_metadata`, **does not
       follow links** → §8 preserved, closes the current `fs::metadata` TOCTOU) in a `process_read_dir`
       callback (runs in the shared pool). Driver reads the pre-computed state; **no driver stat**. Route
       a stat error into P2's counted-skip path (store `None`). **Do not** remove dir entries from
       `children` (jwalk needs them to recurse). `busy_timeout: None` stays; `-j` default stays 4.
-- [ ] **L2:** `PartitionBuffer` appends straight into pre-sized `StringBuilder` /`Int64Builder` as
+      *(**Implemented, measured, and REVERTED** — this is R5's "a change that does not measurably help
+      SHALL NOT be merged" clause firing. Built exactly as specified (`CrawlState`/`EntryStat` carrying
+      `Measured`/`Failed(ErrorKind)` so P2's error accounting was preserved), then benchmarked: **-54.8%
+      on s3**, the 1000-partition shape that is precisely the per-user HPC layout xdu exists for; +50%
+      on s2 flat-wide; noise elsewhere. Evidence: `bench/results/comparison-l1-l2.json`.
+      **[research/02](research/02-jwalk-perf.md)'s premise for its highest-leverage lever is wrong:** it
+      says stat "is serialized on the driver", but stats were already parallel *across* the `--jobs`
+      driver threads — serial only within one partition. Moving them into the pool does not add stat
+      concurrency, it relocates it from C drivers to N pool threads (and C == N == jobs), leaving the
+      drivers idle: total metadata concurrency drops from ~C+N to ~N. The s2 gain was pipelining
+      (driver encodes while pool stats), which is L4's lever, not L1's. Kept from this item: the
+      `symlink_metadata` TOCTOU fix, now via `entry.metadata()` on the driver.)*
+- [x] **L2:** `PartitionBuffer` appends straight into pre-sized `StringBuilder` /`Int64Builder` as
       records arrive; `flush()` just `finish()`es; drop the `Vec<FileRecord>` intermediate. No schema
       change (`get_schema()` untouched); `FileRecord` stays public.
-- [ ] Run `bench/run.sh` on the L1+L2 build **and** on the pre-P5 commit (via `git worktree`); record
+      *(Amendments: (a) `add` takes `(&str, i64, i64)` instead of a `FileRecord`, so a valid UTF-8 path
+      is borrowed from the walker straight into the column and its bytes are copied **once** — passing a
+      `FileRecord` would have kept the per-row `String` allocation the lever exists to remove.
+      `record_from_metadata` is therefore replaced by `file_size_and_atime` + `lossy_path`; `FileRecord`
+      stays public with its lib tests. (b) Pre-sizing is capped at 8192 rows rather than a whole
+      `--buffsize`: reserving a full chunk doubled RSS on the many-small-partitions shape (13.2 → 26.6
+      MiB) for partitions holding a few hundred rows; capped, that cost falls to 17.0 MiB and the
+      throughput win is unchanged. (c) Added a unit test that reads chunks back through the Parquet
+      reader and asserts every row survived the builder reset across chunk boundaries.)*
+- [x] Run `bench/run.sh` on the L1+L2 build **and** on the pre-P5 commit (via `git worktree`); record
       the comparison under `bench/results/`. Keep a lever only if it shows no regression / a measured
       win; if warm-cache local NVMe hides L1's gain, note it and rely on the HPC protocol (R9).
-- [ ] Document the remaining ceiling (metadata-server-bound; jwalk parallelizes per-directory so a
+      *(Three documents committed, all measured back-to-back on one machine against identical generated
+      trees: `comparison-pre-p5.json` (worktree at c9630c0), `comparison-l1-l2.json` (the rejected
+      variant — kept as the evidence for the rejection), `comparison-l2-only.json` (shipped). Shipped
+      vs pre-P5, median of 5 reps after a discarded warm-up, judged by whether the per-rep ranges
+      overlap: **s2 +38.4%, s3 +18.0%, s5 -j2 +7.0%, s5 -j4 +13.6% — real wins** (disjoint ranges);
+      s5 -j1 +7.5% and s5 -j8 ±0% within noise; **no regression anywhere**. Peak RSS improved in 4 of 6
+      configurations. Row counts equal generated counts on every configuration and every build.
+      Amendment: `.gitignore` gained a `comparison-*.json` exception so these are committable.)*
+- [x] Document the remaining ceiling (metadata-server-bound; jwalk parallelizes per-directory so a
       single flat billion-file dir stays single-threaded) in `bench/scenarios.md` or a short note; list
       L3/L4/L5/L6 as evaluated-and-deferred with the reason.
+      *(New "The performance ceiling, and what was tried" section in `bench/scenarios.md`: what shipped,
+      why stat-in-pool was rejected with its numbers, L3/L4/L5/L6 deferred each with a reason, and the
+      structural limit. L4 (pipelined writes) is named as the honest lever for the flat-wide shape.)*
 - **Verify:** `cargo test` — the full `crawl_tests` suite must stay green (counts, determinism, size
       modes, symlink exclusion **unchanged** — proves L1/L2 preserved semantics). Perf comparison
       recorded in `bench/results/` (checked at review).
+      *(Result: green — 60 lib + 17 crawl + 16 rm, fmt/clippy clean. All three reader tools driven
+      against a throwaway index: counts 4/2/1 and `xdu-rm --dry-run` output identical to pre-P5.)*
 - **Touches:** `src/lib.rs` (`crawl`: `PartitionBuffer`, walker state), `src/bin/xdu.rs` (walker
       construction + driver read path), `bench/results/`.
 

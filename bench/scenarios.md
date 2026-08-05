@@ -100,7 +100,10 @@ with `sh bench/run.sh baseline`: an `s5` sweep over `--jobs 1 2 4 8` plus one `s
 self-evident — regenerate it when the crawl changes and the comparison is no longer
 meaningful.
 
-Numbers live in that file rather than in this document, so nothing here rots. What the
+`comparison-pre-p5.json` and `comparison-l1-l2.json` are the before/after pair for the
+stat-relocation and direct-to-Arrow work, measured back to back on one machine.
+
+Numbers live in those files rather than in this document, so nothing here rots. What the
 baseline shows in *shape*, and what a later change should be read against:
 
 - Throughput on the mixed shape rises steeply from `-j 1` through `-j 4` and then
@@ -112,3 +115,65 @@ baseline shows in *shape*, and what a later change should be read against:
   is the structural ceiling of the approach, not a tuning failure.
 - **Many small partitions** are handled at close to the mixed shape's rate with very low
   memory: the work queue distributes them well.
+
+## The performance ceiling, and what was tried
+
+The crawl is **metadata-bound**: it issues one `getdents` per directory and one `stat` per
+file and never reads content. Everything else — building the columns, Snappy encoding,
+writing chunks — is small beside that. So the ceiling is set by how many metadata
+operations the filesystem will serve concurrently, and by how many the crawl can have in
+flight.
+
+`xdu` keeps stats in flight two ways: the shared rayon pool reads directories
+concurrently, and each of the `--jobs` driver threads stats the files of the partition it
+is walking. Both matter, and the second is easy to overlook.
+
+**What shipped:** the per-partition buffer now appends into Arrow builders as records
+arrive rather than collecting row structs and copying every path a second time at flush.
+A valid UTF-8 path is borrowed straight from the walker into the column, so its bytes are
+copied once. The per-file stat also moved from `fs::metadata` to the walker entry's
+`symlink_metadata`, which closes the window where a file could be swapped for a symlink
+between the directory read and the stat. Measured against the previous commit on the same
+machine, back to back: real wins on the flat-wide, many-partition and mid-`--jobs` mixed
+shapes, no measured regression anywhere, and lower peak RSS in most configurations
+(`comparison-pre-p5.json` vs `comparison-l2-only.json`).
+
+**What was tried and rejected — moving the stat into the pool.** The obvious lever is to
+stat each file inside jwalk's `process_read_dir` callback, so stats run on the pool
+instead of the driver. Implemented and measured (`comparison-l1-l2.json`), it was **50%
+slower on the many-partition shape** and roughly neutral elsewhere. The reasoning that
+motivated it was wrong: stats were never serialized globally — they already ran in
+parallel across the driver threads. Moving them into the pool does not add stat
+concurrency, it *relocates* it, from `--jobs` drivers to the pool's `--jobs` threads,
+leaving the drivers idle. Total metadata concurrency therefore falls from roughly
+(drivers + pool) to (pool). It looked like a win only on the single-flat-directory shape,
+and there the gain was really pipelining — the driver encoding one batch while the pool
+stats the next — which is a different lever entirely. Reverted.
+
+**Deferred, with reasons:**
+
+- **Decoupling pool width from driver count** (today `--jobs` sets both). This is the
+  change that would make pool-side stat worthwhile, and on a high-latency metadata server
+  oversubscribing the pool should hide RPC latency. It needs new tuning surface and a
+  changed relationship between `--jobs` and thread counts, so it wants its own measured
+  pass — ideally against the numbers `HPC-PROTOCOL.md` collects, since a warm local
+  filesystem cannot show the latency-hiding effect it targets.
+- **Pipelining the Parquet write off the driver** (a bounded channel to a writer thread).
+  This is the honest lever for the flat-wide shape, where one driver owns an entire huge
+  directory and stalls on encode and I/O. It must not weaken atomic finalization —
+  chunk ids stay sequential and the rename/prune may only happen after the writer drains —
+  so it deserves its own phase rather than a tail-end change here.
+- **Parquet encoding settings** (disabling dictionary encoding for the near-unique `path`
+  column, delta encoding for the integer columns). Expected to be minor for write
+  throughput, which measurement here says is not the bottleneck.
+- **Fanning stats out within a single directory** (`par_iter_mut` inside the walk
+  callback). This addresses the one shape that genuinely cannot parallelize — a single
+  directory of tens of millions of files — but it inherits the same flaw as the rejected
+  lever: it competes for the same pool threads. It only makes sense together with the
+  pool/driver decoupling above.
+
+**The structural limit that remains:** jwalk's unit of parallelism is the directory. One
+enormous flat directory is read by a single thread no matter what `--jobs` says, and no
+amount of tuning inside the current walk changes that — it is a property of the approach,
+not of this configuration. Trees with many directories parallelize well; a single
+billion-entry directory does not.

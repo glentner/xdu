@@ -87,3 +87,21 @@
   banner above such blocks, or a template convention), and add a line to `xdu-build` Step 2: research
   code is a design sketch to re-derive, not source to transcribe.
 - **Confidence:** med · **Effort:** small
+
+## F5 — A phase bundling several optimizations behind one measurement can ship a pessimization
+`origin=xdu-build:P5 severity=medium category=missing-guidance status=open target=.claude/skills/xdu-build/SKILL.md`
+- **What happened:** P5's checklist was "implement L1, implement L2, then benchmark the L1+L2 build
+  against the pre-P5 commit" — two independent levers, one measurement. L1 turned out to be a 55%
+  *regression* on the very shape xdu exists for, and L2 a solid win. Measured together the two partly
+  cancel: the mixed-scenario numbers looked mildly positive, and only the many-partition scenario made
+  the problem visible. Had L1's regression been milder, L2's win would have paid for it and a genuine
+  pessimization would have shipped credited as an improvement — exactly what GOAL R5 forbids. I caught
+  it only by reading per-scenario numbers rather than an aggregate, then re-measuring L2 alone.
+- **Skill cause:** the verify discipline is stated per *phase* ("keep a lever only if it shows no
+  regression / a measured win"), but a phase may contain several independent changes. Nothing says the
+  unit of measurement must be the unit of *change*, so a bundled phase gets one verdict.
+- **Recommended fix:** add to `xdu-build` Step 4 (and `xdu-plan`'s phase authoring): when a phase
+  contains more than one independent performance change, measure each against the same reference and
+  report a verdict per change; report per-scenario numbers, never a single mean. An aggregate can hide
+  one change's regression behind another's win. Strengthens the gate; weakens nothing.
+- **Confidence:** high · **Effort:** small

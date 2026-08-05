@@ -19,7 +19,7 @@ use rayon::ThreadPoolBuilder;
 use xdu::cli::XduArgs;
 use xdu::crawl::{
     CrawlStats, EntryError, PartitionBuffer, TopEntry, build_work_queue, classify_io_error,
-    clear_completion_marker, completion_marker_contents, record_from_metadata,
+    clear_completion_marker, completion_marker_contents, file_size_and_atime, lossy_path,
     write_completion_marker,
 };
 use xdu::{SizeMode, format_bytes, format_count, format_speed, get_schema, parse_size};
@@ -293,20 +293,30 @@ fn crawl(
                                     continue;
                                 }
 
-                                let path = entry.path();
-                                let metadata = match fs::metadata(&path) {
+                                // `DirEntry::metadata` is `symlink_metadata` here (the
+                                // walker sets follow_links(false)), which closes the
+                                // window where a file could be swapped for a symlink
+                                // between the directory read and this stat. For a regular
+                                // file lstat and stat agree, so sizes and atimes are
+                                // unchanged.
+                                let metadata = match entry.metadata() {
                                     Ok(m) => m,
-                                    // The file raced away (ENOENT) or became unreadable between
-                                    // the walk and this stat: benign race vs. hard error.
+                                    // The file raced away (ENOENT) or became unreadable
+                                    // between the walk and this stat: benign vs. hard.
                                     Err(err) => {
-                                        match classify_io_error(Some(err.kind())) {
+                                        let kind = err.io_error().map(|e| e.kind());
+                                        match classify_io_error(kind) {
                                             EntryError::Vanished => part_vanished += 1,
                                             EntryError::Hard => {
                                                 part_errors += 1;
+                                                let detail = err
+                                                    .io_error()
+                                                    .map(|e| e.to_string())
+                                                    .unwrap_or_else(|| err.to_string());
                                                 report(&format!(
                                                     "error: {}: {}",
-                                                    path.display(),
-                                                    err
+                                                    entry.path().display(),
+                                                    detail
                                                 ));
                                             }
                                         }
@@ -314,9 +324,9 @@ fn crawl(
                                     }
                                 };
 
-                                let (record, lossy) =
-                                    record_from_metadata(&path, &metadata, size_mode);
-                                let file_size = record.size as u64;
+                                let (file_size, atime) = file_size_and_atime(&metadata, size_mode);
+                                let path = entry.path();
+                                let (path_str, lossy) = lossy_path(&path);
 
                                 // The stored path carries U+FFFD in place of the real
                                 // bytes, so it names no file on disk. Say so once per
@@ -335,11 +345,11 @@ fn crawl(
                                     }
                                 }
 
-                                buffer.add(record)?;
+                                buffer.add(&path_str, file_size, atime)?;
 
                                 // Update global atomics
                                 global_files.fetch_add(1, Ordering::Relaxed);
-                                global_bytes.fetch_add(file_size, Ordering::Relaxed);
+                                global_bytes.fetch_add(file_size as u64, Ordering::Relaxed);
 
                                 // Update progress bars periodically
                                 let now = Instant::now();

@@ -6,8 +6,9 @@
 __pycache__/
 # JetBrains IDE project files (per-developer, not part of the build).
 /.idea/
-# Benchmark output: raw logs and ad-hoc result documents are per-machine and per-run.
-# Only the committed reference measurement is tracked, so a local `bench/run.sh` never
-# dirties the tree.
+# Benchmark output: raw logs and ad-hoc result documents are per-machine and per-run,
+# so a local `bench/run.sh` never dirties the tree. The reference measurement and any
+# recorded before/after comparison are the artifacts worth keeping.
 /bench/results/*
 !/bench/results/baseline.json
+!/bench/results/comparison-*.json

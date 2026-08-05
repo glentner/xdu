@@ -15,14 +15,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use arrow::array::{Int64Array, StringBuilder};
+use arrow::array::{Int64Builder, StringBuilder};
 use arrow::datatypes::Schema;
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
 
-use crate::{FileRecord, SizeMode};
+use crate::SizeMode;
 
 /// Special partition name for files directly in the top-level directory.
 ///
@@ -101,39 +101,30 @@ pub fn chunk_final_name(id: usize) -> String {
     format!("{:06}.parquet", id)
 }
 
-/// Build a `FileRecord` from a file's path and metadata under the chosen size mode.
+/// The two index columns derived from a file's metadata, under the chosen size mode.
 ///
 /// The `MetadataExt` reads (`blocks()`×512 for disk usage, `atime()`) are Unix-only.
 /// The caller performs the `stat` syscall and passes the borrowed `Metadata` in.
-///
-/// The second return value reports whether the path needed lossy UTF-8 conversion.
-/// The schema's `path` column is UTF-8, so a filename carrying invalid bytes is
-/// stored with U+FFFD replacements: the row no longer names a real file and cannot
-/// be unlinked by `xdu-rm`. The caller counts and reports those rows — storing the
-/// raw bytes would require an index-format change.
-pub fn record_from_metadata(
-    path: &Path,
-    metadata: &Metadata,
-    size_mode: SizeMode,
-) -> (FileRecord, bool) {
+pub fn file_size_and_atime(metadata: &Metadata, size_mode: SizeMode) -> (i64, i64) {
     let disk_usage = metadata.blocks() * 512;
     let file_len = metadata.len();
-    let atime = metadata.atime();
     let file_size = size_mode.calculate(disk_usage, file_len);
 
-    let (path, lossy) = match path.to_string_lossy() {
-        Cow::Borrowed(valid) => (valid.to_string(), false),
-        Cow::Owned(replaced) => (replaced, true),
-    };
+    (file_size as i64, metadata.atime())
+}
 
-    (
-        FileRecord {
-            path,
-            size: file_size as i64,
-            atime,
-        },
-        lossy,
-    )
+/// Convert a path to the index's UTF-8 `path` column, reporting whether bytes were lost.
+///
+/// The schema's `path` column is UTF-8, so a filename carrying invalid bytes is stored
+/// with U+FFFD replacements: the row no longer names a real file and cannot be unlinked
+/// by `xdu-rm`. The caller counts and reports those rows — storing the raw bytes would
+/// require an index-format change. A valid UTF-8 path borrows, so the common case does
+/// not allocate at all.
+pub fn lossy_path(path: &Path) -> (Cow<'_, str>, bool) {
+    match path.to_string_lossy() {
+        Cow::Borrowed(valid) => (Cow::Borrowed(valid), false),
+        Cow::Owned(replaced) => (Cow::Owned(replaced), true),
+    }
 }
 
 /// A top-level entry under the indexed root, classified by the crawler's `read_dir`
@@ -300,11 +291,30 @@ pub fn build_work_queue(
     Ok(work_queue)
 }
 
+/// Typical bytes per path, used only to size the chunk's initial string buffer.
+const ESTIMATED_PATH_BYTES: usize = 64;
+
+/// Rows the builders reserve up front, capped well below a default `--buffsize`.
+///
+/// Reserving a whole chunk would allocate megabytes per partition even for a partition
+/// holding a handful of files — and an index over one directory per user is mostly small
+/// partitions. The builders grow geometrically instead, so a large partition reaches full
+/// size in a few reallocations whose cost is nothing beside the `stat` per row.
+const INITIAL_ROW_CAPACITY: usize = 8192;
+
 /// Per-partition buffer that accumulates records and flushes to Parquet.
+///
+/// Records are appended straight into the Arrow builders as they arrive, so a path's
+/// bytes are copied once — into the column that gets written — rather than into an
+/// intermediate row struct first. `flush` then only has to `finish` the builders.
 pub struct PartitionBuffer {
     partition: String,
     outdir: PathBuf,
-    records: Vec<FileRecord>,
+    path_builder: StringBuilder,
+    size_builder: Int64Builder,
+    atime_builder: Int64Builder,
+    /// Rows appended since the last flush (the builders do not expose a row count).
+    buffered: usize,
     buffsize: usize,
     chunk_counter: usize,
     schema: Arc<Schema>,
@@ -317,10 +327,14 @@ pub struct PartitionBuffer {
 
 impl PartitionBuffer {
     pub fn new(partition: String, outdir: PathBuf, buffsize: usize, schema: Arc<Schema>) -> Self {
+        let (path_builder, size_builder, atime_builder) = Self::new_builders(buffsize);
         Self {
             partition,
             outdir,
-            records: Vec::with_capacity(buffsize),
+            path_builder,
+            size_builder,
+            atime_builder,
+            buffered: 0,
             buffsize,
             chunk_counter: 0,
             schema,
@@ -330,18 +344,34 @@ impl PartitionBuffer {
         }
     }
 
-    pub fn add(&mut self, record: FileRecord) -> Result<()> {
+    /// Builders sized for a first batch of rows; they grow from there as needed.
+    fn new_builders(buffsize: usize) -> (StringBuilder, Int64Builder, Int64Builder) {
+        let rows = buffsize.min(INITIAL_ROW_CAPACITY);
+        (
+            StringBuilder::with_capacity(rows, rows.saturating_mul(ESTIMATED_PATH_BYTES)),
+            Int64Builder::with_capacity(rows),
+            Int64Builder::with_capacity(rows),
+        )
+    }
+
+    /// Append one indexed file. `size` is already resolved under the run's `SizeMode`.
+    pub fn add(&mut self, path: &str, size: i64, atime: i64) -> Result<()> {
         self.file_count += 1;
-        self.byte_count += record.size as u64;
-        self.records.push(record);
-        if self.records.len() >= self.buffsize {
+        self.byte_count += size as u64;
+
+        self.path_builder.append_value(path);
+        self.size_builder.append_value(size);
+        self.atime_builder.append_value(atime);
+        self.buffered += 1;
+
+        if self.buffered >= self.buffsize {
             self.flush()?;
         }
         Ok(())
     }
 
     pub fn flush(&mut self) -> Result<()> {
-        if self.records.is_empty() {
+        if self.buffered == 0 {
             return Ok(());
         }
 
@@ -358,24 +388,22 @@ impl PartitionBuffer {
         // Write to .partial file first; finalize renames it atomically.
         let partial_path = partition_dir.join(chunk_partial_name(chunk_id));
 
-        let mut path_builder = StringBuilder::new();
-        let mut size_builder = Vec::with_capacity(self.records.len());
-        let mut atime_builder = Vec::with_capacity(self.records.len());
-
-        for record in &self.records {
-            path_builder.append_value(&record.path);
-            size_builder.push(record.size);
-            atime_builder.push(record.atime);
-        }
-
+        // `finish` hands over the accumulated buffers and leaves the builders empty, so
+        // the next chunk starts from a fresh pre-sized set.
+        let schema = self.schema.clone();
         let batch = RecordBatch::try_new(
-            self.schema.clone(),
+            schema,
             vec![
-                Arc::new(path_builder.finish()),
-                Arc::new(Int64Array::from(size_builder)),
-                Arc::new(Int64Array::from(atime_builder)),
+                Arc::new(self.path_builder.finish()),
+                Arc::new(self.size_builder.finish()),
+                Arc::new(self.atime_builder.finish()),
             ],
         )?;
+        self.buffered = 0;
+        let (path_builder, size_builder, atime_builder) = Self::new_builders(self.buffsize);
+        self.path_builder = path_builder;
+        self.size_builder = size_builder;
+        self.atime_builder = atime_builder;
 
         let file = File::create(&partial_path)
             .with_context(|| format!("Failed to create file: {}", partial_path.display()))?;
@@ -389,7 +417,6 @@ impl PartitionBuffer {
         writer.close()?;
 
         self.partial_files.push(partial_path);
-        self.records.clear();
         Ok(())
     }
 
@@ -433,14 +460,6 @@ mod tests {
     use super::*;
     use crate::get_schema;
     use std::io::Write;
-
-    fn rec(path: &str, size: i64) -> FileRecord {
-        FileRecord {
-            path: path.to_string(),
-            size,
-            atime: 0,
-        }
-    }
 
     fn top_dir(name: &str, is_dir: bool) -> TopEntry {
         TopEntry {
@@ -648,10 +667,10 @@ mod tests {
         );
     }
 
-    // ---- record_from_metadata ----------------------------------------------
+    // ---- per-file measurement ----------------------------------------------
 
     #[test]
-    fn test_record_from_metadata_size_modes() {
+    fn test_file_size_and_atime_size_modes() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("f.bin");
         {
@@ -660,35 +679,34 @@ mod tests {
         }
         let meta = fs::metadata(&path).unwrap();
 
-        let (apparent, lossy) = record_from_metadata(&path, &meta, SizeMode::ApparentSize);
-        assert_eq!(apparent.size, 5000);
-        assert_eq!(apparent.path, path.to_string_lossy());
-        assert_eq!(apparent.atime, meta.atime());
-        assert!(!lossy, "a UTF-8 path converts exactly");
+        let (apparent, atime) = file_size_and_atime(&meta, SizeMode::ApparentSize);
+        assert_eq!(apparent, 5000);
+        assert_eq!(atime, meta.atime());
 
-        let (disk, _) = record_from_metadata(&path, &meta, SizeMode::DiskUsage);
-        assert_eq!(disk.size, (meta.blocks() * 512) as i64);
+        let (disk, _) = file_size_and_atime(&meta, SizeMode::DiskUsage);
+        assert_eq!(disk, (meta.blocks() * 512) as i64);
 
-        let (rounded, _) = record_from_metadata(&path, &meta, SizeMode::BlockRounded(4096));
-        assert_eq!(rounded.size, 8192); // 5000 rounds up to two 4096 blocks
+        let (rounded, _) = file_size_and_atime(&meta, SizeMode::BlockRounded(4096));
+        assert_eq!(rounded, 8192); // 5000 rounds up to two 4096 blocks
     }
 
     #[test]
-    fn test_record_from_metadata_flags_lossy_path() {
+    fn test_lossy_path_flags_invalid_utf8() {
         use std::ffi::OsStr;
         use std::os::unix::ffi::OsStrExt;
 
-        let dir = tempfile::TempDir::new().unwrap();
-        let real = dir.path().join("f.bin");
-        File::create(&real).unwrap();
-        let meta = fs::metadata(&real).unwrap();
+        // A valid path borrows: the common case does not allocate.
+        let clean = Path::new("/data/alice/notes.txt");
+        let (converted, lossy) = lossy_path(clean);
+        assert!(!lossy);
+        assert!(matches!(converted, Cow::Borrowed(_)));
+        assert_eq!(converted, "/data/alice/notes.txt");
 
-        // The path and the metadata are independent inputs, so an invalid-UTF-8 name
-        // can be exercised without a filesystem that permits one.
+        // Invalid bytes are replaced, flagged, and therefore owned.
         let bad = PathBuf::from(OsStr::from_bytes(b"/data/bad\xffname"));
-        let (record, lossy) = record_from_metadata(&bad, &meta, SizeMode::ApparentSize);
+        let (converted, lossy) = lossy_path(&bad);
         assert!(lossy, "invalid UTF-8 bytes must be flagged");
-        assert!(record.path.contains('\u{FFFD}'));
+        assert!(converted.contains('\u{FFFD}'));
     }
 
     // ---- completion marker --------------------------------------------------
@@ -739,8 +757,8 @@ mod tests {
         let mut buf = PartitionBuffer::new("part".to_string(), outdir.clone(), 1, get_schema());
 
         // buffsize 1 => each add flushes a chunk. Two records => 000000, 000001.
-        buf.add(rec("/part/a", 10)).unwrap();
-        buf.add(rec("/part/b", 20)).unwrap();
+        buf.add("/part/a", 10, 0).unwrap();
+        buf.add("/part/b", 20, 0).unwrap();
 
         let part_dir = outdir.join("part");
         // Seed a stale contiguous tail from a hypothetical prior larger run.
@@ -766,13 +784,78 @@ mod tests {
     }
 
     #[test]
+    fn test_buffer_writes_every_row_across_chunk_boundaries() {
+        use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let outdir = dir.path().to_path_buf();
+        // buffsize 2 over 5 rows exercises the auto-flush and the builder reset that
+        // follows it, twice, plus a partial final chunk.
+        let mut buf = PartitionBuffer::new("part".to_string(), outdir.clone(), 2, get_schema());
+
+        let rows: Vec<(String, i64, i64)> = (0..5)
+            .map(|i| (format!("/part/f{i}"), (i as i64 + 1) * 10, 1000 + i as i64))
+            .collect();
+        for (path, size, atime) in &rows {
+            buf.add(path, *size, *atime).unwrap();
+        }
+        buf.flush().unwrap();
+        buf.finalize().unwrap();
+
+        assert_eq!(buf.file_count, 5);
+        assert_eq!(buf.byte_count, 10 + 20 + 30 + 40 + 50);
+
+        // Read every chunk back and confirm the rows survived the builder resets in
+        // order, values intact.
+        let part_dir = outdir.join("part");
+        let mut chunk_paths: Vec<PathBuf> = fs::read_dir(&part_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "parquet"))
+            .collect();
+        chunk_paths.sort();
+        assert_eq!(chunk_paths.len(), 3); // 2 + 2 + 1
+
+        let mut seen: Vec<(String, i64, i64)> = Vec::new();
+        for chunk in chunk_paths {
+            let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(&chunk).unwrap())
+                .unwrap()
+                .build()
+                .unwrap();
+            for batch in reader {
+                let batch = batch.unwrap();
+                let paths = batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<arrow::array::StringArray>()
+                    .unwrap();
+                let sizes = batch
+                    .column(1)
+                    .as_any()
+                    .downcast_ref::<arrow::array::Int64Array>()
+                    .unwrap();
+                let atimes = batch
+                    .column(2)
+                    .as_any()
+                    .downcast_ref::<arrow::array::Int64Array>()
+                    .unwrap();
+                for i in 0..batch.num_rows() {
+                    seen.push((paths.value(i).to_string(), sizes.value(i), atimes.value(i)));
+                }
+            }
+        }
+        assert_eq!(seen, rows);
+    }
+
+    #[test]
     fn test_finalize_prune_stops_at_first_gap() {
         let dir = tempfile::TempDir::new().unwrap();
         let outdir = dir.path().to_path_buf();
         let mut buf = PartitionBuffer::new("part".to_string(), outdir.clone(), 100, get_schema());
 
         // One flush => a single chunk 000000.
-        buf.add(rec("/part/a", 10)).unwrap();
+        buf.add("/part/a", 10, 0).unwrap();
         buf.flush().unwrap();
 
         let part_dir = outdir.join("part");
