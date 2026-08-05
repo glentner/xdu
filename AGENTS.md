@@ -66,7 +66,20 @@ cargo fmt --all -- --check                              # format gate
 # Drive the real binaries against a throwaway index (never a real one):
 .agents/factory/bin/temp_index.sh xdu-find --count
 .agents/factory/bin/temp_index.sh sh -c 'xdu-rm --dry-run -p "\.log$" --force'
+
+# Man page gate. INSTALL scdoc — without it a doc/*.scd defect reaches CI unseen:
+brew install scdoc                     # macOS  (apt-get install -y scdoc on Debian/Ubuntu, as CI does)
+for scd in doc/*.scd; do scdoc < "$scd" > /dev/null || echo "FAILED $scd"; done
+scdoc < doc/xdu.1.scd | mandoc -Tutf8 | col -b   # read the PUBLISHED text, not just exit 0
 ```
+
+**Rendering is not optional, and exit 0 is not sufficient.** `scdoc` markup fails in two ways: a
+nesting error is loud (`*__root__*` — `_` opens italic inside bold), but a mis-escaped literal is
+**silent** — `_OUTDIR_/*/*.parquet` published as `OUTDIR//.parquet` because `*` is bold markup, and a
+line *starting* with `.` has that period silently dropped. Escape a literal asterisk `\*` and a
+double underscore `\_\_` (mid-word `_` as in `*XDU_INDEX*` is safe); never start a line with `.` or
+`'` — rewrap instead. Catching the silent class requires diffing the rendered text against the
+literal you intended, which is what the `mandoc | col -b` line above is for.
 
 ## Repository map
 

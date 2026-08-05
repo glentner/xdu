@@ -661,8 +661,12 @@ is R3-compliant.** The offending sentence is at `doc/xdu.1.scd:122-123` as of `e
   gated by CI `.github/workflows/test.yaml`) — then `cargo test --test crawl_tests -- --nocapture` and
   the fmt/clippy gate. Commit nothing under `share/` (generated, git-ignored).
   *(Result: green — 21 crawl (up from 19) + 63 lib + 16 rm tests pass, fmt/clippy clean, nothing under
-  `share/` touched. `scdoc` is **not installed here**, so the render was NOT checked locally; CI's
-  `test.yaml` gates it. Both new tests ran rather than self-skipping (`--nocapture`, not root).
+  `share/` touched. `scdoc` was **not installed here**, so the render was NOT checked locally; CI's
+  `test.yaml` gates it. **Superseded the same day:** `scdoc` 1.11.5 was installed at the human's
+  prompting and the render was run — it found `doc/xdu.1.scd` had not compiled since P3 (`*__root__*`
+  nests italic inside bold) and, separately, that `_OUTDIR_/*/*.parquet` was publishing as
+  `OUTDIR//.parquet`. Both fixed in a standalone `[fix]` commit after this phase; all four pages now
+  render and the published literals were verified. P8's own EXIT STATUS rewrite was **not** implicated. Both new tests ran rather than self-skipping (`--nocapture`, not root).
   Because this phase's deliverable is prose whose only value is being **true**, every sentence was
   driven through the release binaries against a throwaway index rather than reasoned about: class A —
   a `chmod 000` dir inside `alpha` gives exit 1, one `error:` line, and **both** `Finished alpha` and

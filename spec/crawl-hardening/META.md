@@ -183,7 +183,16 @@
 - **Confidence:** high · **Effort:** medium (the convention is small; the migration is the bulk)
 
 ## F7 — The evidence spine requires an `scdoc` render with no fallback when `scdoc` is absent · seen again (xdu-build:P8)
-`origin=xdu-review:step2 severity=low category=tooling status=open target=.claude/skills/xdu-review/SKILL.md`
+`origin=xdu-review:step2 severity=high category=tooling status=open target=.claude/skills/xdu-review/SKILL.md`
+- **Severity raised low → high (2026-08-05), because the gap was measured, not theorized.** `scdoc` was
+  installed on this host at the human's prompting, and the first render found `doc/xdu.1.scd` **had not
+  compiled since P3 (`b8f5f9c`)** — `*__root__*` nests italic inside bold, a hard `scdoc` error. It rode
+  through P3, P4, P5, P6, a **full `/xdu-review` cycle**, P7 and P8 — 6 commits — because no gate on this
+  host could render. CI would have failed the moment it ran (its render step is `bash -e`), so the branch
+  was un-shippable the whole time and every local gate stayed green. A skipped check that hides a broken
+  deliverable across a review cycle is not a `low`. **The "or state it is unverified locally" escape
+  hatch in this finding's own text is inadequate** — P8 *did* state it, honestly and prominently, and the
+  break still survived. Install the tool; do not document its absence.
 - **Seen again at `xdu-build:P8`, and it bites harder on the build side:** P8 was a **doc-only** phase —
   its entire deliverable was the rendered EXIT STATUS prose — yet its `verify:` gate goes green while
   printing `scdoc render: SKIPPED`. A gate that cannot inspect the one artifact the phase produces is
@@ -207,6 +216,14 @@
 
 ## F8 — No recorded `.scd` authoring conventions, so a wrap can silently emit a roff control line
 `origin=xdu-build:P8 severity=medium category=missing-guidance status=open target=.agents/factory/invariants.md`
+- **Premise confirmed by experiment (2026-08-05), and it is worse than written above.** With `scdoc`
+  1.11.5 installed, the hazards were tested directly rather than reasoned about: a line starting with
+  `.partial` renders as `partial` — the period is **silently dropped, no error**; and the intuitive escape
+  `\.` at line start **destroys the remainder of the line**. So P8's rewrap was the only correct fix, and
+  a future editor "simplifying" it back would corrupt the page invisibly. The same experiment exposed a
+  **second, unrelated silent class already live in the tree**: `_OUTDIR_/*/*.parquet` published as
+  `OUTDIR//.parquet`, because `*` is bold markup — a wrong glob handed to an operator, rendering at
+  exit 0. Both are now fixed; the conventions below are what would have prevented them.
 - **What happened:** P8's checklist enumerated the man-page conventions to preserve (`*bold*`, `_italic_`,
   literal em dashes, `.partial` written plain, body wrapped ≤ 79 cols) — and following them produced a
   line **beginning** with `.partial`, because that is where the 79-col wrap fell. In roff a line starting
@@ -221,5 +238,30 @@
 - **Recommended fix:** add a short "authoring `doc/*.scd`" note to `invariants.md` §13 (or a
   `factory/` reference): never begin a line with `.` or `'` (roff control chars — rewrap instead), keep
   the body ≤ 79 cols, `*bold*` for programs/flags/exit codes, `_italic_` for section cross-references.
-  Pairs with F7: with the render unavailable locally, written conventions are the only guard.
+  **Extended after the experiment:** escape a literal asterisk as `\*` (precedent already in the tree at
+  `xdu.1.scd`'s `st_blocks \* 512`) and a literal double underscore as `\_\_`; a mid-word `_` needs no
+  escape (`*XDU_INDEX*` is correct). Note the trap that `*/*` is *legitimate* bold-slash in
+  `xdu-view.1.scd:95` (the `/` key) but a corrupted glob in `xdu.1.scd` — so this cannot be
+  mechanically find-and-replaced; intent has to be read. Pairs with F7: the written conventions and the
+  render are complements, not substitutes — the render catches the loud class, the conventions the silent
+  one. An interim version of this guidance now lives in `AGENTS.md`'s Commands section.
+- **Confidence:** high · **Effort:** small
+
+## F9 — The man-page gate asserts "it compiled", never "it says what I wrote"
+`origin=xdu-build:P8 severity=medium category=missing-guidance status=open target=.github/workflows/test.yaml + .claude/skills/xdu-review/SKILL.md`
+- **What happened:** every man-page gate in this repo — CI's render step, `xdu-review`'s evidence spine,
+  P8's `verify:` — treats `scdoc` exiting 0 as the pass condition. `doc/xdu.1.scd` shipped
+  `_OUTDIR_/*/*.parquet`, which renders at **exit 0** and publishes `OUTDIR//.parquet`. Every gate was
+  green while the page told operators the wrong glob. Only diffing the *rendered text* against the
+  intended literal catches it, and nothing in the repo does that.
+- **Skill cause:** this is the documentation instance of the rule `xdu-build` Step 4 already states for
+  code — "exit 0 is necessary but not sufficient; assert a concrete post-condition". That principle was
+  never carried across to the doc gate, so the one artifact whose correctness *is* its text is checked
+  only for compiling.
+- **Recommended fix:** extend the existing CI render step to assert a short list of critical literals
+  survives into the rendered output (`scdoc < "$scd" | mandoc -Tutf8 | col -b`, then `grep -qF` for
+  `.xdu-complete`, `.partial`, `*/*.parquet`, `__root__`, each documented flag) and fail if one is
+  missing. Mirror the same sentence in `xdu-review`'s spine: a man-page render is evidence only when the
+  published text was read. Deliberately **not** applied in this pass — recorded per the human's call that
+  gate changes go through `/xdu-harness`.
 - **Confidence:** high · **Effort:** small
