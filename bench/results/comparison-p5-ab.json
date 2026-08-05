@@ -1,0 +1,942 @@
+{
+  "schema": 1,
+  "label": "P5 direct-to-Arrow A/B: A=HEAD (P5 + later non-hot-path phases), B=c9630c0 (pre-P5); interleaved, paired per-rep deltas",
+  "mode": "baseline",
+  "captured_at": "2026-08-05T16:46:12+00:00",
+  "xdu": {
+    "version": "0.4.1",
+    "git_commit": "2019bb19c202e7be5a0ec9dcb61203298a470598",
+    "git_dirty": true,
+    "measures_recorded_commit": true,
+    "binary": {
+      "path": "/Users/geoffrey/Software/github.com/glentner/xdu/target/release/xdu",
+      "bytes": 7565184,
+      "mtime": "2026-08-05T16:34:52+00:00"
+    }
+  },
+  "host": {
+    "os": "Darwin",
+    "kernel": "25.5.0",
+    "arch": "arm64",
+    "cpu": "Apple M4 Max",
+    "cores": 14,
+    "ram_bytes": 38654705664,
+    "tree_filesystem": "apfs",
+    "repo_filesystem": "apfs"
+  },
+  "runs": [
+    {
+      "scenario": "s2",
+      "variant": "A",
+      "scale": 2,
+      "jobs": 4,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 400000,
+      "indexed_files": 400000,
+      "apparent_bytes": 1638400000,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 3.77,
+        "min": 3.46,
+        "max": 4.26,
+        "samples": [
+          3.63,
+          3.46,
+          4.26,
+          3.7,
+          3.68,
+          3.77,
+          3.86,
+          3.83,
+          3.87
+        ]
+      },
+      "files_per_sec": {
+        "median": 106100.7958,
+        "min": 93896.7136,
+        "max": 115606.9364,
+        "samples": [
+          110192.8375,
+          115606.9364,
+          93896.7136,
+          108108.1081,
+          108695.6522,
+          106100.7958,
+          103626.943,
+          104438.6423,
+          103359.1731
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 136888320.0,
+        "min": 135741440.0,
+        "max": 140787712.0,
+        "samples": [
+          135839744.0,
+          135823360.0,
+          136888320.0,
+          140771328.0,
+          135741440.0,
+          140787712.0,
+          135872512.0,
+          139968512.0,
+          140787712.0
+        ]
+      },
+      "syscalls": null
+    },
+    {
+      "scenario": "s2",
+      "variant": "B",
+      "scale": 2,
+      "jobs": 4,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 400000,
+      "indexed_files": 400000,
+      "apparent_bytes": 1638400000,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 3.77,
+        "min": 3.63,
+        "max": 4.87,
+        "samples": [
+          3.63,
+          4.87,
+          3.72,
+          3.77,
+          3.66,
+          3.81,
+          3.85,
+          3.64,
+          3.89
+        ]
+      },
+      "files_per_sec": {
+        "median": 106100.7958,
+        "min": 82135.5236,
+        "max": 110192.8375,
+        "samples": [
+          110192.8375,
+          82135.5236,
+          107526.8817,
+          106100.7958,
+          109289.6175,
+          104986.8766,
+          103896.1039,
+          109890.1099,
+          102827.7635
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 147832832.0,
+        "min": 147783680.0,
+        "max": 154173440.0,
+        "samples": [
+          147849216.0,
+          147800064.0,
+          147881984.0,
+          147783680.0,
+          147832832.0,
+          147832832.0,
+          147849216.0,
+          147783680.0,
+          154173440.0
+        ]
+      },
+      "syscalls": null
+    },
+    {
+      "scenario": "s3",
+      "variant": "A",
+      "scale": 4,
+      "jobs": 4,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 400000,
+      "indexed_files": 400000,
+      "apparent_bytes": 1638400000,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 1.57,
+        "min": 1.56,
+        "max": 1.78,
+        "samples": [
+          1.56,
+          1.57,
+          1.56,
+          1.58,
+          1.78,
+          1.57,
+          1.58,
+          1.6,
+          1.56
+        ]
+      },
+      "files_per_sec": {
+        "median": 254777.0701,
+        "min": 224719.1011,
+        "max": 256410.2564,
+        "samples": [
+          256410.2564,
+          254777.0701,
+          256410.2564,
+          253164.557,
+          224719.1011,
+          254777.0701,
+          253164.557,
+          250000.0,
+          256410.2564
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 17629184.0,
+        "min": 16482304.0,
+        "max": 18497536.0,
+        "samples": [
+          18251776.0,
+          17383424.0,
+          17629184.0,
+          17907712.0,
+          16482304.0,
+          18497536.0,
+          17629184.0,
+          18087936.0,
+          16662528.0
+        ]
+      },
+      "syscalls": null
+    },
+    {
+      "scenario": "s3",
+      "variant": "B",
+      "scale": 4,
+      "jobs": 4,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 400000,
+      "indexed_files": 400000,
+      "apparent_bytes": 1638400000,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 1.56,
+        "min": 1.55,
+        "max": 1.61,
+        "samples": [
+          1.55,
+          1.57,
+          1.56,
+          1.56,
+          1.56,
+          1.61,
+          1.58,
+          1.57,
+          1.55
+        ]
+      },
+      "files_per_sec": {
+        "median": 256410.2564,
+        "min": 248447.205,
+        "max": 258064.5161,
+        "samples": [
+          258064.5161,
+          254777.0701,
+          256410.2564,
+          256410.2564,
+          256410.2564,
+          248447.205,
+          253164.557,
+          254777.0701,
+          258064.5161
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 13565952.0,
+        "min": 12812288.0,
+        "max": 13729792.0,
+        "samples": [
+          13697024.0,
+          12812288.0,
+          13647872.0,
+          12861440.0,
+          13729792.0,
+          13025280.0,
+          13565952.0,
+          12877824.0,
+          13680640.0
+        ]
+      },
+      "syscalls": null
+    },
+    {
+      "scenario": "s5",
+      "variant": "A",
+      "scale": 8,
+      "jobs": 1,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 819216,
+      "indexed_files": 819216,
+      "apparent_bytes": 870306085376,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 7.92,
+        "min": 7.84,
+        "max": 9.06,
+        "samples": [
+          9.06,
+          7.92,
+          7.84,
+          7.99,
+          7.97,
+          7.88,
+          7.87,
+          7.94,
+          7.89
+        ]
+      },
+      "files_per_sec": {
+        "median": 103436.3636,
+        "min": 90421.1921,
+        "max": 104491.8367,
+        "samples": [
+          90421.1921,
+          103436.3636,
+          104491.8367,
+          102530.1627,
+          102787.4529,
+          103961.4213,
+          104093.5197,
+          103175.8186,
+          103829.6578
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 23822336.0,
+        "min": 23527424.0,
+        "max": 30900224.0,
+        "samples": [
+          29294592.0,
+          23691264.0,
+          24772608.0,
+          30900224.0,
+          23822336.0,
+          23642112.0,
+          23724032.0,
+          24543232.0,
+          23527424.0
+        ]
+      },
+      "syscalls": null
+    },
+    {
+      "scenario": "s5",
+      "variant": "B",
+      "scale": 8,
+      "jobs": 1,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 819216,
+      "indexed_files": 819216,
+      "apparent_bytes": 870306085376,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 7.88,
+        "min": 7.82,
+        "max": 8.13,
+        "samples": [
+          7.82,
+          7.89,
+          7.84,
+          7.86,
+          8.13,
+          7.98,
+          7.85,
+          7.91,
+          7.88
+        ]
+      },
+      "files_per_sec": {
+        "median": 103961.4213,
+        "min": 100764.5756,
+        "max": 104759.0793,
+        "samples": [
+          104759.0793,
+          103829.6578,
+          104491.8367,
+          104225.9542,
+          100764.5756,
+          102658.6466,
+          104358.7261,
+          103567.1302,
+          103961.4213
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 27328512.0,
+        "min": 27082752.0,
+        "max": 35307520.0,
+        "samples": [
+          33488896.0,
+          27328512.0,
+          27099136.0,
+          27082752.0,
+          35307520.0,
+          29392896.0,
+          27164672.0,
+          27115520.0,
+          33521664.0
+        ]
+      },
+      "syscalls": null
+    },
+    {
+      "scenario": "s5",
+      "variant": "A",
+      "scale": 8,
+      "jobs": 2,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 819216,
+      "indexed_files": 819216,
+      "apparent_bytes": 870306085376,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 4.42,
+        "min": 4.39,
+        "max": 4.53,
+        "samples": [
+          4.43,
+          4.44,
+          4.4,
+          4.42,
+          4.4,
+          4.42,
+          4.39,
+          4.52,
+          4.53
+        ]
+      },
+      "files_per_sec": {
+        "median": 185342.9864,
+        "min": 180842.3841,
+        "max": 186609.5672,
+        "samples": [
+          184924.605,
+          184508.1081,
+          186185.4545,
+          185342.9864,
+          186185.4545,
+          185342.9864,
+          186609.5672,
+          181242.4779,
+          180842.3841
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 41648128.0,
+        "min": 36913152.0,
+        "max": 44384256.0,
+        "samples": [
+          36913152.0,
+          44384256.0,
+          41648128.0,
+          41238528.0,
+          38928384.0,
+          43646976.0,
+          44285952.0,
+          41500672.0,
+          44007424.0
+        ]
+      },
+      "syscalls": null
+    },
+    {
+      "scenario": "s5",
+      "variant": "B",
+      "scale": 8,
+      "jobs": 2,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 819216,
+      "indexed_files": 819216,
+      "apparent_bytes": 870306085376,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 4.42,
+        "min": 4.35,
+        "max": 4.57,
+        "samples": [
+          4.44,
+          4.45,
+          4.43,
+          4.42,
+          4.4,
+          4.39,
+          4.36,
+          4.35,
+          4.57
+        ]
+      },
+      "files_per_sec": {
+        "median": 185342.9864,
+        "min": 179259.5186,
+        "max": 188325.5172,
+        "samples": [
+          184508.1081,
+          184093.4831,
+          184924.605,
+          185342.9864,
+          186185.4545,
+          186609.5672,
+          187893.578,
+          188325.5172,
+          179259.5186
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 38469632.0,
+        "min": 38141952.0,
+        "max": 45809664.0,
+        "samples": [
+          38256640.0,
+          42401792.0,
+          45252608.0,
+          38141952.0,
+          38338560.0,
+          38436864.0,
+          45809664.0,
+          44679168.0,
+          38469632.0
+        ]
+      },
+      "syscalls": null
+    },
+    {
+      "scenario": "s5",
+      "variant": "A",
+      "scale": 8,
+      "jobs": 4,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 819216,
+      "indexed_files": 819216,
+      "apparent_bytes": 870306085376,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 2.78,
+        "min": 2.65,
+        "max": 3.29,
+        "samples": [
+          2.68,
+          2.71,
+          2.65,
+          2.69,
+          3.29,
+          2.81,
+          2.84,
+          2.78,
+          2.81
+        ]
+      },
+      "files_per_sec": {
+        "median": 294682.0144,
+        "min": 249001.8237,
+        "max": 309138.1132,
+        "samples": [
+          305677.6119,
+          302293.7269,
+          309138.1132,
+          304541.2639,
+          249001.8237,
+          291535.9431,
+          288456.338,
+          294682.0144,
+          291535.9431
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 71401472.0,
+        "min": 66469888.0,
+        "max": 79560704.0,
+        "samples": [
+          74924032.0,
+          66469888.0,
+          72761344.0,
+          72663040.0,
+          79560704.0,
+          70696960.0,
+          68829184.0,
+          71401472.0,
+          69926912.0
+        ]
+      },
+      "syscalls": null
+    },
+    {
+      "scenario": "s5",
+      "variant": "B",
+      "scale": 8,
+      "jobs": 4,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 819216,
+      "indexed_files": 819216,
+      "apparent_bytes": 870306085376,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 2.75,
+        "min": 2.61,
+        "max": 3.39,
+        "samples": [
+          2.72,
+          2.61,
+          2.64,
+          2.69,
+          3.39,
+          2.84,
+          2.78,
+          2.75,
+          2.82
+        ]
+      },
+      "files_per_sec": {
+        "median": 297896.7273,
+        "min": 241656.6372,
+        "max": 313875.8621,
+        "samples": [
+          301182.3529,
+          313875.8621,
+          310309.0909,
+          304541.2639,
+          241656.6372,
+          288456.338,
+          294682.0144,
+          297896.7273,
+          290502.1277
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 68616192.0,
+        "min": 62504960.0,
+        "max": 72777728.0,
+        "samples": [
+          68616192.0,
+          66945024.0,
+          64110592.0,
+          69533696.0,
+          70451200.0,
+          62504960.0,
+          72777728.0,
+          64897024.0,
+          71221248.0
+        ]
+      },
+      "syscalls": null
+    },
+    {
+      "scenario": "s5",
+      "variant": "A",
+      "scale": 8,
+      "jobs": 8,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 819216,
+      "indexed_files": 819216,
+      "apparent_bytes": 870306085376,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 2.64,
+        "min": 2.61,
+        "max": 2.71,
+        "samples": [
+          2.68,
+          2.63,
+          2.61,
+          2.71,
+          2.65,
+          2.64,
+          2.67,
+          2.63,
+          2.63
+        ]
+      },
+      "files_per_sec": {
+        "median": 310309.0909,
+        "min": 302293.7269,
+        "max": 313875.8621,
+        "samples": [
+          305677.6119,
+          311488.9734,
+          313875.8621,
+          302293.7269,
+          309138.1132,
+          310309.0909,
+          306822.4719,
+          311488.9734,
+          311488.9734
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 119963648.0,
+        "min": 114819072.0,
+        "max": 124223488.0,
+        "samples": [
+          124223488.0,
+          115834880.0,
+          122896384.0,
+          118669312.0,
+          119963648.0,
+          122896384.0,
+          121602048.0,
+          119422976.0,
+          114819072.0
+        ]
+      },
+      "syscalls": null
+    },
+    {
+      "scenario": "s5",
+      "variant": "B",
+      "scale": 8,
+      "jobs": 8,
+      "buffsize": 100000,
+      "size_mode": "apparent-size",
+      "generated_files": 819216,
+      "indexed_files": 819216,
+      "apparent_bytes": 870306085376,
+      "reps": 9,
+      "warmup_discarded": 1,
+      "wall_s": {
+        "median": 2.64,
+        "min": 2.62,
+        "max": 2.78,
+        "samples": [
+          2.78,
+          2.69,
+          2.66,
+          2.65,
+          2.63,
+          2.64,
+          2.63,
+          2.62,
+          2.63
+        ]
+      },
+      "files_per_sec": {
+        "median": 310309.0909,
+        "min": 294682.0144,
+        "max": 312677.8626,
+        "samples": [
+          294682.0144,
+          304541.2639,
+          307975.9398,
+          309138.1132,
+          311488.9734,
+          310309.0909,
+          311488.9734,
+          312677.8626,
+          311488.9734
+        ]
+      },
+      "peak_rss_bytes": {
+        "median": 107413504.0,
+        "min": 105037824.0,
+        "max": 116064256.0,
+        "samples": [
+          105037824.0,
+          107413504.0,
+          105414656.0,
+          108724224.0,
+          116064256.0,
+          106037248.0,
+          105496576.0,
+          110788608.0,
+          112197632.0
+        ]
+      },
+      "syscalls": null
+    }
+  ],
+  "notes": [
+    "The working tree was dirty at capture, but no build input (src/, Cargo.toml, Cargo.lock, rust-toolchain.toml) was modified, so the measured binary is the build of the recorded commit.",
+    "Every median here comes from a SINGLE invocation. Two invocations of the same binary have been observed to differ by up to ~20% on the reference host, so comparing medians across two documents cannot resolve a small change. Use --compare-bin, which interleaves both binaries inside one invocation and reports paired per-rep deltas \u2014 see 'The noise floor' in scenarios.md.",
+    "Syscall counts not collected (pass --syscalls on Linux to collect them).",
+    "Warm-cache numbers on a local filesystem. A networked metadata server (Lustre MDS, GPFS metanode) is the dominant cost at real scale \u2014 see HPC-PROTOCOL.md."
+  ],
+  "compare": {
+    "delta_sign": "positive paired_delta_pct means variant A finished faster than variant B",
+    "interleaved": "each timed rep ran both binaries against the same tree, alternating which went first by rep parity",
+    "variant_a": {
+      "binary": {
+        "path": "/Users/geoffrey/Software/github.com/glentner/xdu/target/release/xdu",
+        "bytes": 7565184,
+        "mtime": "2026-08-05T16:34:52+00:00"
+      },
+      "git_commit": "2019bb19c202e7be5a0ec9dcb61203298a470598",
+      "measures_recorded_commit": true
+    },
+    "variant_b": {
+      "binary": {
+        "path": "/private/tmp/claude-501/-Users-geoffrey-Software-github-com-glentner-xdu/1ae71827-97c1-4cbf-b7e9-732e6472afac/scratchpad/xdu-pre-p5",
+        "bytes": 7565184,
+        "mtime": "2026-08-05T16:34:18+00:00"
+      },
+      "worktree": "/private/tmp/claude-501/-Users-geoffrey-Software-github-com-glentner-xdu/1ae71827-97c1-4cbf-b7e9-732e6472afac/scratchpad/wt-pre-p5",
+      "git_commit": "c9630c038fe774e13deae70ad4dcbc7d65bfc4fe",
+      "measures_recorded_commit": true
+    }
+  },
+  "comparisons": [
+    {
+      "scenario": "s2",
+      "jobs": 4,
+      "a_median_s": 3.77,
+      "b_median_s": 3.77,
+      "paired_delta_pct": {
+        "median": 0.0,
+        "samples": [
+          0.0,
+          28.9528,
+          -14.5161,
+          1.8568,
+          -0.5464,
+          1.0499,
+          -0.2597,
+          -5.2198,
+          0.5141
+        ],
+        "a_faster_reps": 4,
+        "reps": 9
+      },
+      "peak_rss_delta_pct": 7.4033
+    },
+    {
+      "scenario": "s3",
+      "jobs": 4,
+      "a_median_s": 1.57,
+      "b_median_s": 1.56,
+      "paired_delta_pct": {
+        "median": -0.6452,
+        "samples": [
+          -0.6452,
+          0.0,
+          0.0,
+          -1.2821,
+          -14.1026,
+          2.4845,
+          0.0,
+          -1.9108,
+          -0.6452
+        ],
+        "a_faster_reps": 1,
+        "reps": 9
+      },
+      "peak_rss_delta_pct": -29.9517
+    },
+    {
+      "scenario": "s5",
+      "jobs": 1,
+      "a_median_s": 7.92,
+      "b_median_s": 7.88,
+      "paired_delta_pct": {
+        "median": -0.2548,
+        "samples": [
+          -15.8568,
+          -0.3802,
+          0.0,
+          -1.6539,
+          1.968,
+          1.2531,
+          -0.2548,
+          -0.3793,
+          -0.1269
+        ],
+        "a_faster_reps": 2,
+        "reps": 9
+      },
+      "peak_rss_delta_pct": 12.8297
+    },
+    {
+      "scenario": "s5",
+      "jobs": 2,
+      "a_median_s": 4.42,
+      "b_median_s": 4.42,
+      "paired_delta_pct": {
+        "median": 0.0,
+        "samples": [
+          0.2252,
+          0.2247,
+          0.6772,
+          0.0,
+          0.0,
+          -0.6834,
+          -0.6881,
+          -3.908,
+          0.8753
+        ],
+        "a_faster_reps": 4,
+        "reps": 9
+      },
+      "peak_rss_delta_pct": -8.2624
+    },
+    {
+      "scenario": "s5",
+      "jobs": 4,
+      "a_median_s": 2.78,
+      "b_median_s": 2.75,
+      "paired_delta_pct": {
+        "median": 0.0,
+        "samples": [
+          1.4706,
+          -3.8314,
+          -0.3788,
+          0.0,
+          2.9499,
+          1.0563,
+          -2.1583,
+          -1.0909,
+          0.3546
+        ],
+        "a_faster_reps": 4,
+        "reps": 9
+      },
+      "peak_rss_delta_pct": -4.0592
+    },
+    {
+      "scenario": "s5",
+      "jobs": 8,
+      "a_median_s": 2.64,
+      "b_median_s": 2.64,
+      "paired_delta_pct": {
+        "median": 0.0,
+        "samples": [
+          3.5971,
+          2.2305,
+          1.8797,
+          -2.2642,
+          -0.7605,
+          0.0,
+          -1.5209,
+          -0.3817,
+          0.0
+        ],
+        "a_faster_reps": 3,
+        "reps": 9
+      },
+      "peak_rss_delta_pct": -11.684
+    }
+  ]
+}

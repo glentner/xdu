@@ -77,7 +77,11 @@ Filesystem-specific:
      been read on this client (freshly written, or a rebooted/newly allocated compute
      node). Note that the **server-side** cache — the Lustre MDS or the ZFS ARC — matters
      more than the client's, and you generally cannot clear it.
-   - *Warm* is reproducible and good for comparing two `xdu` builds: run back to back.
+   - *Warm* is the state to use when comparing two `xdu` builds — but **back-to-back runs
+     are not enough**. On the project's reference host two invocations of the *identical*
+     binary have differed by up to ~20%, and on a single flat directory by more than a
+     factor of two, so a back-to-back comparison silently attributes session drift to the
+     code. Interleave the two builds instead — see the `--compare-bin` invocation in §5.
 4. **Sweep `-j`.** Run at `-j` = 1, 2, 4, 8, 16, 32 and beyond the node's core count if
    throughput is still climbing — the interesting result is *where it stops climbing*.
    Hold `-B` fixed (default 100000) throughout.
@@ -116,7 +120,22 @@ The project's runner emits all of the client-side metrics as one JSON document:
 sh bench/run.sh s5 --scale 128 --jobs "1 2 4 8 16 32" --out /tmp/mysite.json
 ```
 
-Attaching that JSON is the most useful form of report; the table in §7 is the minimum.
+To compare two builds, interleave them in **one** invocation rather than running each
+separately — this is the only form of comparison the harness can defend:
+
+```sh
+# Build the older side in a git worktree, then interleave. Every timed rep runs both
+# binaries against the same tree, alternating which goes first; the document's
+# comparisons[] carries the paired per-rep deltas.
+sh bench/run.sh s5 --scale 128 --jobs "1 2 4 8 16" --reps 9 \
+   --compare-bin /path/to/old/target/release/xdu \
+   --compare-worktree /path/to/old \
+   --out /tmp/mysite-ab.json
+```
+
+Read `paired_delta_pct.median` alongside `a_faster_reps`/`reps`: a real effect has a
+consistent sign across reps. Attaching that JSON is the most useful form of report; the
+table in §7 is the minimum.
 
 ## 6. What the results should look like
 

@@ -30,6 +30,10 @@
   three readers on a FIFO named `.xdu-complete`, and the checklist carried that as a BLOCKING
   correction with the guard spelled out. A design review that produces an executable counter-example
   is worth more than one that produces advice.
+- `xdu-plan` pre-committing P10's escalation trigger ("STOP if the fresh capture shows a regression
+  clearing the paired spread") set the decision rule *before* the numbers existed. When the capture
+  landed as a null, there was nothing to rationalise — the rule already said what a null meant. A
+  measurement phase that defines its stopping condition in advance cannot talk itself into a result.
 
 ## Friction findings
 
@@ -73,7 +77,7 @@
   rule.
 - **Confidence:** med · **Effort:** small
 
-## F3 — A self-skipping test reports `ok`, so a green `cargo test` can hide an unrun case
+## F3 — A self-skipping test reports `ok`, so a green `cargo test` can hide an unrun case · seen again (xdu-build:P10)
 `origin=xdu-build:P3 severity=low category=missing-guidance status=open target=.claude/skills/xdu-build/SKILL.md`
 - **What happened:** P3's non-UTF-8 case can't run on the dev box (APFS/HFS+ reject such filenames), so
   the test early-returns — and prints `... ok` like every other test. The `verify:` gate was fully green
@@ -86,6 +90,15 @@
   platform-conditional, re-run the relevant test with `--nocapture` (or `-- --include-ignored`) to
   confirm it actually executed, and state in the final report which cases skipped and where they *do*
   run (e.g. the Linux CI leg). Strengthens the gate; weakens nothing.
+- **Seen again at `xdu-build:P10`, third instance and a different mechanism:** P10's new `smoke`
+  stage asserts the A/B document's `comparisons[]`. Its 104-file fixture crawls in 0.00 s, so no
+  paired delta is computable, `comparisons[]` comes back **empty**, and every assertion over it
+  passes vacuously — a green self-check verifying nothing. Caught only by reading the emitted JSON.
+  With F9 (a man-page gate that asserts "it compiled", not "it says what I wrote") that is three
+  green-but-hollow gates in one feature, each a different mechanism: a case that opted out, an
+  artifact never inspected, and a fixture too small to produce the thing asserted. **The
+  generalisation worth applying:** an assertion over a collection must first assert the collection
+  is non-empty, and a gate should be seen to fail once before it is trusted (as P9's FIFO guard was).
 - **Confidence:** high · **Effort:** small
 
 ## F4 — Research briefs carry unlabelled code sketches a build phase is invited to transcribe

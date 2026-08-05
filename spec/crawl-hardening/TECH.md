@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: feature/crawl-hardening
 base: main
-current_phase: P10
+current_phase: P11
 last_updated: '2026-08-05'
 phases:
 - id: P1
@@ -131,7 +131,7 @@ phases:
 - id: P10
   name: 'F2: interleaved A/B mode in bench/run.sh, honest re-capture, and rewritten
     perf claims'
-  status: pending
+  status: done
   satisfies:
   - R4
   - R5
@@ -420,6 +420,15 @@ document the remaining ceiling ([research/02](research/02-jwalk-perf.md)).
       s5 -j1 +7.5% and s5 -j8 ±0% within noise; **no regression anywhere**. Peak RSS improved in 4 of 6
       configurations. Row counts equal generated counts on every configuration and every build.
       Amendment: `.gitignore` gained a `comparison-*.json` exception so these are committable.)*
+      *(**Superseded by P10 — the two load-bearing claims above are both false.** "Measured back-to-back
+      on one machine against identical generated trees" is wrong twice over: the captures are 45 min to
+      6 h apart (`captured_at` 18:49 / 19:34 / 20:58 / 00:52 next day), and every invocation regenerates
+      its own tree, so no two documents share one. The "judged by whether the per-rep ranges overlap"
+      method is invalid across invocations: it treats within-invocation spread as the error bar while
+      the real between-invocation drift is 8.9–18.5% — demonstrated by `baseline.json` vs
+      `comparison-pre-p5.json`, which measure **identical crawl source** yet disagree by that much. The
+      quoted wins (s2 +38.4%, s3 +18.0%, s5 -j4 +13.6%) sit inside that drift and are not established.
+      `comparison-p5-ab.json` supersedes all of these numbers; see P10 for the interleaved result.)*
 - [x] Document the remaining ceiling (metadata-server-bound; jwalk parallelizes per-directory so a
       single flat billion-file dir stays single-threaded) in `bench/scenarios.md` or a short note; list
       L3/L4/L5/L6 as evaluated-and-deferred with the reason.
@@ -813,35 +822,35 @@ The harness *does* record within-invocation spread (`spread()` emits `{median,mi
 is missing is any between-invocation control. **Human decision: keep the P5 code, fix the harness,
 re-capture, write the claims from the new document.**
 
-- [ ] `bench/run.sh`: add a build-input dirtiness probe beside the whole-tree one —
+- [x] `bench/run.sh`: add a build-input dirtiness probe beside the whole-tree one —
       `git status --porcelain -- src Cargo.toml Cargo.lock rust-toolchain.toml` decides
       `MEASURES_COMMIT`. Emit `xdu.measures_recorded_commit`. Comment the invariant: only a modified
       *build input* makes the recorded commit a lie about the measured binary.
-- [ ] Replace the false note (`run.sh:421-425`) with two verified branches — build input dirty →
+- [x] Replace the false note (`run.sh:421-425`) with two verified branches — build input dirty →
       `git_commit` identifies the BASE commit, not the measured code; dirty but no build input touched →
       the measured binary IS the commit's build. Add an unconditional note that medians come from **one
       invocation**, that two invocations of the same binary differ by up to ~20 % on the reference host,
       and that `--compare-bin` is the way to A/B.
-- [ ] Record `xdu.binary = {path, bytes, mtime}`. Add `--bin PATH`, and when it is supplied explicitly
+- [x] Record `xdu.binary = {path, bytes, mtime}`. Add `--bin PATH`, and when it is supplied explicitly
       do **not** auto-build (today `run.sh:157-160` builds only when the default path is *absent*, so a
       stale binary is measured silently).
-- [ ] Add the interleaved A/B mode: `--compare-bin PATH` plus optional `--compare-worktree DIR`
+- [x] Add the interleaved A/B mode: `--compare-bin PATH` plus optional `--compare-worktree DIR`
       (records B's commit and its own `measures_recorded_commit`). One generated tree per scenario; one
       warm-up per variant; **each timed rep runs both binaries** against the same tree with a fresh
       index, order alternating `A B` / `B A` by rep parity so neither runs systematically first. Add a
       `variant` column to the TSV and to the python grouping key `(scenario, jobs, variant)`, and verify
       the row count **per variant** so a build that is fast because it lost files fails for either side.
-- [ ] Emit top-level `comparisons[]`: per `(scenario, jobs)` — `a_median_s`, `b_median_s`,
+- [x] Emit top-level `comparisons[]`: per `(scenario, jobs)` — `a_median_s`, `b_median_s`,
       `paired_delta_pct {median, samples, a_faster_reps, reps}` from per-rep pairs matched by rep number,
       and `peak_rss_delta_pct`. The paired delta is the number a claim rests on, so the document carries
       it rather than leaving it to be re-derived.
-- [ ] **Non-negotiable, not polish:** extend `sh bench/run.sh smoke` with a second stage running the A/B
+- [x] **Non-negotiable, not polish:** extend `sh bench/run.sh smoke` with a second stage running the A/B
       path with the same binary as both variants, asserting both variants present,
       `indexed_files == generated_files` per variant, one `comparisons` entry with `reps` matching
       `len(samples)`, `measures_recorded_commit` true on a clean tree, and `xdu.binary.bytes` matching
       disk. Assert nothing about timing. Keep the one-line `smoke ok:` output; update `usage()`. Today
       smoke exits before the report path, so `comparisons[]` would otherwise ship untested.
-- [ ] Capture `bench/results/comparison-p5-ab.json`: A = HEAD's `xdu`, B = a `git worktree` build of
+- [x] Capture `bench/results/comparison-p5-ab.json`: A = HEAD's `xdu`, B = a `git worktree` build of
       `c9630c0`, `--compare-worktree` set, `--reps 7` (**9–11 for s2**, the only shape whose paired
       spread is wide enough to hide something), and the baseline config set (`s5 --scale 8 --jobs
       "1 2 4 8"`, `s2 --scale 2 --jobs 4`, `s3 --scale 4 --jobs 4`) so it is directly comparable.
@@ -850,7 +859,18 @@ re-capture, write the claims from the new document.**
       **Build B in the worktree's OWN target dir** (or copy the binary out and
       `cargo clean --release -p xdu`): sharing `CARGO_TARGET_DIR` makes cargo reuse the pre-P5 `libxdu`
       rlib and breaks `xdu-find` with E0432 — hit for real during design.
-- [ ] Rewrite the claims **from the new document**: replace `scenarios.md:136-139`'s "What shipped"
+      *(Amendments. (a) **`--reps 9` uniformly, not "7, with 9–11 for s2"**: one invocation carries one
+      `--reps`, and the verify requires all six comparisons in a single document, so a split would have
+      meant two documents. 9 satisfies ≥7 everywhere and lands inside the 9–11 band the wide shape
+      needed. (b) Captured via `baseline` **mode**, which already is the required config set
+      (`s5 --scale 8 -j "1 2 4 8"`, `s2 --scale 2 -j 4`, `s3 --scale 4 -j 4`), with `--out` passed
+      explicitly — `baseline.json` verified unmodified afterwards. (c) Took the copy-out route rather
+      than a separate target dir: a fresh `CARGO_TARGET_DIR` would rebuild bundled DuckDB from source,
+      where building B into the shared dir, copying the binary out, then `cargo clean --release -p xdu`
+      and rebuilding took ~70 s total. Both binaries confirmed to differ, and B confirmed to carry
+      `records: Vec<FileRecord>` against A's builders. (d) A is HEAD (`2019bb1`), so it includes P6–P9 —
+      none of which touch the crawl hot path; both sides recorded `measures_recorded_commit: true`.)*
+- [x] Rewrite the claims **from the new document**: replace `scenarios.md:136-139`'s "What shipped"
       measurement claim with the A/B result (expected: no measured throughput effect on any shape, median
       paired delta within ±1 %, signs split, hidden effect bounded ~±3 % multi-directory / ~±10 %
       flat-wide); peak RSS down ~11 % on flat-wide (142 → 126 MiB) and **up ~35 % on many-partition**
@@ -858,40 +878,62 @@ re-capture, write the claims from the new document.**
       inside the documented drift. Keep the mechanism prose and say why the change is kept: one path
       copy instead of two, less memory on the shape with the most memory, and the `symlink_metadata`
       TOCTOU closed — **not** a throughput win.
-- [ ] Add a `## The noise floor — what this harness can resolve` section to `scenarios.md`:
+- [x] Add a `## The noise floor — what this harness can resolve` section to `scenarios.md`:
       within-invocation spread (0.4–3 % multi-directory, 21–44 % flat-wide with a monotone within-run
       drift), between-invocation spread on identical source, the back-to-back series above, and the
       resulting rules — two documents cannot resolve < ~20 % and resolve nothing on flat-wide; a
       "faster" claim needs `--compare-bin`; peak RSS is the more portable signal. Label the numbers
       host-specific and frame them as rules about the harness, not about `xdu`.
-- [ ] Rewrite `scenarios.md:75-77` (comparability rule) to require an interleaved A/B rather than two
+- [x] Rewrite `scenarios.md:75-77` (comparability rule) to require an interleaved A/B rather than two
       invocations, and reword `:84-86` so it no longer calls the numbers reproducible across commits.
       Replace `:103-104` with a provenance table naming, per committed document, the commit recorded,
       whether it measures that commit, and what it is good for — stating plainly that
       `comparison-l1-l2.json` and `comparison-l2-only.json` carry an automatic note that is wrong for
       them, generated before the runner could tell the difference.
-- [ ] Correct the rejected stat-in-pool paragraph (`:141-151`) in place: note its numbers are a
+- [x] Correct the rejected stat-in-pool paragraph (`:141-151`) in place: note its numbers are a
       cross-invocation comparison, but the effect (many-partition **more than twice as slow in wall
       time**, not "50 % slower") is several times the largest observed drift, so **the rejection
       stands**; soften the flat-wide "the gain was really pipelining" to an unestablished
       cross-invocation number. Leave the deferred-levers list and the closing jwalk per-directory
       ceiling paragraph untouched — that material is exactly what R5's characterize-and-justify asks
       for and must not be overcorrected into "we measured nothing".
-- [ ] Fix `bench/HPC-PROTOCOL.md:80` (operators are currently told warm back-to-back runs are good for
+- [x] Fix `bench/HPC-PROTOCOL.md:80` (operators are currently told warm back-to-back runs are good for
       comparing two builds): require interleaving with paired per-rep deltas, cite the ~20 % spread, and
       add the `--compare-bin` invocation beside the runner example at `:113-119`. Update `AGENTS.md:213`
       from "Compare two builds via a `git worktree`, never a stash" to require the interleaved A/B in one
       invocation, with the reason.
-- [ ] Append an amendment note to this file's P5 comparison item recording that "measured back-to-back
+- [x] Append an amendment note to this file's P5 comparison item recording that "measured back-to-back
       … against identical generated trees" and the overlapping-per-rep-ranges judgement were both wrong,
       and that `comparison-p5-ab.json` supersedes those numbers.
-- [ ] **STOP and escalate** if the fresh capture shows a regression clearing the paired spread — that
+- [x] **STOP and escalate** if the fresh capture shows a regression clearing the paired spread — that
       reopens the keep-vs-revert decision, which is the human's. Do not revert `src/crawl.rs` on your
       own initiative.
 - **Verify:** `sh bench/run.sh smoke`, then assert the new document's shape (both variants,
   `indexed_files == generated_files`, 6 comparisons, `samples` length == `reps`), `measures_recorded_commit`
   present in `run.sh`, a noise-floor section in `scenarios.md`, **no `src`/`doc`/`tests` diff**, and the
   full Rust gate green.
+  *(Result: green, the whole chain in one run. `smoke ok:` (two-stage; the A/B self-check reports
+  "2 runs over 10004 files, 2 paired reps"); `A/B ok: [('s2',4,0.0), ('s3',4,-0.6452), ('s5',1,-0.2548),
+  ('s5',2,0.0), ('s5',4,0.0), ('s5',8,0.0)]`; `measures_recorded_commit` present; noise-floor section
+  present; `git diff --quiet HEAD -- src doc tests` clean; fmt/clippy clean; 66 + 22 + 16 tests pass.*
+  ***The escalation trigger did not fire.** No configuration shows a regression clearing the paired
+  spread: every median is within ±1% and `a_faster_reps` is 1–4 of 9, i.e. signs split. The keep
+  decision stands untouched and `src/crawl.rs` was not modified.*
+  *Three things the capture **contradicted**, all corrected rather than papered over: (1) the
+  design-time within-invocation spread of "0.4–3% on multi-directory shapes" is wrong — measured
+  3.2–28.4% here, so `scenarios.md` now carries the measured range and says the old figure was
+  optimistic; (2) I had drafted "peak RSS is nearly deterministic run to run" before the capture, and
+  the data falsified it (spread reaches ~31% on `s5 -j1`) — the bullet now says RSS is trustworthy only
+  when the difference is structural and consistent in sign per shape; (3) the predicted RSS outcome was
+  incomplete — flat-wide 141.0 → 130.5 MiB (7.4% lower, predicted ~11%) and many-partition 12.9 → 16.8
+  MiB (30% higher, predicted ~35%) both held, but the prediction omitted that mixed `-j8` also rises,
+  102.4 → 114.4 MiB (11.7% higher). The claim now states the memory effect moves in **both**
+  directions and gives the mechanism.*
+  *Two harness bugs found by building the gate rather than by running it: `samples` could be filtered
+  while `reps` still counted the dropped pair — breaking the very invariant this phase's verify
+  asserts, now fixed by filtering `paired` once up front; and smoke's 104-file tree crawls in 0.00 s, so
+  every paired delta was uncomputable and `comparisons[]` would have been asserted **empty** — smoke now
+  runs at scale 100.)*
 - **Touches:** `bench/run.sh`, `bench/scenarios.md`, `bench/HPC-PROTOCOL.md`,
   `bench/results/comparison-p5-ab.json` (new; `.gitignore:14` already whitelists `comparison-*.json`),
   `AGENTS.md`, this file. **No `src/` change** — the perf code is kept by decision.

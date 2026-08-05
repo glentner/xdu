@@ -223,7 +223,11 @@ kept **in lockstep** with this section (this file wins if they drift). The `xdu-
   per invocation), `scenarios.md` (the shape table + comparability rules), `HPC-PROTOCOL.md` (the
   protocol community operators run on real Lustre/GPFS/ZFS), and the committed
   `results/baseline.json` reference. `sh bench/run.sh smoke` is the fast non-rot check and asserts the
-  index holds exactly the generated files. Compare two builds via a `git worktree`, never a stash.
+  index holds exactly the generated files. **Comparing two builds requires an interleaved A/B in a
+  single invocation** — `run.sh --compare-bin PATH` (build the older side in a `git worktree`, never
+  a stash). Two separate invocations cannot resolve it: on the reference host the same binary drifts
+  up to ~20% between invocations, and >2× on the flat-wide shape, so a two-document comparison
+  measures the session, not the code. See `bench/scenarios.md` "The noise floor".
 
 ## Packaging & release
 
