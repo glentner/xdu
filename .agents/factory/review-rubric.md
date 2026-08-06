@@ -56,7 +56,7 @@ context, so lean on *executed evidence*, not opinion.
 
 | Severity | Meaning |
 |---|---|
-| **CRITICAL** | Data loss (a bad `xdu-rm` change) or index corruption (schema or atomic-write), security weakening (the DuckDB SQL-injection surface), or **any** xdu invariant violation (`invariants.md` §1–§12; a §13 project-conventions violation is **HIGH**, not auto-CRITICAL). |
+| **CRITICAL** | Data loss (a bad `xdu-rm` change) or index corruption (schema or atomic-write), security weakening (the DuckDB SQL-injection surface), or **any** xdu invariant violation (`invariants.md` §1–§12, lettered subsections such as §2b/§2c included; a §13 project-conventions violation is **HIGH**, not auto-CRITICAL). |
 | **HIGH** | A GOAL R-ID unmet or wrong; a real bug on a common path. |
 | **MEDIUM** | A bug on an edge path; a partial/again-fragile requirement. |
 | **LOW** | Minor correctness risk; missing-but-non-blocking test coverage of an R-ID. |

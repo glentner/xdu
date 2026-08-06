@@ -6,7 +6,8 @@ this drifts, fix it). Two consumers:
 
 - **`xdu-plan` (gate):** before research *and* after PLAN/TECH is drafted, walk the sections a change
   touches and confirm the design honors each. Record any bend in PLAN's deviation-justification table.
-- **`xdu-review` (footgun list):** a violation of any §1–§12 invariant here is **auto-CRITICAL** and,
+- **`xdu-review` (footgun list):** a violation of any §1–§12 invariant here — **lettered subsections
+  such as §2b/§2c included** — is **auto-CRITICAL** and,
   when it touches a high-blast-radius file, forces a human sign-off gate. A §13 project-conventions
   violation is **HIGH**, not auto-CRITICAL.
 

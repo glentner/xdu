@@ -30,8 +30,8 @@ Unmapped changes (possible scope creep): <list or "none">.
 
 ## Findings
 
-Severity: **CRITICAL** (any `invariants.md` §1–§12 violation is auto-CRITICAL; a §13
-project-conventions violation is **HIGH**) · **HIGH** · **MEDIUM** · **LOW**. Verdict: **CONFIRMED**
+Severity: **CRITICAL** (any `invariants.md` §1–§12 violation is auto-CRITICAL, **including lettered
+subsections** such as §2b/§2c; a §13 project-conventions violation is **HIGH**) · **HIGH** · **MEDIUM** · **LOW**. Verdict: **CONFIRMED**
 (reproduced) vs **PLAUSIBLE** (suspected, needs human triage). Only CONFIRMED findings auto-loop to
 `xdu-build`.
 
@@ -44,9 +44,10 @@ project-conventions violation is **HIGH**) · **HIGH** · **MEDIUM** · **LOW**.
 ## Human-gate triggers
 
 Set if any CONFIRMED finding touches the high-blast-radius core (`src/bin/xdu-rm.rs`,
-`src/bin/xdu.rs`, `src/lib.rs`, `src/cli.rs`) or a destructive-rm / schema-stability / atomic-write /
-SQL-injection invariant — these **always** require human sign-off before `xdu-publish`, regardless of
-auto-loop.
+`src/bin/xdu.rs`, `src/crawl.rs`, `src/lib.rs`, `src/cli.rs`) or a destructive-rm / schema-stability /
+atomic-write / SQL-injection invariant — these **always** require human sign-off before
+`xdu-publish`, regardless of auto-loop. (`invariants.md`'s *High-blast-radius files* header is the
+authoritative path list; this copy may only ever **widen** to match it.)
 
 - <triggered? which finding?>
 
