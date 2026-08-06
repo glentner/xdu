@@ -77,12 +77,15 @@ scdoc < doc/xdu.1.scd | mandoc -Tutf8 | col -b   # read the PUBLISHED text, not 
 ```
 
 **Rendering is not optional, and exit 0 is not sufficient.** `scdoc` markup fails in two ways: a
-nesting error is loud (`*__root__*` — `_` opens italic inside bold), but a mis-escaped literal is
-**silent** — `_OUTDIR_/*/*.parquet` published as `OUTDIR//.parquet` because `*` is bold markup, and a
-line *starting* with `.` has that period silently dropped. Escape a literal asterisk `\*` and a
-double underscore `\_\_` (mid-word `_` as in `*XDU_INDEX*` is safe); never start a line with `.` or
-`'` — rewrap instead. Catching the silent class requires diffing the rendered text against the
-literal you intended, which is what the `mandoc | col -b` line above is for.
+nesting error is loud (`*__root__*` — `_` opens italic inside bold) and exits 1, but a mis-escaped
+literal is **silent at exit 0** — `_OUTDIR_/*/*.parquet` published as `OUTDIR//.parquet` because `*`
+is bold markup, and a line *starting* with `.` has that period silently dropped. Escape a literal
+asterisk `\*` and a double underscore `\_\_` (mid-word `_` as in `*XDU_INDEX*` is safe); never start
+a line with `.` or `'` — **rewrap, never escape**: `\.` at line start deletes the rest of the line,
+also silently. None of this is mechanically fixable — `*/*` is a corrupted glob in `xdu.1.scd` and a
+legitimate bold-slash (the `/` key) in `xdu-view.1.scd`, so intent has to be read. Catching the
+silent class requires diffing the rendered text against the literal you intended, which is what the
+`mandoc | col -b` line above is for.
 
 ## Repository map
 

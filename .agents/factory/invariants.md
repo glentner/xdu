@@ -190,6 +190,12 @@ ordering is load-bearing:
 - `share/` is a **generated** artifact (man via `scdoc` from `doc/*.scd`; completions via
   `gen-completions` from `src/cli.rs`), git-ignored, rebuilt in CI and by `/xdu-release`; CI asserts
   it generates. `.scd` sources carry no version string (a pure version bump doesn't touch them).
+- **`doc/*.scd` authoring is its own footgun** — `scdoc` publishes a **wrong page at exit 0** (a
+  mis-escaped `*` turned `_OUTDIR_/*/*.parquet` into `OUTDIR//.parquet`; a line beginning with `.`
+  loses that period), so a green render gate proves nothing about the text. The escaping and
+  line-start rules are single-sourced in `AGENTS.md`'s **Commands** section — read them before
+  touching a `.scd`, and do not restate them here. Reviewing a `.scd` change means diffing
+  `scdoc < f.scd | mandoc -Tutf8 | col -b` against the literal you intended, never exit 0 alone.
 - Release tarball layout — `bin/{xdu,xdu-find,xdu-view,xdu-rm}` +
   `share/{man/man1/*.1, bash-completion/completions/*, zsh/site-functions/*}` — matches `install.sh`
   extraction exactly; keep them in lockstep.

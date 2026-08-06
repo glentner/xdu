@@ -273,7 +273,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F8 — No recorded `.scd` authoring conventions, so a wrap can silently emit a roff control line
-`origin=xdu-build:P8 severity=medium category=missing-guidance status=open target=.agents/factory/invariants.md`
+`origin=xdu-build:P8 severity=medium category=missing-guidance status=applied target=.agents/factory/invariants.md`
 - **Premise confirmed by experiment (2026-08-05), and it is worse than written above.** With `scdoc`
   1.11.5 installed, the hazards were tested directly rather than reasoned about: a line starting with
   `.partial` renders as `partial` — the period is **silently dropped, no error**; and the intuitive escape
