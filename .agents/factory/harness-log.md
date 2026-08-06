@@ -59,3 +59,133 @@ Read `origin`/`severity`/`category` from the finding in `META.md`; this ledger r
   to install scdoc and was rejected during self-review** — that session is read-only and allowed-tools
   grants no package manager, so it would have been a step/allowed-tools mismatch. Points at
   `AGENTS.md`'s documented one-liner instead.
+
+## 2026-08-06 — crawl-hardening H1: re-arm the human sign-off gate for `src/crawl.rs`
+`decision=applied commit=5b8baa9 target=.agents/skills/xdu-review/SKILL.md + factory/templates/REVIEW.md`
+- **Rationale:** not a `META.md` finding — found by the Safety §1 re-derivation this run, and the most
+  valuable item in the batch. The mandatory human-gate trigger list is restated in **four** places; P12
+  added `src/crawl.rs` to `invariants.md` and `review-rubric.md` when `finalize()` moved there, but not
+  to `xdu-review/SKILL.md` or `templates/REVIEW.md` — the two the orchestrator actually reads and
+  writes from. A CONFIRMED finding in the atomic finalize or the reserved-name guard did not fire the
+  gate by the executed path. Cycle 4's C4-F1 *was* a `crawl.rs` finding and the gate fired only because
+  the orchestrator also happened to read `invariants.md`. Widen-only; both new copies now name
+  `invariants.md` as authoritative and say they may only widen to match. Also: §2b/§2c were outside
+  every "§1–§12" auto-CRITICAL range, so all four range references now include lettered subsections.
+
+## 2026-08-06 — crawl-hardening F13: reserved names as a class (already landed; rubric resynced)
+`decision=applied commit=685b90d target=.agents/factory/review-rubric.md`
+- **Rationale:** the finding was **stale** — P13 had already landed both halves (`invariants.md:89-95`
+  class restatement + same-commit obligation, `:101-103` the paired both-directions reviewer question),
+  and `src/crawl.rs` genuinely iterates `lib::RESERVED_INDEX_NAMES`. Applying the recommendation
+  verbatim would have rewritten correct text. The real residual was one hop away and was F13's own
+  failure shape recurring: the rubric still described `crawl.rs` as "`__root__` collision rejection" —
+  the one-name framing F13 blames — and had never picked up `lib.rs`'s layout constants. Now
+  byte-identical to the authoritative list. Gated path *set* unchanged; only parentheticals moved.
+
+## 2026-08-06 — crawl-hardening F1: commit category maps from `kind`, refactor included
+`decision=applied commit=792a771 target=.agents/skills/xdu-feature,xdu-plan/SKILL.md`
+- **Rationale:** `xdu-feature` said "`fix` for `kind: fix`, else `feature`" and `xdu-plan` said
+  "`fix`|`feature`", while `xdu-build` already mapped category from kind and claimed "the same house
+  style as `xdu-feature`/`xdu-plan`" — a **false** cross-reference. Every commit on the crawl-hardening
+  branch disobeyed the instruction and used `[refactor]`, so this ratifies correct practice rather than
+  changing it. Class-closed across all five lifecycle skills and both templates, not just the two named.
+  Phrased as "the `kind` verbatim" so a fourth kind needs no fourth edit — enumerate-and-go-stale is the
+  failure that produced the finding.
+
+## 2026-08-06 — crawl-hardening F12: operating-manual drift is a flaggable class with a severity
+`decision=applied commit=985d43b target=.agents/factory/review-rubric.md`
+- **Rationale:** cycle 2's reviewer found real greppable drift and had no slot for it, rated MEDIUM, and
+  wrote a paragraph justifying why not HIGH. Adds scope class 5 and slots it into the **existing**
+  severity table: HIGH when the stale text degrades a downstream gate, MEDIUM otherwise. Limiter is
+  "introduced or moved **by this diff**" — class 5 sits directly above "do NOT report style nits" and
+  must not become licence to grade prose. F12's "seen again" half was cut from 11 lines to 3 and
+  stripped of its self-staling "four places" count, because the general procedure now lives in
+  `xdu-build` Step 2.3 (F15) and the list itself was re-armed in `5b8baa9` — three copies of an
+  anti-drift rule is the exact failure F12 documents. Net +12 lines on a file `xdu-review` pastes
+  verbatim into every blind-reviewer prompt, hence the deliberate terseness.
+
+## 2026-08-06 — crawl-hardening F8: `.scd` authoring footgun recorded by pointer, not by copy
+`decision=applied commit=067a68f target=AGENTS.md + .agents/factory/invariants.md`
+- **Rationale:** `invariants.md` — the curated gate `xdu-plan` and `xdu-review` both draw from — said
+  nothing about `.scd` authoring, so the checklist never raised it. Added as a **pointer** to
+  `AGENTS.md`'s Commands section, not a duplicate: `invariants.md` declares itself in lockstep with
+  `AGENTS.md`, so copying prose across both is precisely the drift F12 records, and this follows the F7
+  precedent in this ledger. §13 not §10, because a mis-escaped asterisk is a docs defect (HIGH) and
+  promoting it would make every markup slip auto-CRITICAL. `AGENTS.md` gained two facts paid for
+  experimentally and recorded nowhere, both **re-verified here against scdoc 1.11.5** rather than taken
+  from the finding: a line-start `\.` deletes the *entire* line at exit 0, and the `*/*` hazard is not
+  mechanically fixable (corrupt glob in `xdu.1.scd`, legitimate `/`-key heading in `xdu-view.1.scd`).
+  **Rejected from the finding:** its "keep the body ≤ 79 cols" rule — `doc/xdu.1.scd:9` is 121 cols, so
+  the invariant would manufacture a finding on the next review.
+
+## 2026-08-06 — crawl-hardening F15: scope the class before remediating an instance
+`decision=applied commit=d8eae3f target=.agents/skills/xdu-build/SKILL.md`
+- **Rationale:** `xdu-review` reports `file:line` findings (correctly — that is the evidence spine) and
+  `xdu-build` treated the location as the work item; nothing converted an instance into its class. Three
+  times on one feature (C3-F1, F13, F12's seen-again gate-disarm), each found by a later review that
+  should not have had to. The procedure is not invented — P14 practised it and immediately found the
+  `--version` falsehood in four live files rather than the two the review named. New Step 2.3, and the
+  rule that a remediation `verify:` **asserts the pattern is absent**, which is strictly stronger
+  because it fails on undiscovered sites. The frozen-sites carve-out is bounded by *kind* (point-in-time
+  evidence only) and explicitly names `.agents/**` and `AGENTS.md` as **live**. Known unresolved
+  tension recorded in the commit: `allowed-tools` grants the `Grep` tool but not `Bash(grep *)`, so a
+  pattern-asserting `verify:` string prompts; the sweep routes through `Grep` and adds no new mismatch,
+  and widening the permission was deliberately **not** taken.
+
+## 2026-08-06 — crawl-hardening F3 + F5: name the two ways a green gate lies
+`decision=applied commit=f1205a7 target=.agents/skills/xdu-build/SKILL.md + xdu-plan/SKILL.md`
+- **Rationale:** one paragraph, not two — F3 (green because nothing ran) and F5 (green because one
+  result absorbed another) are the same failure viewed twice. F3 was partly fixed: P12 put the self-skip
+  fact in `AGENTS.md`'s Testing section, but the unfixed half was load-bearing, since Step 4 is where
+  the agent decides to advance state. F5 landed in **both** `xdu-plan` Step 6 (primary — a bundle never
+  written cannot be mis-measured) and `xdu-build` Step 4 (backstop — the build may amend `TECH.md`, so a
+  second lever can appear after sign-off); build-only placement would leave the bundled phase getting
+  written every cycle. The "confirm the mutation landed" clause is explicit because that is where the
+  discipline nearly failed in P10: byte-mode `perl` silently did not substitute a UTF-8 en dash, so a
+  negative test passed against an unmutated file and would have certified an unexercised gate.
+
+## 2026-08-06 — crawl-hardening F9: CI asserts the published man-page text, not exit 0
+`decision=applied commit=9c579cf target=.github/workflows/test.yaml + skills/xdu-review/SKILL.md`
+- **Rationale:** the packaging job rendered `doc/*.scd` and checked only non-empty output, which is how
+  a `doc/xdu.1.scd` defect survived six commits and a full review cycle. **Verified both directions
+  before committing:** clean tree passes all 10 literals; un-escaping the glob at `doc/xdu.1.scd:113`
+  (mutation confirmed present first) leaves scdoc at **exit 0**, publishes `OUTDIR//.parquet`, and turns
+  the gate **red**. The assertion flattens newlines first because `mandoc` rewraps freely, so a
+  wrap-sensitive grep would pass or fail on formatting rather than content; a source-side tripwire
+  covers the roff-control-line class, which is invisible from the rendered side. Installs `mandoc` +
+  `bsdextrautils`; not mirrored into `release.yaml` on purpose (its tag content is already gated by
+  `test.yaml`, and a second literal list is a second thing to drift). **Stated tax:** the literal list
+  is hand-maintained, so renaming an on-disk artifact reddens CI until someone updates it — the intended
+  failure direction. The `xdu-review` half points at `AGENTS.md` rather than restating the rules, per
+  F7; F7's scdoc-absent fallback is untouched (F7 = "the tool is missing", F9 = "the tool ran and lied").
+
+## 2026-08-06 — crawl-hardening F11 + F14: verdict carve-outs deferred, rework required
+`decision=deferred commit=— target=.agents/factory/review-rubric.md`
+- **Rationale:** the largest and most confidently-argued proposal in the batch, and the one with a
+  **working abuse case** — which is exactly the Safety §3 warning sign, since both findings argue to
+  loosen a non-negotiable gate and both warned in their own text that they must not become an escape
+  hatch. The drafted "already recorded" predicate was *"present in the tree the review graded"*, which
+  is **weaker than F11 itself asked for** ("before the review began"). Mechanical exploit, no bad faith
+  needed: a CONFIRMED non-destructive HIGH blocks at cycle 1; during normal remediation `xdu-build`
+  writes `issues/the-defect.md` + a ROADMAP entry instead of fixing it; at cycle 2 the carve-out fires,
+  the block becomes a discretionary ask on the strength of a file the build wrote itself, and the cycle
+  counter stops advancing. `xdu-publish`'s staleness gate does not catch it — that only covers back-fill
+  *after* the reviewed SHA. **Two further blockers:** the mandatory base-drive provenance step is not
+  executable under `xdu-review`'s declared `allowed-tools` (no `git worktree`, no `cargo build`, and
+  `temp_index.sh` roots at `pwd`) — the same step/allowed-tools class this ledger records rejecting in
+  F7's first draft; and the routing table was to land in `review-rubric.md`, which `xdu-review` pastes
+  **verbatim into every blind-reviewer prompt**, teaching the blind reviewer two exculpatory routes it
+  is forbidden to act on, at +63% file length. **For the next run:** require the record to exist in
+  `base` (or an explicit prior human acceptance recorded in an earlier `REVIEW.md` cycle section); make
+  provenance **conditional** (default `introduced`; a base drive required only to *claim*
+  `pre-existing`, putting the cost on the carve-out user); and put the routing table in
+  `xdu-review/SKILL.md` Step 4, leaving the rubric a two-line pointer.
+
+## 2026-08-06 — crawl-hardening F4: label unrun code sketches in research briefs
+`decision=deferred commit=— target=.agents/skills/xdu-plan/SKILL.md + xdu-build/SKILL.md`
+- **Rationale:** real and confirmed still-open — `research/03-benchmark-design.md:27-44` is a finished-
+  looking `python` block sitting under verified ground truth, and its `di%4` line collapsed
+  `dirs_per_part` onto four directories. A good two-sentence fix is drafted (a `SKETCH (unrun)` /
+  `VERIFIED (executed: …)` banner in `xdu-plan`, and "research code is a design sketch to re-derive,
+  not source to transcribe" in `xdu-build`). Deferred only to respect the ~8-per-run cap; it is the
+  lowest-value item in the batch and depends on subagent compliance. Nothing breaks if it waits.

@@ -135,7 +135,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F4 — Research briefs carry unlabelled code sketches a build phase is invited to transcribe
-`origin=xdu-build:P4 severity=low category=template status=open target=.agents/factory/templates/ (research brief) + .claude/skills/xdu-plan/SKILL.md`
+`origin=xdu-build:P4 severity=low category=template status=deferred target=.agents/factory/templates/ (research brief) + .claude/skills/xdu-plan/SKILL.md`
 - **What happened:** `research/03-benchmark-design.md` contains a ready-looking `gen_tree.py`, and P4's
   checklist says to build that generator. Its leaf-path expression (`d{lvl}_{di%4}`) collapses
   `dirs_per_part` onto four directories, so files silently overwrite each other while the script prints
@@ -349,7 +349,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F11 — The verdict rules have no state for a CONFIRMED finding the build deliberately recorded
-`origin=xdu-review:step4 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md + .claude/skills/xdu-review/SKILL.md`
+`origin=xdu-review:step4 severity=medium category=missing-guidance status=deferred target=.agents/factory/review-rubric.md + .claude/skills/xdu-review/SKILL.md`
 - **What happened:** cycle 2's most severe finding (C2-F1, the scoped-run marker attestation) is a
   reproduced defect in `src/bin/xdu.rs` **and** an item the build had already decided to defer, with an
   in-code `// Known limitation:` comment, an `issues/marker-scoped-run-attestation.md` at
@@ -441,7 +441,7 @@
 
 ## F14 — No verdict state for a CONFIRMED defect that is pre-existing in the base and never recorded
 
-`origin=xdu-review:step3 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+`origin=xdu-review:step3 severity=medium category=missing-guidance status=deferred target=.agents/factory/review-rubric.md`
 
 - **What happened:** cycle 4's most severe finding (C4-F1 — an unreadable partition's `finalize` prunes
   every chunk it previously held, destroying real rows) is reproducible in `src/crawl.rs`, maps to
