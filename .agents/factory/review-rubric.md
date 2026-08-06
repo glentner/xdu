@@ -80,9 +80,9 @@ Regardless of auto-loop, a human must approve before `xdu-publish` whenever a CO
 touches:
 
 - the high-blast-radius core: `src/bin/xdu-rm.rs` (destructive), `src/bin/xdu.rs` (crawl concurrency
-  scaffold + marker sequencing), `src/crawl.rs` (atomic finalize + `__root__` collision rejection),
-  `src/lib.rs` (schema + `QueryFilters`/SQL + `index_glob`), or `src/cli.rs` (the one CLI definition);
-  **or**
+  scaffold + marker sequencing), `src/crawl.rs` (atomic finalize + stale-chunk prune +
+  reserved-index-name collision rejection), `src/lib.rs` (schema + `QueryFilters`/SQL + `index_glob`
+  + layout constants + `RESERVED_INDEX_NAMES`), or `src/cli.rs` (the one CLI definition); **or**
 - a destructive-`rm` / schema-stability / atomic-write / SQL-injection invariant
   (`invariants.md` §4 / §1 / §2 / §5).
 

@@ -410,7 +410,7 @@
 
 ## F13 — A newly-reserved on-disk name is documented for one collision direction only, so no gate asks about the other
 
-`origin=xdu-review:step2 severity=medium category=missing-guidance status=open target=.agents/factory/invariants.md`
+`origin=xdu-review:step2 severity=medium category=missing-guidance status=applied target=.agents/factory/invariants.md`
 
 - **What happened:** cycle 3 found C3-F1 — this pass introduced `.xdu-complete` as a second reserved name
   at the index root and guarded only the first (`build_work_queue` rejects a source directory named
