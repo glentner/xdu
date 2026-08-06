@@ -3,11 +3,11 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: in_review
+status: done
 branch: feature/crawl-hardening
 base: main
 current_phase: done
-last_updated: '2026-08-05'
+last_updated: '2026-08-06'
 phases:
 - id: P1
   name: Extract lib::crawl + replace the fake crawler tests with a real-binary suite
