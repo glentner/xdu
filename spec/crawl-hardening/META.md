@@ -376,7 +376,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F12 — No severity slot for AGENTS.md drifting from the code a pass just landed · seen again (xdu-build:P12)
-`origin=xdu-review:step3 severity=low category=instruction status=open target=.agents/factory/review-rubric.md`
+`origin=xdu-review:step3 severity=low category=instruction status=applied target=.agents/factory/review-rubric.md`
 - **What happened:** C2-F2 is a real, greppable gap — `src/crawl.rs`, `--allow-errors`, and the new
   `.xdu-complete` marker appear nowhere in `AGENTS.md`, `ROOT_PARTITION` is misattributed to `xdu.rs`,
   and `invariants.md` (which `AGENTS.md` says is kept "in lockstep") was not touched at all. I could not

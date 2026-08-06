@@ -24,6 +24,13 @@ assertion.
 2. **GOAL-requirement gaps** — an R-ID with no implementing change, or implemented incorrectly.
 3. **AGENTS.md invariant violations** — auto-CRITICAL (see below).
 4. **Scope creep** — changes that map to no R-ID (report, don't necessarily block).
+5. **Operating-manual drift** — a symbol, module, flag, or on-disk artifact **this diff introduced or
+   moved** that `AGENTS.md` or `invariants.md` still describes wrongly or not at all. `AGENTS.md`
+   opens by declaring itself the map and the code ground truth ("fix this file"), so a diff that
+   moves the code owns the map. Not documentation taste — `invariants.md` is the gate `xdu-plan` and
+   the next `xdu-review` both draw from, so stale text there silently narrows what later cycles
+   check. Mechanical on a `kind: refactor` diff: grep both files for every new or moved module,
+   every new CLI flag, and every new on-disk artifact.
 
 **Do NOT** report style nits, speculative hardening, or "you could also…" gold-plating. A
 gap-hunting reviewer manufactures gaps, which drives over-engineering. Silence on a clean diff is a
@@ -57,8 +64,8 @@ context, so lean on *executed evidence*, not opinion.
 | Severity | Meaning |
 |---|---|
 | **CRITICAL** | Data loss (a bad `xdu-rm` change) or index corruption (schema or atomic-write), security weakening (the DuckDB SQL-injection surface), or **any** xdu invariant violation (`invariants.md` §1–§12, lettered subsections such as §2b/§2c included; a §13 project-conventions violation is **HIGH**, not auto-CRITICAL). |
-| **HIGH** | A GOAL R-ID unmet or wrong; a real bug on a common path. |
-| **MEDIUM** | A bug on an edge path; a partial/again-fragile requirement. |
+| **HIGH** | A GOAL R-ID unmet or wrong; a real bug on a common path; **operating-manual drift that degrades a gate** — stale text in `invariants.md`, in an `AGENTS.md` load-bearing invariant, or in any file-path-keyed gate list. |
+| **MEDIUM** | A bug on an edge path; a partial/again-fragile requirement; operating-manual drift elsewhere (an `AGENTS.md` description merely wrong, absent, or misattributed). |
 | **LOW** | Minor correctness risk; missing-but-non-blocking test coverage of an R-ID. |
 
 ## Verdict & loop (orchestrator only)
@@ -85,6 +92,11 @@ touches:
   + layout constants + `RESERVED_INDEX_NAMES`), or `src/cli.rs` (the one CLI definition); **or**
 - a destructive-`rm` / schema-stability / atomic-write / SQL-injection invariant
   (`invariants.md` §4 / §1 / §2 / §5).
+
+**That path list is restated in `invariants.md`, `xdu-review`'s Safety Principles, and
+`templates/REVIEW.md`, and the copies drift independently** — a pure code *move* has already disarmed
+this gate once. Any diff that relocates code re-derives all of them in the same diff, and the list may
+only ever **widen**: a path whose logic moved gets the new home added, never the old one removed.
 
 ## Optional debate variant (high-risk diffs)
 
