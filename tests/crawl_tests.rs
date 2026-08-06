@@ -1,400 +1,986 @@
-//! Integration tests for xdu crawl functionality.
+//! Integration tests for the `xdu` index-build crawl.
 //!
-//! These tests create temporary directory structures and verify that
-//! crawling produces correct file counts, sizes, and records.
+//! These drive the **real** `xdu` binary against throwaway `tempfile` trees and assert
+//! concrete post-conditions via `xdu-find` (row counts, per-partition counts, paths
+//! present-or-absent, exit status) — never by reimplementing the crawler. Sizes use
+//! `--apparent-size` so they are exact and filesystem-independent.
 
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+mod common;
 
-use jwalk::{Parallelism, WalkDir};
-use std::sync::Mutex;
+use std::fs;
+use std::os::unix::fs::{PermissionsExt, symlink};
+
 use tempfile::TempDir;
 
-use xdu::{FileRecord, SizeMode};
+use common::{
+    build_index, count_chunks, count_partials, create_test_file, find_count, find_paths, run_xdu,
+};
 
-/// Special partition name for files directly in the top-level directory.
-const ROOT_PARTITION: &str = "__root__";
+/// The run-level completion marker `xdu` writes at the index root on success.
+const COMPLETION_MARKER: &str = ".xdu-complete";
 
-/// Simple buffer that collects FileRecords for testing.
-struct TestBuffer {
-    records: Vec<FileRecord>,
+/// Parse the leading size column of an `xdu-find -f size` line ("<size>\t<path>").
+fn parse_first_size(out: &str) -> i64 {
+    let line = out.lines().next().expect("no size output");
+    line.split('\t')
+        .next()
+        .unwrap()
+        .parse()
+        .expect("size column not an integer")
 }
 
-impl TestBuffer {
-    fn new() -> Self {
-        Self {
-            records: Vec::new(),
-        }
+// =============================================================================
+// Basic counts, per-partition
+// =============================================================================
+
+#[test]
+fn test_basic_and_per_partition_counts() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("alice/f1.txt"), 100).unwrap();
+    create_test_file(&source.join("alice/f2.txt"), 200).unwrap();
+    create_test_file(&source.join("bob/f3.txt"), 300).unwrap();
+
+    build_index(&source, &index);
+
+    assert_eq!(find_count(&index, &[]), 3);
+    assert_eq!(find_count(&index, &["-u", "alice"]), 2);
+    assert_eq!(find_count(&index, &["-u", "bob"]), 1);
+}
+
+// =============================================================================
+// __root__: loose top-level files are their own partition; nested files are not
+// =============================================================================
+
+#[test]
+fn test_root_partition_holds_only_loose_files() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("root.txt"), 10).unwrap(); // loose -> __root__
+    create_test_file(&source.join("sub/nested.txt"), 20).unwrap(); // -> partition "sub"
+
+    build_index(&source, &index);
+
+    assert_eq!(find_count(&index, &[]), 2);
+    assert_eq!(find_count(&index, &["-u", "__root__"]), 1);
+    assert_eq!(find_count(&index, &["-u", "sub"]), 1);
+
+    // The nested file must not leak into __root__.
+    let root_paths = {
+        let (out, _e, ok) = common::run_find(&[
+            "-i",
+            index.to_str().unwrap(),
+            "-u",
+            "__root__",
+            "-f",
+            "path",
+        ]);
+        assert!(ok);
+        out
+    };
+    assert!(root_paths.contains("root.txt"));
+    assert!(!root_paths.contains("nested.txt"));
+}
+
+// =============================================================================
+// Deeply nested files are all captured under their top-level partition
+// =============================================================================
+
+#[test]
+fn test_deeply_nested_files_counted() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("p/top.txt"), 10).unwrap();
+    create_test_file(&source.join("p/a/b/c/deep.txt"), 20).unwrap();
+
+    build_index(&source, &index);
+
+    assert_eq!(find_count(&index, &[]), 2);
+    assert_eq!(find_count(&index, &["-u", "p"]), 2);
+}
+
+// =============================================================================
+// --partition filter selects a subset; an absent partition is a validation error
+// =============================================================================
+
+#[test]
+fn test_partition_filter_and_absent_partition_error() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("alice/f.txt"), 100).unwrap();
+    create_test_file(&source.join("bob/f.txt"), 100).unwrap();
+
+    // Index only alice.
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        "-p",
+        "alice",
+        source.to_str().unwrap(),
+    ]);
+    assert!(ok, "xdu -p alice failed: {e}");
+    assert_eq!(find_count(&index, &[]), 1);
+    assert_eq!(find_count(&index, &["-u", "alice"]), 1);
+
+    // An absent partition name is rejected before crawling.
+    let index2 = tmp.path().join("index2");
+    let (_o2, e2, ok2) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index2.to_str().unwrap(),
+        "-p",
+        "ghost",
+        source.to_str().unwrap(),
+    ]);
+    assert!(!ok2, "xdu should fail for an absent partition");
+    assert!(
+        e2.contains("Partition 'ghost' not found"),
+        "stderr should name the missing partition, got: {e2}"
+    );
+}
+
+// =============================================================================
+// Size modes: apparent-size is exact; block-rounded rounds up
+// =============================================================================
+
+#[test]
+fn test_size_modes() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+
+    create_test_file(&source.join("p/file.bin"), 100).unwrap();
+
+    // Apparent size is exact.
+    let idx_apparent = tmp.path().join("apparent");
+    build_index(&source, &idx_apparent);
+    let (out, _e, ok) = common::run_find(&["-i", idx_apparent.to_str().unwrap(), "-f", "size"]);
+    assert!(ok);
+    assert_eq!(parse_first_size(&out), 100);
+
+    // Block-rounded: 100 bytes rounds up to a full 4096-byte block.
+    let idx_rounded = tmp.path().join("rounded");
+    let (_o, e, ok) = run_xdu(&[
+        "-k",
+        "4096",
+        "-o",
+        idx_rounded.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+    assert!(ok, "xdu -k 4096 failed: {e}");
+    let (out, _e, ok) = common::run_find(&["-i", idx_rounded.to_str().unwrap(), "-f", "size"]);
+    assert!(ok);
+    assert_eq!(parse_first_size(&out), 4096);
+}
+
+// =============================================================================
+// An empty tree fails loud with a clear diagnostic
+// =============================================================================
+
+#[test]
+fn test_empty_tree_fails_with_no_partitions() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+    fs::create_dir_all(&source).unwrap();
+
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+    assert!(!ok, "empty tree should not succeed");
+    assert!(
+        e.contains("No partitions found"),
+        "stderr should explain the empty tree, got: {e}"
+    );
+}
+
+// =============================================================================
+// Re-indexing a shrunken tree drops stale rows (finalize prunes stale chunks)
+// =============================================================================
+
+#[test]
+fn test_reindex_prunes_stale_rows() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"] {
+        create_test_file(&source.join("p").join(name), 100).unwrap();
     }
 
-    fn add(&mut self, record: FileRecord) {
-        self.records.push(record);
-    }
+    // Small buffsize => several chunks (ceil(5/2) = 3).
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-B",
+        "2",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+    assert!(ok, "initial index failed: {e}");
+    assert_eq!(find_count(&index, &[]), 5);
+    assert!(count_chunks(&index, "p") >= 2);
 
-    fn records(&self) -> &[FileRecord] {
-        &self.records
+    // Shrink the tree, then re-index the same directory.
+    for name in ["c.txt", "d.txt", "e.txt"] {
+        fs::remove_file(source.join("p").join(name)).unwrap();
     }
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-B",
+        "2",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+    assert!(ok, "re-index failed: {e}");
 
-    fn total_size(&self) -> i64 {
-        self.records.iter().map(|r| r.size).sum()
+    assert_eq!(find_count(&index, &[]), 2, "stale rows were not pruned");
+    assert_eq!(count_chunks(&index, "p"), 1, "stale chunks were not pruned");
+    assert_eq!(count_partials(&index), 0);
+}
+
+// =============================================================================
+// A successful crawl leaves no *.partial files behind
+// =============================================================================
+
+#[test]
+fn test_no_partial_files_after_success() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("alice/f1.txt"), 100).unwrap();
+    create_test_file(&source.join("bob/f2.txt"), 100).unwrap();
+    create_test_file(&source.join("loose.txt"), 100).unwrap();
+
+    build_index(&source, &index);
+
+    assert_eq!(find_count(&index, &[]), 3);
+    assert_eq!(count_partials(&index), 0, "found leftover .partial files");
+}
+
+// =============================================================================
+// A real __root__ subdirectory collides with the reserved partition and is rejected
+// =============================================================================
+
+#[test]
+fn test_reserved_root_partition_name_is_rejected() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+
+    // A real top-level subdirectory of the reserved name, alongside a loose file
+    // that would create the synthetic __root__ partition: both would write chunk
+    // 000000 into the same directory.
+    create_test_file(&source.join("__root__/inner.txt"), 100).unwrap();
+    create_test_file(&source.join("loose.txt"), 100).unwrap();
+    create_test_file(&source.join("p/f.txt"), 100).unwrap();
+
+    // Serialized (-j 1) the two work items would still collide via finalize's prune.
+    for jobs in ["4", "1"] {
+        let index = tmp.path().join(format!("index-j{jobs}"));
+        let (_o, e, ok) = run_xdu(&[
+            "--apparent-size",
+            "-j",
+            jobs,
+            "-o",
+            index.to_str().unwrap(),
+            source.to_str().unwrap(),
+        ]);
+
+        assert!(!ok, "a __root__ collision must fail the run (-j {jobs})");
+        assert!(
+            e.contains("__root__"),
+            "stderr must name the colliding partition (-j {jobs}), got: {e}"
+        );
+        // Rejected before any crawling: nothing was written to the index.
+        assert!(
+            !index.join(COMPLETION_MARKER).exists(),
+            "a rejected run must not be marked complete"
+        );
+        assert_eq!(count_chunks(&index, "p"), 0);
+        assert_eq!(count_partials(&index), 0);
     }
 }
 
-/// Create a test file with specific content size.
-fn create_test_file(path: &PathBuf, size: usize) -> std::io::Result<()> {
-    let mut file = File::create(path)?;
-    file.write_all(&vec![b'x'; size])?;
-    Ok(())
+// =============================================================================
+// A top-level .xdu-complete directory would land on the marker path and is rejected
+// =============================================================================
+
+#[test]
+fn test_reserved_marker_name_is_rejected_and_leaves_the_outdir_usable() {
+    let tmp = TempDir::new().unwrap();
+    let bad = tmp.path().join("bad");
+    let good = tmp.path().join("good");
+    let index = tmp.path().join("index");
+
+    // A top-level source directory named exactly like the completion marker. Crawled as
+    // a partition it becomes a *directory* at the marker path, so this run cannot attest
+    // itself and no later run — from any source tree — can clear the marker again.
+    create_test_file(&bad.join(".xdu-complete/inner.txt"), 100).unwrap();
+    create_test_file(&bad.join("p/f.txt"), 100).unwrap();
+
+    create_test_file(&good.join("p/f1.txt"), 100).unwrap();
+    create_test_file(&good.join("q/f2.txt"), 100).unwrap();
+
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        bad.to_str().unwrap(),
+    ]);
+    assert!(!ok, "a completion-marker name collision must fail the run");
+    assert!(
+        e.contains(COMPLETION_MARKER) && e.contains("reserved"),
+        "stderr must name the reserved entry and say what claims it, got: {e}"
+    );
+
+    // Rejected in pre-flight: nothing was indexed and the marker path is still free.
+    assert_eq!(count_chunks(&index, "p"), 0);
+    assert_eq!(count_partials(&index), 0);
+    assert!(
+        !index.join(COMPLETION_MARKER).exists(),
+        "a rejected run must leave the marker path unoccupied"
+    );
+
+    // The outdir stays usable — an unrelated run completes and attests itself, which is
+    // exactly what an unguarded collision made permanently impossible.
+    build_index(&good, &index);
+    assert!(
+        index.join(COMPLETION_MARKER).is_file(),
+        "the marker must be a plain file a later run can clear"
+    );
+    assert_eq!(find_count(&index, &[]), 2);
 }
 
-/// Extract partition name from path, mirroring the logic in xdu.rs
-fn extract_partition(path: &Path, top_dir: &Path) -> Option<String> {
-    let relative = path.strip_prefix(top_dir).ok()?;
-    let mut components = relative.components();
-    let first = components.next()?;
-    if components.next().is_some() {
-        Some(first.as_os_str().to_string_lossy().to_string())
+// =============================================================================
+// The completion marker attests to a whole run: written on success, gone on failure
+// =============================================================================
+
+#[test]
+fn test_completion_marker_written_on_success_and_cleared_on_failure() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("p/f1.txt"), 100).unwrap();
+    create_test_file(&source.join("q/f2.txt"), 100).unwrap();
+
+    build_index(&source, &index);
+
+    let marker = index.join(COMPLETION_MARKER);
+    assert!(
+        marker.exists(),
+        "a successful crawl must write the completion marker"
+    );
+    let body = fs::read_to_string(&marker).unwrap();
+    assert!(
+        body.contains("files=2"),
+        "marker should record the run totals, got: {body}"
+    );
+    assert_eq!(find_count(&index, &[]), 2);
+    assert_eq!(count_partials(&index), 0);
+
+    // The marker is a top-level dotfile, never a partition: the readers still see
+    // exactly the two indexed files.
+    assert_eq!(find_count(&index, &["-u", "p"]), 1);
+
+    // Sabotage one partition's output — a regular file where its directory belongs
+    // makes that driver fail when it flushes.
+    fs::remove_dir_all(index.join("p")).unwrap();
+    fs::write(index.join("p"), b"not a directory").unwrap();
+
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    assert!(!ok, "a driver failure must fail the run, stderr: {e}");
+    assert!(
+        !marker.exists(),
+        "a failed run must not leave the previous run's completion marker behind"
+    );
+}
+
+// =============================================================================
+// A run rejected before it writes leaves a complete index's marker intact
+// =============================================================================
+
+#[test]
+fn test_rejected_run_leaves_existing_marker_intact() {
+    let tmp = TempDir::new().unwrap();
+    let good = tmp.path().join("good");
+    let index = tmp.path().join("index");
+
+    create_test_file(&good.join("p/f1.txt"), 100).unwrap();
+    create_test_file(&good.join("p/f2.txt"), 100).unwrap();
+
+    build_index(&good, &index);
+
+    let marker = index.join(COMPLETION_MARKER);
+    let attestation = fs::read_to_string(&marker).expect("the initial run must be marked complete");
+
+    // Each leg re-runs against the same index with a source that xdu rejects during
+    // pre-flight, before it touches the index. The attestation describes an index that
+    // was not rewritten, so it must survive byte-for-byte.
+    let assert_intact = |leg: &str| {
+        assert_eq!(
+            fs::read_to_string(&marker).ok().as_deref(),
+            Some(attestation.as_str()),
+            "a run rejected in pre-flight must leave the marker untouched ({leg})"
+        );
+        assert_eq!(
+            find_count(&index, &[]),
+            2,
+            "the pre-existing index must still be queryable ({leg})"
+        );
+    };
+
+    // Leg 1: an empty source tree — nothing to index.
+    let empty = tmp.path().join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        empty.to_str().unwrap(),
+    ]);
+    assert!(!ok, "an empty tree must fail the run");
+    assert!(e.contains("No partitions found"), "got: {e}");
+    assert_intact("empty tree");
+
+    // Leg 2: a real top-level directory using the reserved partition name.
+    let reserved = tmp.path().join("reserved");
+    create_test_file(&reserved.join("__root__/inner.txt"), 100).unwrap();
+    create_test_file(&reserved.join("p/f.txt"), 100).unwrap();
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        reserved.to_str().unwrap(),
+    ]);
+    assert!(!ok, "a __root__ collision must fail the run");
+    assert!(e.contains("reserved"), "got: {e}");
+    assert_intact("reserved __root__ name");
+
+    // Leg 3: an unreadable source root — the top-level enumeration itself fails.
+    // Root bypasses permission bits, so this leg cannot be reproduced as root.
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping the unreadable-source leg: running as root bypasses permissions");
     } else {
-        Some(ROOT_PARTITION.to_string())
+        let locked = tmp.path().join("locked");
+        create_test_file(&locked.join("p/f.txt"), 100).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let (_o, e, ok) = run_xdu(&[
+            "--apparent-size",
+            "-o",
+            index.to_str().unwrap(),
+            locked.to_str().unwrap(),
+        ]);
+
+        // Restore perms before asserting so the TempDir can always be cleaned up.
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(!ok, "an unreadable source root must fail the run");
+        // Canonicalizing the root only lstats it, so the failure lands on the top-level
+        // enumeration — the rejection site this leg exists to cover.
+        assert!(
+            e.contains("Failed to read directory"),
+            "stderr must explain the unreadable source, got: {e}"
+        );
+        assert_intact("unreadable source root");
     }
+
+    // The fail-safe still holds below the clear: a run that gets past pre-flight and
+    // then fails mid-crawl must strip the attestation it can no longer support.
+    fs::remove_dir_all(index.join("p")).unwrap();
+    fs::write(index.join("p"), b"not a directory").unwrap();
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        good.to_str().unwrap(),
+    ]);
+    assert!(!ok, "a driver failure must fail the run, stderr: {e}");
+    assert!(
+        !marker.exists(),
+        "a run that started writing and then failed must leave the index unattested"
+    );
 }
 
-/// Helper to crawl a directory using jwalk and collect records into a TestBuffer.
-fn crawl_directory_for_test(
-    top_dir: &Path,
-    buffer: &Arc<Mutex<TestBuffer>>,
-    size_mode: SizeMode,
-    file_count: &AtomicU64,
-    byte_count: &AtomicU64,
-) {
-    let walker = WalkDir::new(top_dir)
-        .parallelism(Parallelism::Serial)
-        .skip_hidden(false)
-        .follow_links(false);
+// =============================================================================
+// A markerless index still queries: readers warn on stderr, they do not refuse
+// =============================================================================
 
-    for entry in walker {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
+#[test]
+fn test_reader_warns_but_still_queries_markerless_index() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
 
-        if !entry.file_type().is_file() {
-            continue;
-        }
+    create_test_file(&source.join("p/f1.txt"), 100).unwrap();
+    create_test_file(&source.join("p/f2.txt"), 100).unwrap();
 
-        let path = entry.path();
-        let metadata = match fs::metadata(&path) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
+    build_index(&source, &index);
 
-        // Use apparent size for testing (st_blocks not reliable in tests)
-        let file_size = size_mode.calculate(metadata.len(), metadata.len());
-        let record = FileRecord {
-            path: path.to_string_lossy().to_string(),
-            size: file_size as i64,
-            atime: 0, // Not testing atime
-        };
-        buffer.lock().unwrap().add(record);
+    // A complete index is quiet.
+    let (out, err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(ok);
+    assert_eq!(out.trim(), "2");
+    assert!(
+        !err.contains("completion marker"),
+        "a complete index must not warn: {err}"
+    );
 
-        file_count.fetch_add(1, Ordering::Relaxed);
-        byte_count.fetch_add(file_size, Ordering::Relaxed);
+    // Indexes built before the marker existed have no marker; they must keep working.
+    fs::remove_file(index.join(COMPLETION_MARKER)).unwrap();
+
+    let (out, err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(ok, "a markerless index must still be queryable: {err}");
+    assert_eq!(out.trim(), "2", "the warning must not change the results");
+    assert!(
+        err.contains("completion marker"),
+        "stderr should carry the soft warning, got: {err}"
+    );
+    // Diagnostics stay off stdout so a piped count is still just a number.
+    assert!(!out.contains("warning"));
+}
+
+// =============================================================================
+// A loose top-level symlink is not a root file: no empty __root__ partition
+// =============================================================================
+
+#[test]
+fn test_loose_symlink_does_not_create_root_partition() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("p/real.txt"), 100).unwrap();
+    // The walk never indexes symlinks, so a loose one has nothing to contribute.
+    symlink(source.join("p/real.txt"), source.join("link.txt")).unwrap();
+
+    build_index(&source, &index);
+
+    assert_eq!(find_count(&index, &[]), 1);
+    assert!(
+        !index.join("__root__").exists(),
+        "a loose symlink must not spawn an empty __root__ partition"
+    );
+}
+
+// =============================================================================
+// A non-UTF-8 path is indexed lossily, but counted and reported (never fatal)
+// =============================================================================
+
+#[test]
+fn test_non_utf8_path_is_counted_and_reported() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("p/ok.txt"), 100).unwrap();
+
+    // Filesystems that enforce UTF-8 filenames (APFS/HFS+) reject this name outright;
+    // where raw bytes are allowed (ext4, XFS, Lustre) the warning path is exercised.
+    let bad = source.join("p").join(OsStr::from_bytes(b"bad\xffname.txt"));
+    if create_test_file(&bad, 50).is_err() {
+        eprintln!("skipping: this filesystem rejects non-UTF-8 filenames");
+        return;
     }
+
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    assert!(ok, "a non-UTF-8 path must not fail the run, stderr: {e}");
+    // Both files are indexed; the lossy one just cannot round-trip.
+    assert_eq!(find_count(&index, &[]), 2);
+    assert!(
+        e.contains("non-UTF-8"),
+        "stderr must report the lossy path, got: {e}"
+    );
+    assert!(
+        index.join(COMPLETION_MARKER).exists(),
+        "lossy paths are counted, not fatal — the run still completes"
+    );
 }
 
 // =============================================================================
-// Test: crawl_directory correctly accumulates file counts and sizes
+// Symlinks are excluded; only the regular file is indexed
 // =============================================================================
 
 #[test]
-fn test_crawl_directory_accumulates_counts_and_sizes() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
+fn test_symlinks_excluded() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
 
-    // Create test files
-    create_test_file(&base.join("file1.txt"), 100).unwrap();
-    create_test_file(&base.join("file2.txt"), 200).unwrap();
-    create_test_file(&base.join("file3.txt"), 300).unwrap();
+    create_test_file(&source.join("p/real.txt"), 100).unwrap();
+    symlink(source.join("p/real.txt"), source.join("p/link.txt")).unwrap();
 
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
+    build_index(&source, &index);
 
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
-    );
-
-    // Verify counts
-    assert_eq!(file_count.load(Ordering::Relaxed), 3);
-    assert_eq!(byte_count.load(Ordering::Relaxed), 600);
-
-    // Verify buffer has all records
-    let buf = buffer.lock().unwrap();
-    assert_eq!(buf.records().len(), 3);
-    assert_eq!(buf.total_size(), 600);
-}
-
-#[test]
-fn test_crawl_directory_with_nested_subdirectories() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    // Create nested structure
-    fs::create_dir_all(base.join("subdir1/nested")).unwrap();
-    fs::create_dir_all(base.join("subdir2")).unwrap();
-
-    create_test_file(&base.join("root.txt"), 50).unwrap();
-    create_test_file(&base.join("subdir1/file1.txt"), 100).unwrap();
-    create_test_file(&base.join("subdir1/nested/deep.txt"), 150).unwrap();
-    create_test_file(&base.join("subdir2/file2.txt"), 200).unwrap();
-
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
-    );
-
-    assert_eq!(file_count.load(Ordering::Relaxed), 4);
-    assert_eq!(byte_count.load(Ordering::Relaxed), 500);
-}
-
-#[test]
-fn test_crawl_directory_adds_records_to_buffer() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    create_test_file(&base.join("test.txt"), 1024).unwrap();
-
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
-    );
-
-    let buf = buffer.lock().unwrap();
-    assert_eq!(buf.records().len(), 1);
-    let record = &buf.records()[0];
-    assert!(record.path.ends_with("test.txt"));
-    assert_eq!(record.size, 1024);
+    // Only the regular file is counted; the symlink is skipped.
+    assert_eq!(find_count(&index, &[]), 1);
+    let paths = find_paths(&index);
+    assert!(paths.iter().any(|p| p.ends_with("real.txt")));
+    assert!(!paths.iter().any(|p| p.ends_with("link.txt")));
 }
 
 // =============================================================================
-// Test: Partition extraction logic
+// Determinism: two independent crawls of the same tree agree exactly
 // =============================================================================
 
 #[test]
-fn test_extract_partition_with_subdirectory() {
-    let top_dir = Path::new("/data/scratch");
-    let file_path = Path::new("/data/scratch/alice/projects/file.txt");
+fn test_crawl_is_deterministic() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
 
-    let partition = extract_partition(file_path, top_dir);
-    assert_eq!(partition, Some("alice".to_string()));
+    create_test_file(&source.join("alice/f1.txt"), 100).unwrap();
+    create_test_file(&source.join("alice/f2.txt"), 200).unwrap();
+    create_test_file(&source.join("bob/data.bin"), 500).unwrap();
+    create_test_file(&source.join("charlie/notes.md"), 150).unwrap();
+    create_test_file(&source.join("loose.txt"), 50).unwrap();
+
+    let index1 = tmp.path().join("index1");
+    let index2 = tmp.path().join("index2");
+    build_index(&source, &index1);
+    build_index(&source, &index2);
+
+    assert_eq!(find_count(&index1, &[]), 5);
+    assert_eq!(find_count(&index2, &[]), 5);
+    assert_eq!(find_paths(&index1), find_paths(&index2));
 }
 
-#[test]
-fn test_extract_partition_root_level_file() {
-    let top_dir = Path::new("/data/scratch");
-    let file_path = Path::new("/data/scratch/readme.txt");
-
-    let partition = extract_partition(file_path, top_dir);
-    assert_eq!(partition, Some(ROOT_PARTITION.to_string()));
-}
+// =============================================================================
+// Buffsize chunking: a small -B splits a partition into multiple chunks
+// =============================================================================
 
 #[test]
-fn test_extract_partition_deeply_nested() {
-    let top_dir = Path::new("/data/scratch");
-    let file_path = Path::new("/data/scratch/bob/projects/2024/january/report.pdf");
+fn test_buffsize_chunking() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
 
-    let partition = extract_partition(file_path, top_dir);
-    assert_eq!(partition, Some("bob".to_string()));
-}
-
-#[test]
-fn test_crawl_with_partition_structure() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    // Create partition-like structure
-    fs::create_dir_all(base.join("alice")).unwrap();
-    fs::create_dir_all(base.join("bob/projects")).unwrap();
-
-    create_test_file(&base.join("alice/file1.txt"), 100).unwrap();
-    create_test_file(&base.join("bob/file2.txt"), 200).unwrap();
-    create_test_file(&base.join("bob/projects/file3.txt"), 300).unwrap();
-
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
-    );
-
-    // All files should be crawled
-    assert_eq!(file_count.load(Ordering::Relaxed), 3);
-    assert_eq!(byte_count.load(Ordering::Relaxed), 600);
-
-    // Verify partition extraction works for collected records
-    let buf = buffer.lock().unwrap();
-    for record in buf.records() {
-        let path = Path::new(&record.path);
-        let partition = extract_partition(path, base);
-        assert!(partition.is_some());
-        let p = partition.unwrap();
-        assert!(p == "alice" || p == "bob");
+    for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"] {
+        create_test_file(&source.join("p").join(name), 100).unwrap();
     }
+
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-B",
+        "2",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+    assert!(ok, "chunked index failed: {e}");
+
+    // All five files are present despite chunking...
+    assert_eq!(find_count(&index, &[]), 5);
+    // ...and they landed across more than one chunk file.
+    assert!(
+        count_chunks(&index, "p") >= 2,
+        "expected multiple chunks with -B 2, got {}",
+        count_chunks(&index, "p")
+    );
+    assert_eq!(count_partials(&index), 0);
 }
 
 // =============================================================================
-// Test: Full crawl mode correctly processes multiple partitions
+// An unreadable subtree fails the run loud by default (the headline correctness fix)
 // =============================================================================
 
 #[test]
-fn test_full_crawl_processes_multiple_partitions() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
+fn test_unreadable_subtree_fails_loud_by_default() {
+    // Root bypasses permission bits, so this scenario cannot be reproduced as root.
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping: running as root bypasses permission checks");
+        return;
+    }
 
-    // Create partition directories
-    fs::create_dir_all(base.join("alice")).unwrap();
-    fs::create_dir_all(base.join("bob")).unwrap();
-    fs::create_dir_all(base.join("charlie")).unwrap();
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
 
-    create_test_file(&base.join("alice/file1.txt"), 100).unwrap();
-    create_test_file(&base.join("alice/file2.txt"), 200).unwrap();
-    create_test_file(&base.join("bob/data.bin"), 500).unwrap();
-    create_test_file(&base.join("charlie/notes.md"), 150).unwrap();
+    create_test_file(&source.join("data/readable.txt"), 100).unwrap();
+    create_test_file(&source.join("data/secret/hidden.txt"), 100).unwrap();
 
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
+    let secret = source.join("data/secret");
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).unwrap();
 
-    // Single crawl over entire directory tree
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
+    let (_out, err, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    // Restore perms before asserting so the TempDir can always be cleaned up.
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(!ok, "crawl must exit non-zero on an unreadable subtree");
+    assert!(
+        err.contains("secret"),
+        "stderr must name the unreadable directory, got: {err}"
     );
-
-    // Verify totals
-    assert_eq!(file_count.load(Ordering::Relaxed), 4);
-    assert_eq!(byte_count.load(Ordering::Relaxed), 950);
-
-    // Verify partition detection works
-    let buf = buffer.lock().unwrap();
-    let mut partitions: Vec<String> = buf
-        .records()
-        .iter()
-        .filter_map(|r| extract_partition(Path::new(&r.path), base))
-        .collect();
-    partitions.sort();
-    partitions.dedup();
-    assert_eq!(partitions, vec!["alice", "bob", "charlie"]);
-}
-
-#[test]
-fn test_crawl_accumulates_across_partitions() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
-
-    // Create two partitions
-    fs::create_dir_all(base.join("part1")).unwrap();
-    fs::create_dir_all(base.join("part2")).unwrap();
-
-    create_test_file(&base.join("part1/a.txt"), 1000).unwrap();
-    create_test_file(&base.join("part2/b.txt"), 2000).unwrap();
-    create_test_file(&base.join("part2/c.txt"), 3000).unwrap();
-
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
-
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
-    );
-
-    // Verify totals from both partitions
-    assert_eq!(file_count.load(Ordering::Relaxed), 3);
-    assert_eq!(byte_count.load(Ordering::Relaxed), 6000);
+    // The reachable file was still indexed; the hidden subtree was omitted.
+    assert_eq!(find_count(&index, &["-u", "data"]), 1);
 }
 
 // =============================================================================
-// Test: SizeMode with crawl
+// --allow-errors downgrades the hard error to a warning and exits 0
 // =============================================================================
 
 #[test]
-fn test_crawl_with_block_rounded_size_mode() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
+fn test_unreadable_subtree_allow_errors_continues() {
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping: running as root bypasses permission checks");
+        return;
+    }
 
-    // Create a small file that should round up to 4K
-    create_test_file(&base.join("small.txt"), 100).unwrap();
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
 
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
+    create_test_file(&source.join("data/readable.txt"), 100).unwrap();
+    create_test_file(&source.join("data/secret/hidden.txt"), 100).unwrap();
 
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::BlockRounded(4096),
-        &file_count,
-        &byte_count,
+    let secret = source.join("data/secret");
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let (_out, err, ok) = run_xdu(&[
+        "--apparent-size",
+        "--allow-errors",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(
+        ok,
+        "with --allow-errors the crawl must exit 0, stderr: {err}"
     );
+    // The error is still reported (a non-zero count) and reachable files still indexed.
+    assert!(
+        err.contains("secret"),
+        "stderr should still report the skipped path: {err}"
+    );
+    assert!(
+        err.contains("errors"),
+        "summary should still report the error count: {err}"
+    );
+    assert_eq!(find_count(&index, &["-u", "data"]), 1);
 
-    // 100 bytes should round up to 4096
-    assert_eq!(byte_count.load(Ordering::Relaxed), 4096);
-
-    let buf = buffer.lock().unwrap();
-    assert_eq!(buf.records()[0].size, 4096);
+    // The run was marked complete, but the marker records what it skipped — so a reader must
+    // pass that on, on stderr only, leaving a piped count as just a number.
+    let (out, read_err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(ok, "an allow-errors index must stay queryable: {read_err}");
+    assert_eq!(out.trim(), "1", "stdout carries the count and nothing else");
+    assert!(
+        read_err.contains("--allow-errors"),
+        "the reader should name the flag that licensed the gap: {read_err}"
+    );
+    assert!(!out.contains("warning"), "stdout must stay pipeable: {out}");
 }
 
+// =============================================================================
+// A marker recording tolerated errors makes every reader warn, without changing results
+// =============================================================================
+
 #[test]
-fn test_crawl_empty_directory() {
-    let temp_dir = TempDir::new().unwrap();
-    let base = temp_dir.path();
+fn test_reader_warns_on_marker_recording_tolerated_errors() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
 
-    // Empty directory
-    let buffer = Arc::new(Mutex::new(TestBuffer::new()));
-    let file_count = AtomicU64::new(0);
-    let byte_count = AtomicU64::new(0);
+    create_test_file(&source.join("p/keep.txt"), 100).unwrap();
+    create_test_file(&source.join("p/target.log"), 100).unwrap();
 
-    crawl_directory_for_test(
-        base,
-        &buffer,
-        SizeMode::ApparentSize,
-        &file_count,
-        &byte_count,
+    build_index(&source, &index);
+
+    // A clean run records errors=0, which is nothing to report.
+    let (out, err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(ok);
+    assert_eq!(out.trim(), "2");
+    assert!(
+        !err.contains("tolerated"),
+        "a clean index must be quiet: {err}"
     );
 
-    assert_eq!(file_count.load(Ordering::Relaxed), 0);
-    assert_eq!(buffer.lock().unwrap().records().len(), 0);
+    // Rewrite the marker body as an --allow-errors run would have left it. Editing the marker
+    // rather than provoking a real permission error keeps this case runnable as root.
+    let marker = index.join(COMPLETION_MARKER);
+    let body = fs::read_to_string(&marker)
+        .unwrap()
+        .replace("errors=0", "errors=2");
+    assert!(
+        body.contains("errors=2"),
+        "marker body shape changed: {body}"
+    );
+    fs::write(&marker, &body).unwrap();
+
+    let (out, err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(ok, "the warning must not break the query: {err}");
+    assert_eq!(out.trim(), "2", "results are unchanged by the warning");
+    assert!(
+        err.contains("2 tolerated error(s)"),
+        "stderr should report the recorded count: {err}"
+    );
+    assert!(!out.contains("warning"), "stdout must stay pipeable: {out}");
+
+    // xdu-rm is the tool this matters most to: it warns, and a dry run still lists its
+    // target on stdout and deletes nothing.
+    let (out, err, ok) = common::run_rm(&[
+        "-i",
+        index.to_str().unwrap(),
+        "-p",
+        r"\.log$",
+        "--dry-run",
+        "--force",
+    ]);
+    assert!(ok, "xdu-rm --dry-run should succeed: {err}");
+    assert!(
+        err.contains("2 tolerated error(s)"),
+        "xdu-rm must warn before anything is unlinked: {err}"
+    );
+    assert!(
+        out.contains("target.log"),
+        "the dry run should still list its target: {out}"
+    );
+    assert!(
+        source.join("p/target.log").exists(),
+        "a dry run must delete nothing"
+    );
+    assert!(source.join("p/keep.txt").exists());
+}
+
+// =============================================================================
+// A read error is survived, not fatal on the spot: every partition is still
+// walked and finalized, and only the run as a whole fails
+// =============================================================================
+
+#[test]
+fn test_unreadable_path_does_not_stop_sibling_partitions() {
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping: running as root bypasses permission checks");
+        return;
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("alpha/readable.txt"), 100).unwrap();
+    create_test_file(&source.join("alpha/locked/hidden.txt"), 100).unwrap();
+    create_test_file(&source.join("beta/b.txt"), 100).unwrap();
+
+    let locked = source.join("alpha/locked");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let (_o, err, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    // Restore perms before asserting so the TempDir can always be cleaned up.
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(!ok, "an unreadable path must fail the run");
+    assert!(
+        err.contains("locked"),
+        "stderr must name the unreadable directory, got: {err}"
+    );
+
+    // The erroring partition was walked to the end and finalized anyway...
+    assert_eq!(find_count(&index, &["-u", "alpha"]), 1);
+    assert!(
+        count_chunks(&index, "alpha") >= 1,
+        "the erroring partition must still be finalized"
+    );
+    // ...and its sibling was indexed rather than abandoned.
+    assert_eq!(find_count(&index, &["-u", "beta"]), 1);
+    assert_eq!(count_partials(&index), 0);
+    assert!(
+        !index.join(COMPLETION_MARKER).exists(),
+        "a run that failed on a read error must not be marked complete"
+    );
+}
+
+// =============================================================================
+// A write failure stops the run: partitions still queued go unindexed
+// =============================================================================
+
+/// The drain order this asserts on is a consequence of two crawl properties:
+/// `build_work_queue` sorts partitions ascending, and
+/// `num_drivers = jobs.min(num_items).max(1)` — so `-j 1` means a single driver takes
+/// p1, p2, p3, p4 in that order, and the failure on p2 is reached with p3/p4 still queued.
+#[test]
+fn test_write_failure_abandons_queued_partitions() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    for partition in ["p1", "p2", "p3", "p4"] {
+        create_test_file(&source.join(partition).join("f.txt"), 100).unwrap();
+    }
+
+    // A regular file where p2's partition directory belongs: that driver fails when it
+    // flushes the partition's first chunk.
+    fs::create_dir_all(&index).unwrap();
+    fs::write(index.join("p2"), b"not a directory").unwrap();
+
+    let (_o, e, ok) = run_xdu(&[
+        "--apparent-size",
+        "-j",
+        "1",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+
+    assert!(!ok, "a write failure must fail the run, stderr: {e}");
+
+    // The partition drained before the failure is complete on disk...
+    assert_eq!(count_chunks(&index, "p1"), 1);
+    assert_eq!(
+        find_count(&index, &[]),
+        1,
+        "only the partition ahead of the failure should be indexed"
+    );
+    // ...and the two still queued behind it were never started.
+    assert!(
+        !index.join("p3").exists(),
+        "a queued partition must go unindexed after a write failure"
+    );
+    assert!(!index.join("p4").exists());
+    assert!(
+        !index.join(COMPLETION_MARKER).exists(),
+        "a run that failed on a write must not be marked complete"
+    );
 }

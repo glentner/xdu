@@ -146,6 +146,103 @@ making a centrally stored index explorable by anyone with a link, no shell accou
 *Horizon: long-term · Depends on: S3 as an index target · Refs: —*
 **Seed:** `/xdu-feature Build xdu-web, a Wasm progressive web app that browses an S3-backed index in the browser with list/tree views and search, mirroring xdu-view.`
 
+## `--version` is documented but rejected by every binary
+
+All four man pages document `-V, --version`, and `AGENTS.md` states the version is single-sourced from
+`Cargo.toml` via clap — but no `#[command(...)]` block in `src/cli.rs` sets `version`, so every binary
+exits with `error: unexpected argument '--version' found`. A user-facing defect in a released version,
+and an invariant §10 (man-pages-vs-code) violation narrowed to exactly that pair: the generated
+completions omit the flag correctly, and the man pages need no edit because they already describe the
+intended behaviour. Likely one attribute per struct.
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** [`issues/version-flag-missing.md`](issues/version-flag-missing.md)
+
+## Internal cleanups surfaced by the crawl-hardening pass
+
+The crawl-hardening work produced a wider architecture assessment whose low-risk cleanups were applied
+at the time (a shared `lib::index_glob` behind every reader's Parquet glob, one home for the
+index-layout constants, reader awareness of the completion marker). It also recorded what was too
+risky or too large to fold in: routing the DuckDB injection surface through validated escaping on the
+`index_glob` seam, reconciling `xdu-view`'s `format_file_count` with `lib::format_count`, and lifting
+the pure TUI helpers — `strip_ansi` above all, which is load-bearing for terminal safety — out of the
+2,500-line `xdu-view` into `lib` where they can be tested. Most of these are invisible to users and
+decide how much of the codebase stays testable as it grows; the terminal-safety pair tracked separately
+below is **not** — a wedged terminal and a filename that crashes the TUI are both user-facing. The full
+record, including the performance levers the benchmark work evaluated and rejected, is
+[`spec/crawl-hardening/ASSESSMENT.md`](spec/crawl-hardening/ASSESSMENT.md).
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** `/xdu-feature Work through the deferred cleanups recorded in spec/crawl-hardening/ASSESSMENT.md: escape the DuckDB injection surface behind lib::index_glob, reconcile the duplicated count formatters, and lift the pure xdu-view helpers into lib with tests — coordinating with the xdu-view terminal-safety fix, which touches the same file.`
+
+## `xdu-view` terminal safety: panic-safe restore and multibyte truncation
+
+Two invariant §12 gaps in `xdu-view`, both pre-existing and both user-facing. The terminal restore is
+plain sequential code after `run_app` with no Drop guard and no panic hook, and `panic = "abort"` means
+no unwind would run one anyway — so any panic, or an early `?` from the fallible `Terminal::new` that
+already runs after raw mode is entered, leaves the terminal wedged. Separately, both renderers truncate
+display names by slicing `&str` at a byte offset computed in terminal columns, which panics outright on
+a multibyte filename. The two compound: the second is exactly the panic the first fails to clean up
+after. One change to one file, best done together with the `strip_ansi` lift above.
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** [`issues/xdu-view-terminal-safety.md`](issues/xdu-view-terminal-safety.md)
+
+## Completion marker: scoped runs should not speak for the whole index
+
+`xdu` clears the completion marker on every run — including `xdu -p onepartition` — and rewrites it
+from that run's stats alone. So a clean partition-scoped re-index resets `errors=0` and silently retires
+the tolerated-error warning that an earlier `--allow-errors` run recorded, while the skipped regions in
+other partitions remain missing. The readers, `xdu-rm` included, then report a clean bill of health for
+an index that is still incomplete. Needs per-partition attestation, or a scoped run declining to write a
+whole-index marker — marker-format or CLI-semantics work either way.
+
+*Horizon: near-term · Depends on: — · Refs: On-disk index schema versioning*
+**Seed:** [`issues/marker-scoped-run-attestation.md`](issues/marker-scoped-run-attestation.md)
+
+## Re-indexing never retires a partition whose source directory is gone
+
+Delete a top-level directory from an indexed tree, re-index, and its partition — chunks and rows — stays
+in the index forever: `finalize` prunes stale chunks only *within* the partitions a run actually walked,
+so one it never enqueued is never reconciled. The run exits 0 and writes a completion marker, so every
+reader reports a clean index that is still answering queries with rows for files that no longer exist —
+`xdu-rm` matches them, and a purged project keeps counting against the tree's size forever. The marker's
+own `files=` count contradicts the row count the readers return, and nothing compares the two. The stale
+partition is **pre-existing behaviour**; what is new is having an attestation that fails to detect it.
+Needs whole-index reconciliation (and a scoped run must never delete the partitions it was told to skip),
+so it lands next to the scoped-marker work above.
+
+*Horizon: near-term · Depends on: — · Refs: Completion marker scoped runs (same question, marker side)*
+**Seed:** [`issues/orphan-partition-survives-reindex.md`](issues/orphan-partition-survives-reindex.md)
+
+## Re-indexing an unreadable partition deletes the rows it already held
+
+The sharpest member of the same family, and the only one that destroys data rather than leaving extra.
+When a partition's source directory cannot be read, its walk yields one error and zero files — but the
+partition is still finalized, and `finalize` prunes from chunk 0, taking every chunk the previous index
+held. The prune loop is correct for the job it was written for (retiring the surplus of a prior larger
+run) and simply cannot tell "legitimately smaller now" from "could not be read". With `--allow-errors`
+the run then exits 0 and attests itself, which is the cruel case: that flag exists so an operator who
+*expects* unreadable regions keeps the rest of the index, and today it can leave them with less than
+they started with. The trigger is ordinary on shared storage — a permission change, a stale mount, an
+NFS blip. The prune scope is **pre-existing in `main`**, where the same rows vanish with no diagnostic
+at all; what this pass added was the first visibility into it. Wants per-partition error state on
+`PartitionBuffer` so finalize can decline to prune what it could not read.
+
+*Horizon: near-term · Depends on: — · Refs: the two reconciliation items above — same finalize scope*
+**Seed:** [`issues/unreadable-partition-prunes-prior-chunks.md`](issues/unreadable-partition-prunes-prior-chunks.md)
+
+## Benchmark harness: stop `baseline` mode overwriting the committed reference
+
+`bench/run.sh baseline` defaults `--out` to `bench/results/baseline.json`, and `baseline` mode is also
+the configuration set anyone reaches for to capture a comparison — so the natural command for "measure
+my build against the reference" destroys the reference. It is the one file in `bench/results/` that is
+not reproducible on demand: regenerating it yields a *different* baseline, silently redefining what "no
+regression" means. A `usage()` warning exists; the loaded default does not.
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** [`issues/bench-baseline-overwrite-guard.md`](issues/bench-baseline-overwrite-guard.md)
+
 ## Native OS packages (DEB / RPM)
 
 Installation today is a release tarball plus `install.sh`. Native `.deb` and `.rpm` packages would

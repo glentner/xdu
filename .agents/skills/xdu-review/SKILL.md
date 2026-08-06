@@ -59,6 +59,13 @@ Additional instructions provided with the invocation: $ARGUMENTS
 - **External verification is the spine.** Every finding must cite an executed command
   (`cargo test`, real CLI in a throwaway index via `.agents/factory/bin/temp_index.sh`, the man-page
   render via `scdoc` when a `doc/*.scd` is touched). No assertion-only findings.
+  **When `scdoc` is absent**, do not silently drop the check and do not report an unearned pass. This
+  session is read-only and does not install tooling — instead compare each affected binary's `--help`
+  flag set against the `.scd` by inspection, **state plainly in `REVIEW.md` that the render was
+  unavailable**, and flag it to the human as an unclosed gap (`AGENTS.md`'s Commands section documents
+  the one-line install, so it is cheap for them to fix and re-run). This is not hypothetical: a
+  `doc/*.scd` that had not compiled for six commits, through a full review cycle, survived precisely
+  because no gate on that host could render it. An absent tool is a reported gap, never a pass.
 - **Refute before reporting.** Try to disprove each candidate; classify `CONFIRMED` (reproduced) vs
   `PLAUSIBLE` (needs human triage). Default to dropping when uncertain.
 - **Scope is narrow:** correctness bugs, GOAL R-ID gaps, AGENTS.md invariant violations
@@ -103,6 +110,17 @@ Launch a fresh `general-purpose` reviewer via the `Agent` tool. Give it, inline,
 - required return: a structured findings list (severity, CONFIRMED/PLAUSIBLE, file:line, failure
   scenario, the executed evidence) + a requirement→evidence matrix (every R-ID: implemented? verified
   how?) + any unmapped (scope-creep) changes.
+
+**Artifact-deliverable R-IDs are graded by you, not by the reviewer.** Some requirements are satisfied
+by a committed document (a research audit, a protocol doc, an assessment) that lives under `spec/` —
+which the reviewer is blinded to, and which the `':(exclude)spec/'` pathspec strips from its diff. The
+reviewer therefore *structurally cannot* verify them, and left unsaid it will either report them as
+unverifiable or guess. So: identify them from `TECH.md`'s `satisfies` notes before delegating, **name
+them explicitly in the delegation prompt as out of scope** ("R1 and R8 are satisfied by committed
+artifacts under `spec/`; do not attempt them — the orchestrator grades those"), verify them yourself by
+reading the artifact, and have `REVIEW.md`'s requirement→evidence matrix **record who verified each**.
+This does not weaken blindness: the reviewer still never reads `spec/`. It stops the evidence spine
+from silently splitting across two contexts with neither owning the gap.
 
 `debate`: launch **two** independent reviewers (one instructed to argue "ship", one "block") and
 reconcile their findings.

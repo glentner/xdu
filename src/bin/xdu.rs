@@ -1,181 +1,49 @@
 #![allow(clippy::too_many_arguments)]
 
-use std::collections::{HashSet, VecDeque};
-use std::fs::{self, File};
+use std::collections::HashSet;
+use std::fs;
 use std::io::{IsTerminal, stderr};
-use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use arrow::array::{Int64Array, StringBuilder};
 use arrow::datatypes::Schema;
-use arrow::record_batch::RecordBatch;
 use clap::Parser;
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use jwalk::{Parallelism, WalkDir};
-use parquet::arrow::ArrowWriter;
-use parquet::basic::Compression;
-use parquet::file::properties::WriterProperties;
 use rayon::ThreadPoolBuilder;
 
 use xdu::cli::XduArgs;
-use xdu::{FileRecord, SizeMode, format_bytes, format_count, format_speed, get_schema, parse_size};
-
-/// Special partition name for files directly in the top-level directory.
-const ROOT_PARTITION: &str = "__root__";
-
-/// Per-partition buffer that accumulates records and flushes to Parquet.
-struct PartitionBuffer {
-    partition: String,
-    outdir: PathBuf,
-    records: Vec<FileRecord>,
-    buffsize: usize,
-    chunk_counter: usize,
-    schema: Arc<Schema>,
-    /// Track all .partial files written for atomic finalization
-    partial_files: Vec<PathBuf>,
-    /// Track statistics for this partition
-    file_count: u64,
-    byte_count: u64,
-}
-
-impl PartitionBuffer {
-    fn new(partition: String, outdir: PathBuf, buffsize: usize, schema: Arc<Schema>) -> Self {
-        Self {
-            partition,
-            outdir,
-            records: Vec::with_capacity(buffsize),
-            buffsize,
-            chunk_counter: 0,
-            schema,
-            partial_files: Vec::new(),
-            file_count: 0,
-            byte_count: 0,
-        }
-    }
-
-    fn add(&mut self, record: FileRecord) -> Result<()> {
-        self.file_count += 1;
-        self.byte_count += record.size as u64;
-        self.records.push(record);
-        if self.records.len() >= self.buffsize {
-            self.flush()?;
-        }
-        Ok(())
-    }
-
-    fn flush(&mut self) -> Result<()> {
-        if self.records.is_empty() {
-            return Ok(());
-        }
-
-        let chunk_id = self.chunk_counter;
-        self.chunk_counter += 1;
-        let partition_dir = self.outdir.join(&self.partition);
-        fs::create_dir_all(&partition_dir).with_context(|| {
-            format!(
-                "Failed to create partition dir: {}",
-                partition_dir.display()
-            )
-        })?;
-
-        // Write to .partial file first
-        let partial_path = partition_dir.join(format!("{:06}.parquet.partial", chunk_id));
-
-        let mut path_builder = StringBuilder::new();
-        let mut size_builder = Vec::with_capacity(self.records.len());
-        let mut atime_builder = Vec::with_capacity(self.records.len());
-
-        for record in &self.records {
-            path_builder.append_value(&record.path);
-            size_builder.push(record.size);
-            atime_builder.push(record.atime);
-        }
-
-        let batch = RecordBatch::try_new(
-            self.schema.clone(),
-            vec![
-                Arc::new(path_builder.finish()),
-                Arc::new(Int64Array::from(size_builder)),
-                Arc::new(Int64Array::from(atime_builder)),
-            ],
-        )?;
-
-        let file = File::create(&partial_path)
-            .with_context(|| format!("Failed to create file: {}", partial_path.display()))?;
-
-        let props = WriterProperties::builder()
-            .set_compression(Compression::SNAPPY)
-            .build();
-
-        let mut writer = ArrowWriter::try_new(file, self.schema.clone(), Some(props))?;
-        writer.write(&batch)?;
-        writer.close()?;
-
-        self.partial_files.push(partial_path);
-        self.records.clear();
-        Ok(())
-    }
-
-    /// Atomically finalize all .partial files by renaming them and pruning stale chunks.
-    fn finalize(&self) -> Result<usize> {
-        let partition_dir = self.outdir.join(&self.partition);
-        let num_chunks = self.partial_files.len();
-
-        // Rename all .partial files to .parquet (atomic on POSIX)
-        for partial_path in &self.partial_files {
-            let final_path = partial_path.with_extension(""); // removes .partial, leaves .parquet
-            fs::rename(partial_path, &final_path).with_context(|| {
-                format!(
-                    "Failed to rename {} to {}",
-                    partial_path.display(),
-                    final_path.display()
-                )
-            })?;
-        }
-
-        // Prune any stale chunks beyond what we just wrote
-        let mut pruned = 0;
-        for chunk_id in num_chunks.. {
-            let stale_path = partition_dir.join(format!("{:06}.parquet", chunk_id));
-            if stale_path.exists() {
-                fs::remove_file(&stale_path).with_context(|| {
-                    format!("Failed to remove stale chunk: {}", stale_path.display())
-                })?;
-                pruned += 1;
-            } else {
-                break; // No more consecutive chunks
-            }
-        }
-
-        Ok(pruned)
-    }
-}
-
-/// A unit of work for a driver thread: one partition to crawl.
-struct WorkItem {
-    path: PathBuf,
-    partition: String,
-    max_depth: Option<usize>,
-}
-
-/// Statistics returned from a crawl operation.
-struct CrawlStats {
-    files: u64,
-    bytes: u64,
-    pruned: usize,
-}
+use xdu::crawl::{
+    CrawlStats, EntryError, PartitionBuffer, TopEntry, build_work_queue, classify_io_error,
+    clear_completion_marker, completion_marker_contents, file_size_and_atime, lossy_path,
+    write_completion_marker,
+};
+use xdu::{SizeMode, format_bytes, format_count, format_speed, get_schema, parse_size};
 
 /// Crawl a directory tree using concurrent per-partition walks with a shared thread pool.
 ///
-/// Architecture: A shared rayon thread pool (N threads) handles directory reads across all
-/// active walkers. C driver threads (std::threads) each pull partitions from a work queue
-/// and iterate their walker. Rayon work-stealing naturally balances load across all active
-/// walkers. Thread budget: N pool + C drivers + 1 main.
+/// Concurrency contract (must be preserved):
+/// - A single shared rayon thread pool (N threads) backs *all* jwalk walkers, so
+///   work-stealing balances directory reads across active partitions and one huge
+///   partition can't starve the rest.
+/// - C driver threads (`std::thread`s, joined by `thread::scope`) each pull partitions
+///   from the `Mutex<VecDeque>` work queue and consume their walker serially.
+/// - `thread::scope` propagates the first driver `Err` (or panic under unwind) as the
+///   run's error. Thread budget: N pool + C drivers + 1 main.
+///
+/// The pure classification/ordering (`build_work_queue`), per-file measurement
+/// (`file_size_and_atime`, `lossy_path`), and Parquet finalization (`PartitionBuffer`)
+/// live in `xdu::crawl` so they are unit-testable; this function is the orchestrator.
+/// Nothing builds an intermediate row struct — the measured columns are appended
+/// straight into the Arrow builders.
+///
+/// The run-level completion marker is cleared once pre-flight passes and written by
+/// `main` only on the success path, so an index this run abandons carries no
+/// attestation, while a run rejected before it crawls leaves the previous marker intact.
 fn crawl(
     top_dir: &Path,
     outdir: &Path,
@@ -194,55 +62,36 @@ fn crawl(
             .context("Failed to build thread pool")?,
     );
 
-    // Enumerate top-level entries to build work queue
-    let mut partition_items: Vec<WorkItem> = Vec::new();
-    let mut has_root_files = false;
-
+    // Enumerate top-level entries. The directory I/O stays here; the pure classification
+    // and ordering decision (partition vs loose file, --partition filter, __root__-first,
+    // sort, empty-check) lives in `build_work_queue` so it can be unit-tested.
+    let mut entries: Vec<TopEntry> = Vec::new();
     for entry in fs::read_dir(top_dir)
         .with_context(|| format!("Failed to read directory: {}", top_dir.display()))?
     {
         let entry = entry?;
         let path = entry.path();
         let ft = entry.file_type()?;
-
-        if ft.is_dir() {
-            let name = path.file_name().unwrap().to_string_lossy().to_string();
-            if let Some(pf) = partition_filter
-                && !pf.contains(&name)
-            {
-                continue;
-            }
-            partition_items.push(WorkItem {
-                path,
-                partition: name,
-                max_depth: None,
-            });
-        } else if ft.is_file() || ft.is_symlink() {
-            has_root_files = true;
-        }
-    }
-
-    // Sort for deterministic output order
-    partition_items.sort_by(|a, b| a.partition.cmp(&b.partition));
-
-    // Build work queue: root files first (depth-limited), then partition subdirectories
-    let mut work_queue: VecDeque<WorkItem> = VecDeque::with_capacity(partition_items.len() + 1);
-
-    if has_root_files {
-        work_queue.push_back(WorkItem {
-            path: top_dir.to_path_buf(),
-            partition: ROOT_PARTITION.to_string(),
-            max_depth: Some(1),
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        entries.push(TopEntry {
+            path,
+            name,
+            is_dir: ft.is_dir(),
+            is_file: ft.is_file(),
+            is_symlink: ft.is_symlink(),
         });
     }
-    for item in partition_items {
-        work_queue.push_back(item);
-    }
 
+    let work_queue = build_work_queue(entries, top_dir, partition_filter)?;
     let num_items = work_queue.len();
-    if num_items == 0 {
-        anyhow::bail!("No partitions found in {}", top_dir.display());
-    }
+
+    // Pre-flight has passed, so from here the index is being rewritten and the previous
+    // run's attestation no longer describes it. Dropping the marker after the last check
+    // that can still reject the run, and before any driver writes, means a crash below
+    // leaves an index that is visibly unattested rather than one that still claims to be
+    // complete — while a run rejected without touching the index leaves an
+    // already-complete index still attested.
+    clear_completion_marker(outdir)?;
 
     // Progress display
     let mp = MultiProgress::new();
@@ -282,6 +131,16 @@ fn crawl(
     let global_files = Arc::new(AtomicU64::new(0));
     let global_bytes = Arc::new(AtomicU64::new(0));
     let global_pruned = Arc::new(AtomicUsize::new(0));
+    // Benign vanished-file races vs. hard (permission/IO) errors. A hard error fails
+    // the run unless --allow-errors; both are surfaced in the summary (all on stderr).
+    let global_vanished = Arc::new(AtomicU64::new(0));
+    let global_errors = Arc::new(AtomicU64::new(0));
+    // Paths stored with U+FFFD replacements: counted and reported, never fatal.
+    let global_lossy = Arc::new(AtomicU64::new(0));
+
+    // Raised by the first driver that fails. The others stop pulling partitions
+    // rather than growing an index this run will never mark complete.
+    let cancel = Arc::new(AtomicBool::new(false));
 
     // Global speed tracking (shared across drivers, protected by single Mutex)
     let global_speed_state = Arc::new(Mutex::new((
@@ -301,6 +160,10 @@ fn crawl(
                 let global_files = global_files.clone();
                 let global_bytes = global_bytes.clone();
                 let global_pruned = global_pruned.clone();
+                let global_vanished = global_vanished.clone();
+                let global_errors = global_errors.clone();
+                let global_lossy = global_lossy.clone();
+                let cancel = cancel.clone();
                 let global_speed_state = global_speed_state.clone();
                 let schema = schema.clone();
                 let mp_ref = &mp;
@@ -315,176 +178,304 @@ fn crawl(
                     bar.set_style(bar_style);
                     bar.enable_steady_tick(Duration::from_millis(100));
 
-                    loop {
-                        let item = {
-                            let mut q = queue.lock().unwrap();
-                            q.pop_front()
-                        };
-                        let item = match item {
-                            Some(i) => i,
-                            None => break,
-                        };
+                    // Emit a diagnostic to stderr, coordinating with the progress bars in
+                    // TTY mode (stdout stays clean and pipeable).
+                    let report = |msg: &str| {
+                        if is_tty {
+                            let _ = mp_ref.println(msg);
+                        } else {
+                            eprintln!("{}", msg);
+                        }
+                    };
 
-                        bar.set_message(format!("{}: scanning...", item.partition));
-
-                        let walker = WalkDir::new(&item.path)
-                            .parallelism(Parallelism::RayonExistingPool {
-                                pool: pool.clone(),
-                                busy_timeout: None,
-                            })
-                            .max_depth(item.max_depth.unwrap_or(usize::MAX))
-                            .skip_hidden(false)
-                            .follow_links(false);
-
-                        let mut buffer = PartitionBuffer::new(
-                            item.partition.clone(),
-                            outdir.clone(),
-                            buffsize,
-                            schema.clone(),
-                        );
-
-                        let mut last_bar_update = Instant::now();
-                        let bar_interval = Duration::from_millis(100);
-
-                        // Per-partition speed tracking (1s rolling window)
-                        let mut speed_sample_count: u64 = 0;
-                        let mut speed_sample_time = Instant::now();
-                        let mut current_speed: f64 = 0.0;
-                        let mut peak_speed: f64 = 0.0;
-
-                        for entry in walker {
-                            let entry = match entry {
-                                Ok(e) => e,
-                                Err(_) => continue,
-                            };
-
-                            if !entry.file_type.is_file() {
-                                continue;
+                    // The queue drain is its own closure so a first error can raise the
+                    // shared cancel flag before this driver returns.
+                    let drain_queue = || -> Result<()> {
+                        loop {
+                            // Another driver has already failed: this run cannot produce a
+                            // complete index, so stop taking on new partitions.
+                            if cancel.load(Ordering::Relaxed) {
+                                break;
                             }
 
-                            let metadata = match fs::metadata(entry.path()) {
-                                Ok(m) => m,
-                                Err(_) => continue,
+                            let item = {
+                                let mut q = queue.lock().unwrap();
+                                q.pop_front()
+                            };
+                            let item = match item {
+                                Some(i) => i,
+                                None => break,
                             };
 
-                            let disk_usage = metadata.blocks() * 512;
-                            let file_len = metadata.len();
-                            let atime = metadata.atime();
-                            let file_size = size_mode.calculate(disk_usage, file_len);
+                            bar.set_message(format!("{}: scanning...", item.partition));
 
-                            let record = FileRecord {
-                                path: entry.path().to_string_lossy().to_string(),
-                                size: file_size as i64,
-                                atime,
-                            };
+                            let walker = WalkDir::new(&item.path)
+                                .parallelism(Parallelism::RayonExistingPool {
+                                    pool: pool.clone(),
+                                    busy_timeout: None,
+                                })
+                                .max_depth(item.max_depth.unwrap_or(usize::MAX))
+                                .skip_hidden(false)
+                                .follow_links(false);
 
-                            buffer.add(record)?;
+                            let mut buffer = PartitionBuffer::new(
+                                item.partition.clone(),
+                                outdir.clone(),
+                                buffsize,
+                                schema.clone(),
+                            );
 
-                            // Update global atomics
-                            global_files.fetch_add(1, Ordering::Relaxed);
-                            global_bytes.fetch_add(file_size, Ordering::Relaxed);
+                            let mut last_bar_update = Instant::now();
+                            let bar_interval = Duration::from_millis(100);
 
-                            // Update progress bars periodically
-                            let now = Instant::now();
-                            if now.duration_since(last_bar_update) >= bar_interval {
-                                // Per-partition speed: 1-second rolling window
-                                let speed_elapsed =
-                                    now.duration_since(speed_sample_time).as_secs_f64();
-                                if speed_elapsed >= 1.0 {
-                                    let delta = buffer.file_count - speed_sample_count;
-                                    current_speed = delta as f64 / speed_elapsed;
-                                    if current_speed > peak_speed {
-                                        peak_speed = current_speed;
+                            // Per-partition speed tracking (1s rolling window)
+                            let mut speed_sample_count: u64 = 0;
+                            let mut speed_sample_time = Instant::now();
+                            let mut current_speed: f64 = 0.0;
+                            let mut peak_speed: f64 = 0.0;
+
+                            // Per-partition skip/error tallies (folded into the globals below).
+                            let mut part_vanished: u64 = 0;
+                            let mut part_errors: u64 = 0;
+                            let mut part_lossy: u64 = 0;
+
+                            for entry in walker {
+                                let entry = match entry {
+                                    Ok(e) => e,
+                                    // A jwalk error stands in for a whole unreadable subtree: a
+                                    // failed directory read yields one Err in place of all its
+                                    // children. Never drop it silently.
+                                    Err(err) => {
+                                        let kind = err.io_error().map(|e| e.kind());
+                                        match classify_io_error(kind) {
+                                            EntryError::Vanished => part_vanished += 1,
+                                            EntryError::Hard => {
+                                                part_errors += 1;
+                                                let path =
+                                                    err.path().unwrap_or(item.path.as_path());
+                                                let detail = err
+                                                    .io_error()
+                                                    .map(|e| e.to_string())
+                                                    .unwrap_or_else(|| err.to_string());
+                                                report(&format!(
+                                                    "error: {}: {}",
+                                                    path.display(),
+                                                    detail
+                                                ));
+                                            }
+                                        }
+                                        continue;
                                     }
-                                    speed_sample_count = buffer.file_count;
-                                    speed_sample_time = now;
+                                };
+
+                                // A directory jwalk could not descend into (e.g. permission
+                                // denied) is yielded as an Ok entry with the read failure attached
+                                // here — NOT as an iterator Err. This is the load-bearing check
+                                // that turns a silently-dropped subtree into a counted, reported,
+                                // run-failing error.
+                                if let Some(err) = entry.read_children_error.as_ref() {
+                                    let kind = err.io_error().map(|e| e.kind());
+                                    match classify_io_error(kind) {
+                                        EntryError::Vanished => part_vanished += 1,
+                                        EntryError::Hard => {
+                                            part_errors += 1;
+                                            let detail = err
+                                                .io_error()
+                                                .map(|e| e.to_string())
+                                                .unwrap_or_else(|| err.to_string());
+                                            let path = err
+                                                .path()
+                                                .map(|p| p.display().to_string())
+                                                .unwrap_or_else(|| {
+                                                    entry.path().display().to_string()
+                                                });
+                                            report(&format!("error: {}: {}", path, detail));
+                                        }
+                                    }
                                 }
 
-                                // Global speed: 1-second rolling window
-                                let total_files = global_files.load(Ordering::Relaxed);
-                                let global_speed_str = {
-                                    let mut gs = global_speed_state.lock().unwrap();
-                                    let g_elapsed = now.duration_since(gs.0).as_secs_f64();
-                                    if g_elapsed >= 1.0 {
-                                        let g_delta = total_files.saturating_sub(gs.1);
-                                        gs.2 = g_delta as f64 / g_elapsed;
-                                        if gs.2 > gs.3 {
-                                            gs.3 = gs.2;
+                                if !entry.file_type.is_file() {
+                                    continue;
+                                }
+
+                                // `DirEntry::metadata` is `symlink_metadata` here (the
+                                // walker sets follow_links(false)), which closes the
+                                // window where a file could be swapped for a symlink
+                                // between the directory read and this stat. For a regular
+                                // file lstat and stat agree, so sizes and atimes are
+                                // unchanged.
+                                let metadata = match entry.metadata() {
+                                    Ok(m) => m,
+                                    // The file raced away (ENOENT) or became unreadable
+                                    // between the walk and this stat: benign vs. hard.
+                                    Err(err) => {
+                                        let kind = err.io_error().map(|e| e.kind());
+                                        match classify_io_error(kind) {
+                                            EntryError::Vanished => part_vanished += 1,
+                                            EntryError::Hard => {
+                                                part_errors += 1;
+                                                let detail = err
+                                                    .io_error()
+                                                    .map(|e| e.to_string())
+                                                    .unwrap_or_else(|| err.to_string());
+                                                report(&format!(
+                                                    "error: {}: {}",
+                                                    entry.path().display(),
+                                                    detail
+                                                ));
+                                            }
                                         }
-                                        gs.0 = now;
-                                        gs.1 = total_files;
+                                        continue;
                                     }
-                                    if gs.2 > 0.0 {
+                                };
+
+                                let (file_size, atime) = file_size_and_atime(&metadata, size_mode);
+                                let path = entry.path();
+                                let (path_str, lossy) = lossy_path(&path);
+
+                                // The stored path carries U+FFFD in place of the real
+                                // bytes, so it names no file on disk. Say so once per
+                                // partition and count the rest — a flood of these would
+                                // bury the errors that matter.
+                                if lossy {
+                                    part_lossy += 1;
+                                    if part_lossy == 1 {
+                                        report(&format!(
+                                            "warning: {}: non-UTF-8 path stored with \
+                                         replacement characters; it will not round-trip \
+                                         to xdu-rm (further occurrences in this \
+                                         partition are counted only)",
+                                            path.display()
+                                        ));
+                                    }
+                                }
+
+                                buffer.add(&path_str, file_size, atime)?;
+
+                                // Update global atomics
+                                global_files.fetch_add(1, Ordering::Relaxed);
+                                global_bytes.fetch_add(file_size as u64, Ordering::Relaxed);
+
+                                // Update progress bars periodically
+                                let now = Instant::now();
+                                if now.duration_since(last_bar_update) >= bar_interval {
+                                    // Per-partition speed: 1-second rolling window
+                                    let speed_elapsed =
+                                        now.duration_since(speed_sample_time).as_secs_f64();
+                                    if speed_elapsed >= 1.0 {
+                                        let delta = buffer.file_count - speed_sample_count;
+                                        current_speed = delta as f64 / speed_elapsed;
+                                        if current_speed > peak_speed {
+                                            peak_speed = current_speed;
+                                        }
+                                        speed_sample_count = buffer.file_count;
+                                        speed_sample_time = now;
+                                    }
+
+                                    // Global speed: 1-second rolling window
+                                    let total_files = global_files.load(Ordering::Relaxed);
+                                    let global_speed_str = {
+                                        let mut gs = global_speed_state.lock().unwrap();
+                                        let g_elapsed = now.duration_since(gs.0).as_secs_f64();
+                                        if g_elapsed >= 1.0 {
+                                            let g_delta = total_files.saturating_sub(gs.1);
+                                            gs.2 = g_delta as f64 / g_elapsed;
+                                            if gs.2 > gs.3 {
+                                                gs.3 = gs.2;
+                                            }
+                                            gs.0 = now;
+                                            gs.1 = total_files;
+                                        }
+                                        if gs.2 > 0.0 {
+                                            format!(
+                                                " | {} (peak: {})",
+                                                format_speed(gs.2),
+                                                format_speed(gs.3)
+                                            )
+                                        } else {
+                                            String::new()
+                                        }
+                                    };
+
+                                    let speed_str = if current_speed > 0.0 {
                                         format!(
                                             " | {} (peak: {})",
-                                            format_speed(gs.2),
-                                            format_speed(gs.3)
+                                            format_speed(current_speed),
+                                            format_speed(peak_speed)
                                         )
                                     } else {
                                         String::new()
-                                    }
-                                };
+                                    };
 
-                                let speed_str = if current_speed > 0.0 {
-                                    format!(
-                                        " | {} (peak: {})",
-                                        format_speed(current_speed),
-                                        format_speed(peak_speed)
-                                    )
-                                } else {
-                                    String::new()
-                                };
+                                    bar.set_message(format!(
+                                        "{}: {} files, {}{} [T{}]",
+                                        item.partition,
+                                        format_count(buffer.file_count),
+                                        format_bytes(buffer.byte_count),
+                                        speed_str,
+                                        driver_id,
+                                    ));
+                                    global_bar_ref.set_message(format!(
+                                        "{} files, {}{}",
+                                        format_count(total_files),
+                                        format_bytes(global_bytes.load(Ordering::Relaxed)),
+                                        global_speed_str,
+                                    ));
+                                    last_bar_update = now;
+                                }
+                            }
 
-                                bar.set_message(format!(
-                                    "{}: {} files, {}{} [T{}]",
+                            buffer.flush()?;
+                            let pruned = buffer.finalize()?;
+                            global_pruned.fetch_add(pruned, Ordering::Relaxed);
+                            global_vanished.fetch_add(part_vanished, Ordering::Relaxed);
+                            global_errors.fetch_add(part_errors, Ordering::Relaxed);
+                            global_lossy.fetch_add(part_lossy, Ordering::Relaxed);
+
+                            let mut status_info = if pruned > 0 {
+                                format!(", pruned {} stale", pruned)
+                            } else {
+                                String::new()
+                            };
+                            if part_vanished > 0 {
+                                status_info.push_str(&format!(", {} vanished", part_vanished));
+                            }
+                            if part_errors > 0 {
+                                status_info.push_str(&format!(", {} errors", part_errors));
+                            }
+                            if part_lossy > 0 {
+                                status_info.push_str(&format!(", {} non-UTF-8", part_lossy));
+                            }
+
+                            if is_tty {
+                                mp_ref.println(format!(
+                                    "{:>12} {} ({} files, {}{})",
+                                    style("Finished").green().bold(),
                                     item.partition,
                                     format_count(buffer.file_count),
                                     format_bytes(buffer.byte_count),
-                                    speed_str,
-                                    driver_id,
-                                ));
-                                global_bar_ref.set_message(format!(
-                                    "{} files, {}{}",
-                                    format_count(total_files),
-                                    format_bytes(global_bytes.load(Ordering::Relaxed)),
-                                    global_speed_str,
-                                ));
-                                last_bar_update = now;
+                                    status_info,
+                                ))?;
+                            } else {
+                                eprintln!(
+                                    "Finished {} ({} files, {}{})",
+                                    item.partition,
+                                    format_count(buffer.file_count),
+                                    format_bytes(buffer.byte_count),
+                                    status_info,
+                                );
                             }
                         }
+                        Ok(())
+                    };
 
-                        buffer.flush()?;
-                        let pruned = buffer.finalize()?;
-                        global_pruned.fetch_add(pruned, Ordering::Relaxed);
-
-                        let prune_info = if pruned > 0 {
-                            format!(", pruned {} stale", pruned)
-                        } else {
-                            String::new()
-                        };
-
-                        if is_tty {
-                            mp_ref.println(format!(
-                                "{:>12} {} ({} files, {}{})",
-                                style("Finished").green().bold(),
-                                item.partition,
-                                format_count(buffer.file_count),
-                                format_bytes(buffer.byte_count),
-                                prune_info,
-                            ))?;
-                        } else {
-                            eprintln!(
-                                "Finished {} ({} files, {}{})",
-                                item.partition,
-                                format_count(buffer.file_count),
-                                format_bytes(buffer.byte_count),
-                                prune_info,
-                            );
-                        }
+                    let result = drain_queue();
+                    if result.is_err() {
+                        cancel.store(true, Ordering::Relaxed);
                     }
 
                     bar.finish_and_clear();
-                    Ok(())
+                    result
                 })
             })
             .collect();
@@ -499,6 +490,7 @@ fn crawl(
                         first_error = Some(e);
                     }
                 }
+                // Reachable only under unwind (tests/debug); release sets panic="abort".
                 Err(_) => {
                     if first_error.is_none() {
                         first_error = Some(anyhow::anyhow!("Driver thread panicked"));
@@ -519,6 +511,9 @@ fn crawl(
         files: global_files.load(Ordering::Relaxed),
         bytes: global_bytes.load(Ordering::Relaxed),
         pruned: global_pruned.load(Ordering::Relaxed),
+        vanished: global_vanished.load(Ordering::Relaxed),
+        errors: global_errors.load(Ordering::Relaxed),
+        lossy_paths: global_lossy.load(Ordering::Relaxed),
     })
 }
 
@@ -582,11 +577,20 @@ fn main() -> Result<()> {
     )?;
 
     let elapsed = start_time.elapsed();
-    let prune_info = if stats.pruned > 0 {
+    let mut summary_info = if stats.pruned > 0 {
         format!(", pruned {} stale", stats.pruned)
     } else {
         String::new()
     };
+    if stats.vanished > 0 {
+        summary_info.push_str(&format!(", {} vanished", stats.vanished));
+    }
+    if stats.errors > 0 {
+        summary_info.push_str(&format!(", {} errors", stats.errors));
+    }
+    if stats.lossy_paths > 0 {
+        summary_info.push_str(&format!(", {} non-UTF-8", stats.lossy_paths));
+    }
 
     if is_tty {
         eprintln!(
@@ -595,7 +599,7 @@ fn main() -> Result<()> {
             format_count(stats.files),
             format_bytes(stats.bytes),
             elapsed.as_secs_f64(),
-            prune_info
+            summary_info
         );
     } else {
         eprintln!(
@@ -603,9 +607,35 @@ fn main() -> Result<()> {
             format_count(stats.files),
             format_bytes(stats.bytes),
             elapsed.as_secs_f64(),
-            prune_info
+            summary_info
         );
     }
+
+    // Fail loud: an unreadable region was skipped, so the index is incomplete. The
+    // reachable files were still written and the offending paths already reported;
+    // --allow-errors opts into indexing what is reachable and exiting 0 instead.
+    if stats.errors > 0 && !args.allow_errors {
+        anyhow::bail!(
+            "encountered {} unreadable path(s); the index is incomplete — \
+             re-run with --allow-errors to index reachable files and exit 0",
+            stats.errors
+        );
+    }
+
+    // Attest to the run only now: every partition was walked and finalized, and any
+    // errors along the way were explicitly tolerated. Every failure path above returns
+    // before this point, leaving the index unmarked. The recorded counts keep an
+    // --allow-errors run honest about what it skipped.
+    //
+    // Known limitation: the marker describes the whole index but its counts come from this
+    // run alone. A partition-scoped run (--partition) still clears the marker and rewrites
+    // it from its own stats, so a later clean run over one partition records errors=0 and
+    // retires the warning while other partitions' skipped regions remain unindexed.
+    let completed_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    write_completion_marker(&outdir, &completion_marker_contents(&stats, completed_at))?;
 
     Ok(())
 }

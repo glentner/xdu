@@ -50,6 +50,14 @@ pub struct XduArgs {
     /// Index only specific partitions (top-level subdirectory names, comma-separated).
     #[arg(short, long, value_name = "NAMES", value_delimiter = ',')]
     pub partition: Option<Vec<String>>,
+
+    /// Continue past unreadable files or directories instead of failing the run.
+    /// By default an unreadable region (permission or I/O error) makes xdu exit
+    /// non-zero so a silently-incomplete index is never mistaken for a complete one;
+    /// with this flag those errors are downgraded to warnings and the crawl indexes
+    /// every reachable file and exits 0. Vanished-file races are always tolerated.
+    #[arg(long)]
+    pub allow_errors: bool,
 }
 
 /// Arguments for `xdu-find` — the index query tool.

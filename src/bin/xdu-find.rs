@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use duckdb::Connection;
 
-use xdu::QueryFilters;
 use xdu::cli::XduFindArgs;
+use xdu::{QueryFilters, index_completion_warning, index_glob};
 
 fn main() -> Result<()> {
     let args = XduFindArgs::parse();
@@ -16,13 +16,14 @@ fn main() -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
 
-    // Build the glob pattern for Parquet files
-    // Partitions are direct children of the index directory
-    let glob_pattern = if let Some(ref partition) = args.partition {
-        format!("{}/{}/*.parquet", index_path.display(), partition)
-    } else {
-        format!("{}/*/*.parquet", index_path.display())
-    };
+    // An index can be incomplete two ways — a run that never finished, or one that finished
+    // under --allow-errors having skipped what it could not read. Either is still queryable,
+    // so this warns rather than refusing; it goes to stderr so piped results stay clean.
+    if let Some(warning) = index_completion_warning(&index_path) {
+        eprintln!("{}", warning);
+    }
+
+    let glob_pattern = index_glob(&index_path, args.partition.as_deref());
 
     // Connect to DuckDB (in-memory)
     let conn = Connection::open_in_memory()?;

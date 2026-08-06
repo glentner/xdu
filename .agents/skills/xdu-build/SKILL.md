@@ -76,7 +76,7 @@ Parse `$ARGUMENTS` case-insensitively; if ambiguous, STOP and ask.
   the work contradicts a `GOAL.md` requirement (an R-ID), **STOP and escalate to the human** — never
   silently drift the contract.
 - **Honor `AGENTS.md`**: code conventions (incl. declarative comments — no spec `R#`/`P#` ids in
-  source), the version single-source (`--version` derives from `Cargo.toml`; never hardcode a version
+  source), the version single-source (`Cargo.toml` is the only version source; never hardcode a version
   in `src/`), thin-bin altitude (parsing/formatting/SQL-building live in `lib`), the same-commit rule
   (a CLI change updates the affected `doc/*.scd` man page in the same commit; completions regenerate
   from `src/cli.rs` and the generated `share/` tree is git-ignored), and non-TTY stdout hygiene

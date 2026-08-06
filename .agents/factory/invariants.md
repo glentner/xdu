@@ -15,8 +15,10 @@ subsystems.
 
 ## High-blast-radius files (any CONFIRMED finding here → mandatory human gate)
 
-`src/bin/xdu-rm.rs` (destructive) · `src/bin/xdu.rs` (crawl + atomic finalize) ·
-`src/lib.rs` (schema + `QueryFilters`/SQL) · `src/cli.rs` (the one CLI definition)
+`src/bin/xdu-rm.rs` (destructive) · `src/bin/xdu.rs` (crawl concurrency scaffold + marker sequencing) ·
+`src/crawl.rs` (atomic finalize + stale-chunk prune + reserved-index-name collision rejection) ·
+`src/lib.rs` (schema + `QueryFilters`/SQL + `index_glob` + layout constants + `RESERVED_INDEX_NAMES`) ·
+`src/cli.rs` (the one CLI definition)
 
 ---
 
@@ -26,13 +28,14 @@ subsystems.
   `path: Utf8`, `size: Int64`, `atime: Int64`. `size` is bytes as `i64` (meaning depends on the
   `SizeMode` chosen at index time — disk-usage vs apparent vs block-rounded — and is **not** recorded
   in the index); `atime` is Unix epoch seconds as `i64`.
-- There is **no on-disk schema version.** Any change to `get_schema()`, `FileRecord`, or a reader's
-  `read_parquet` column list is a **breaking, cross-cutting** index-format change touching `lib.rs` +
-  the crawler + all three readers + every README `read_parquet` example.
+- There is **no on-disk schema version.** Any change to `get_schema()` or a reader's `read_parquet`
+  column list is a **breaking, cross-cutting** index-format change touching `lib.rs` + the crawler +
+  all three readers + every README `read_parquet` example. `get_schema()` is the *only* in-code
+  statement of the row shape — there is deliberately no mirror struct to drift out of step with it.
 - Issues #2 / #3 (add `owner`/`group`/`permissions`) are exactly this class — **require adding a
   schema version field before evolving the schema.**
 
-## 2. Atomic finalization (`src/bin/xdu.rs::finalize`)
+## 2. Atomic finalization (`src/crawl.rs::PartitionBuffer::finalize`)
 
 - Write each chunk to `NNNNNN.parquet.partial`, then `fs::rename` to `.parquet` **within the same
   directory** (POSIX-atomic); prune stale higher-numbered `.parquet` chunks left by a prior larger run.
@@ -43,12 +46,64 @@ subsystems.
   **not** index a partition concurrently with purging it; document this rather than pretending
   otherwise.
 
+## 2b. Run-level completion marker (`<index>/.xdu-complete`)
+
+Per-chunk atomicity (§2) covers one *file*; it cannot express whether the **run** finished. When one
+driver fails, the partitions that already succeeded remain on disk as real `.parquet` chunks,
+indistinguishable from a complete index. The marker is the only thing that separates them, so its
+ordering is load-bearing:
+
+- `COMPLETION_MARKER` = `.xdu-complete` (`lib.rs`), at the **index root**. A dotfile, so the readers'
+  `*/*.parquet` glob never mistakes it for a partition — and a **reserved name** (§3), so a partition is
+  never written over the marker either. Both directions, or the outdir can be bricked.
+- **Cleared after pre-flight passes**, before any driver writes — so a run rejected without touching the
+  index leaves an existing marker intact, while a crash mid-crawl leaves the index visibly unattested.
+  **Written only on the success path**, after every partition finalized. Never write it on a failure
+  path, and never move the clear earlier than the last check that can still reject the run.
+- Body is `key=value` lines (`xdu`, `completed_at`, `files`, `bytes`, `vanished`, `errors`,
+  `lossy_paths`), so an `--allow-errors` run still records how much it skipped.
+- All three readers call `lib::index_completion_warning` → a **soft stderr warning**, never a refusal
+  (the index is still queryable). The read is size-capped (`MARKER_READ_LIMIT`) and must not block, so a
+  FIFO or an enormous file left at that path cannot hang or exhaust a reader.
+- **Known limitation (recorded, not fixed):** the marker describes the whole index but its counts come
+  from one run, so a `--partition`-scoped run clears and rewrites it from its own stats and can retire a
+  still-correct warning — `issues/marker-scoped-run-attestation.md`. Do not fix this incidentally; it
+  needs its own pass.
+
+## 2c. Fail-loud crawl errors; `--allow-errors` is opt-in
+
+- **Default:** a walk or stat error fails the run **non-zero** with a diagnostic naming the path and
+  errno, and **no marker is written**. This is the invariant that prevents a silently-incomplete index:
+  jwalk emits one `Err` in place of an unreadable subtree's entire contents, so swallowing it loses
+  arbitrarily many files while still exiting 0.
+- **`--allow-errors` must stay opt-in.** It counts and reports skipped entries, exits 0, and records
+  `errors=N` in the marker. Never make tolerance the default; never let it suppress the per-entry stderr
+  report.
+
 ## 3. Partition scheme
 
 - Layout is `<index>/<partition>/NNNNNN.parquet`, `partition` = a top-level subdirectory name.
 - Loose files directly under the indexed root go to the reserved partition **`__root__`**
-  (`ROOT_PARTITION`), crawled at `max_depth(1)`; the two never overlap (no file double-counted).
+  (`ROOT_PARTITION`, defined in `lib.rs` as an index-layout constant and re-exported by `crawl`),
+  crawled at `max_depth(1)`; the two never overlap (no file double-counted).
+- **Reserved names are a class, not a list of facts.** `<index>/` holds exactly two kinds of entry:
+  partition directories, and the reserved `COMPLETION_MARKER` dotfile. `lib::RESERVED_INDEX_NAMES`
+  pairs every claimed name with what claims it, and `crawl::build_work_queue` **iterates that list** to
+  **reject** a top-level source directory bearing one, with a clear error, **unconditionally** — even
+  when a `--partition` filter would have excluded it, because the collision is with the on-disk layout,
+  not with the selection. A change that reserves a **new** name at the index root must add it to that
+  list in the same commit; the guard then covers it by construction rather than by being remembered.
+  - `__root__` would collide with the synthetic partition — both write `000000.parquet` into the same
+    directory and each `finalize` prunes the other's chunks.
+  - `.xdu-complete` would be created as a *directory* at the marker path, so the run cannot write its
+    attestation (`EISDIR`) and **no later run, from any source tree, can clear it** (`EPERM`) — a
+    correct index reported as a failed run, and a bricked outdir until someone `rmdir`s it by hand.
+  - Both directions matter: readers' `*/*.parquet` glob never mistakes the marker *for* a partition
+    (it is a dotfile), and this guard is what stops a partition being written *over* the marker. When
+    reviewing a diff that adds a reserved on-disk name, ask both questions.
 - Chunk ids are zero-padded sequential; readers glob `*/*.parquet`.
+- `lib::index_glob(index, partition)` is the **one** place this layout becomes a `read_parquet` glob;
+  all three readers go through it. Do not hand-build the glob in a reader.
 
 ## 4. `xdu-rm` destructive safety — read before touching `src/bin/xdu-rm.rs`
 
@@ -126,8 +181,11 @@ subsystems.
 
 ## 13. Project conventions (same-commit / packaging) — violations are HIGH, not CRITICAL
 
-- **Version is single-sourced from `Cargo.toml`** (clap derives `--version` from `CARGO_PKG_VERSION`);
-  never hardcode a version in `src/`.
+- **Version is single-sourced from `Cargo.toml`** — never hardcode a version in `src/`; read it from
+  `CARGO_PKG_VERSION`. The `-V`/`--version` **flag does not exist**: no `#[command(...)]` in
+  `src/cli.rs` sets `version`, so all four binaries reject it while all four `doc/*.scd` document it.
+  That is a recorded defect — [`issues/version-flag-missing.md`](../../issues/version-flag-missing.md)
+  — not a convention to reason from.
 - `share/` is a **generated** artifact (man via `scdoc` from `doc/*.scd`; completions via
   `gen-completions` from `src/cli.rs`), git-ignored, rebuilt in CI and by `/xdu-release`; CI asserts
   it generates. `.scd` sources carry no version string (a pure version bump doesn't touch them).

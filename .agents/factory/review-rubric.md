@@ -79,8 +79,9 @@ context, so lean on *executed evidence*, not opinion.
 Regardless of auto-loop, a human must approve before `xdu-publish` whenever a CONFIRMED finding
 touches:
 
-- the high-blast-radius core: `src/bin/xdu-rm.rs` (destructive), `src/bin/xdu.rs` (crawl + atomic
-  finalize), `src/lib.rs` (schema + `QueryFilters`/SQL), or `src/cli.rs` (the one CLI definition);
+- the high-blast-radius core: `src/bin/xdu-rm.rs` (destructive), `src/bin/xdu.rs` (crawl concurrency
+  scaffold + marker sequencing), `src/crawl.rs` (atomic finalize + `__root__` collision rejection),
+  `src/lib.rs` (schema + `QueryFilters`/SQL + `index_glob`), or `src/cli.rs` (the one CLI definition);
   **or**
 - a destructive-`rm` / schema-stability / atomic-write / SQL-injection invariant
   (`invariants.md` §4 / §1 / §2 / §5).

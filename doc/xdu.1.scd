@@ -6,7 +6,7 @@ xdu - build a distributed file metadata index in Parquet format
 
 # SYNOPSIS
 
-*xdu* _DIR_ *-o* _OUTDIR_ \[*-j* _N_] \[*-B* _N_] \[*--apparent-size*] \[*-k* _SIZE_] \[*-p* _NAMES_]
+*xdu* _DIR_ *-o* _OUTDIR_ \[*-j* _N_] \[*-B* _N_] \[*--apparent-size*] \[*-k* _SIZE_] \[*-p* _NAMES_] \[*--allow-errors*]
 
 # DESCRIPTION
 
@@ -50,6 +50,10 @@ _DIR_
 	Index only specific partitions (top-level subdirectory names,
 	comma-separated). Useful for incremental re-indexing.
 
+*--allow-errors*
+	Continue past unreadable files or directories (permission or I/O
+	errors) instead of failing the run. See _EXIT STATUS_.
+
 *-h*, *--help*
 	Print help information.
 
@@ -82,7 +86,15 @@ Index with block size rounding for NFS:
 # OUTPUT FORMAT
 
 The index is structured as _OUTDIR_/<partition>/<chunk>.parquet, where
-partitions correspond to top-level subdirectories of _DIR_.
+partitions correspond to top-level subdirectories of _DIR_. Files lying
+directly in _DIR_ are indexed under the reserved partition name
+*\_\_root\_\_*.
+Two names in _OUTDIR_ are reserved: that partition, and the completion
+marker described below. A real top-level subdirectory of either name would
+be written as that entry — clobbering the loose-file partition's chunks, or
+occupying the marker path so no run can attest or clear it again — so *xdu*
+rejects it with an error rather than corrupting the index; rename the
+directory to index it.
 
 Each Parquet file contains three columns:
 
@@ -92,6 +104,51 @@ Each Parquet file contains three columns:
 
 Files are written atomically using a .partial suffix, then renamed on
 completion. Stale chunks from previous runs are automatically pruned.
+
+On success *xdu* writes a run-level completion marker, _OUTDIR_/.xdu-complete,
+holding the version and this run's totals. The marker is removed once a run has
+passed its pre-flight checks and is about to write, and written only once every
+partition has been walked and finalized, so an index left behind by a failed or
+interrupted run carries no marker, while a run rejected before it writes leaves
+an existing marker intact. Readers glob _OUTDIR_/\*/\*.parquet, so the marker
+is never mistaken for a partition, and its name is reserved as above, so a
+partition is never written over the marker.
+
+Paths are stored as UTF-8. A filename containing invalid UTF-8 is stored with
+replacement characters, so that row no longer names a real file and cannot be
+removed with *xdu-rm*(1). *xdu* reports the first such path in each partition
+and counts the remainder in its summary; storing the raw bytes would require an
+index format change and is not done here.
+
+# EXIT STATUS
+
+*xdu* exits *0* on success. If the crawl cannot read a file or directory
+(a permission or I/O error — for example an unreadable subtree that would
+otherwise be silently omitted), it reports the offending path and error to
+standard error, goes on to index everything else it can reach, and exits
+*non-zero* at the end of the run, so a partial index is never presented as
+complete. Files that vanish between being listed and being stat'd (an ENOENT
+race on a live filesystem) are counted and skipped without failing the run.
+
+A Parquet chunk that cannot be written or renamed stops the run instead. The
+partition being written is abandoned — chunks not yet renamed keep
+their .partial suffix, which readers ignore — and the other threads finish
+the partition they are on but take on no new ones, so partitions still queued
+go unindexed.
+
+Either way, a failing run leaves no completion marker (see _OUTPUT FORMAT_).
+
+Pass *--allow-errors* to downgrade the read errors to warnings: the crawl then
+indexes every reachable file and exits *0*. Write failures are not downgraded.
+The per-path diagnostics and the skipped/error counts in the summary are
+printed either way, and all such diagnostics go to standard error so piped
+output on standard output stays clean. Such a run still writes the completion
+marker, recording the tolerated-error count in it, so *xdu-find*(1),
+*xdu-view*(1) and *xdu-rm*(1) warn on standard error that results may be
+incomplete. Tolerance can also cost data on a re-index: a partition whose
+directory could not be read yields no files, and finalizing it prunes the
+chunks that partition previously held, so rows indexed by an earlier run are
+removed rather than kept.
 
 # SEE ALSO
 

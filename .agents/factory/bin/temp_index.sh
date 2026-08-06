@@ -24,13 +24,16 @@ set -eu
 
 root="$(pwd)"
 
-# Release binaries are the source of truth for a verify drive; build once if absent.
+# Release binaries are the source of truth for a verify drive, so they must be the CURRENT
+# build. Always hand the decision to cargo: it is incremental, so an up-to-date tree costs
+# well under a second. Building only when a binary is *absent* — which this did — silently
+# measures whatever stale artifact an earlier phase left behind, and the failure is inverted:
+# a stale binary usually lacks the change under test, so the drive quietly agrees with the
+# old behaviour instead of failing loudly. A drive against the previous build is worse than
+# no drive at all, because it still looks like evidence.
 bindir="$root/target/release"
-if [ ! -x "$bindir/xdu" ] || [ ! -x "$bindir/xdu-find" ] \
-   || [ ! -x "$bindir/xdu-rm" ] || [ ! -x "$bindir/xdu-view" ]; then
-  echo "temp_index.sh: building release binaries (one-time)…" >&2
-  ( cd "$root" && cargo build --release --bins >&2 )
-fi
+echo "temp_index.sh: building release binaries…" >&2
+( cd "$root" && cargo build --release --bins >&2 )
 
 site="$(mktemp -d "${TMPDIR:-/tmp}/xdu-temp-index.XXXXXX")"
 trap 'rm -rf "$site"' EXIT INT TERM
