@@ -118,6 +118,17 @@ Steps 1–2, then report the plan that *would* run and stop (no edits/commits).
    `depends_on` are `done`; if not, STOP.
 2. Read `spec/{slug}/PLAN.md` and the relevant `research/` for the detail behind the phase's
    checklist. Read the actual files the phase will touch **before** editing them.
+3. **In remediation mode, scope the class before editing.** A finding is evidence-backed at one
+   `file:line`, but that location is an *instance* and the work item is the **class**. `Grep` the repo
+   for the defect's *pattern* — the deleted symbol, the false claim's distinguishing phrase, the
+   renamed identifier — and list every **live** site: anything an agent or human still acts on,
+   `.agents/**` and `AGENTS.md` included, since a stale instruction inside the factory re-arms the
+   trap. Leave **frozen** sites alone — `spec/**` records, committed measurement labels, and the
+   `issues/`+`ROADMAP.md` deferral pair are point-in-time evidence, and retrofitting them destroys the
+   audit trail. Then retune the gate (Step 1.3's `set_phase.py --verify`) to **assert the pattern is
+   absent, not that the named lines changed**; that is strictly stronger, because it fails on a site
+   nobody has found yet. If the sweep widens scope past what a human gate authorized, name the added
+   sites in the phase body.
 
 ### Step 3 — Implement the phase
 Execute every `[ ]` item to AGENTS.md conventions. Sanity-check as you go

@@ -478,7 +478,7 @@
 
 ## F15 — Remediation is scoped to the file:line a finding names, with no step that asks "is this an instance or a class?"
 
-`origin=xdu-build:P14 severity=medium category=missing-guidance status=open target=.claude/skills/xdu-build/SKILL.md (Step 1.3 remediation mode)`
+`origin=xdu-build:P14 severity=medium category=missing-guidance status=applied target=.claude/skills/xdu-build/SKILL.md (Step 1.3 remediation mode)`
 
 - **What happened:** P14 remediated four review findings, each stated as a `file:line`. Before editing I
   ran an unprompted sweep for every *other* instance of each defect, and every finding turned out to
