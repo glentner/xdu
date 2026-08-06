@@ -144,6 +144,17 @@ command exited 0. Green → proceed. Red → STOP; do not mark done or advance s
 --touch`) and commit at least that `TECH.md` change before handing back, so the circuit breaker
 counts across sessions.
 
+**A green gate can be hollow or aggregated** — satisfied because nothing ran, or because one result
+absorbed another. Shapes seen here: a test case that self-skips on this platform still prints `ok`
+(re-run with `--nocapture`, and name in the final report which cases skipped and where they *do* run —
+the Linux CI leg); an assertion over a collection passing vacuously because the collection came back
+empty (assert non-empty first); and a phase holding **more than one independent performance change**
+measured once, where a regression on one lever hides behind a win on the other (measure each lever
+against the same reference; report a verdict per change and per-scenario numbers, never a single
+mean). The general guard: **see the gate fail once before trusting it** — mutate what it checks,
+confirm the mutation landed, confirm red, revert. Confirming the mutation landed is not optional; a
+botched mutation leaves the gate green and reads as "verified". Revert before Step 7's `git add -A`.
+
 ### Step 5 — Update `TECH.md` (the resume contract)
 1. Check off the phase's `[ ]` items in the body.
 2. Advance state with the script (regenerate — never hand-edit YAML):

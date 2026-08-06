@@ -111,7 +111,7 @@
 - **Confidence:** med · **Effort:** small
 
 ## F3 — A self-skipping test reports `ok`, so a green `cargo test` can hide an unrun case · seen again (xdu-build:P10, xdu-review:step3)
-`origin=xdu-build:P3 severity=low category=missing-guidance status=open target=.claude/skills/xdu-build/SKILL.md`
+`origin=xdu-build:P3 severity=low category=missing-guidance status=applied target=.claude/skills/xdu-build/SKILL.md`
 - **What happened:** P3's non-UTF-8 case can't run on the dev box (APFS/HFS+ reject such filenames), so
   the test early-returns — and prints `... ok` like every other test. The `verify:` gate was fully green
   while one of the phase's four listed cases had never executed. I only found out by re-running with
@@ -150,7 +150,7 @@
 - **Confidence:** med · **Effort:** small
 
 ## F5 — A phase bundling several optimizations behind one measurement can ship a pessimization
-`origin=xdu-build:P5 severity=medium category=missing-guidance status=open target=.claude/skills/xdu-build/SKILL.md`
+`origin=xdu-build:P5 severity=medium category=missing-guidance status=applied target=.claude/skills/xdu-build/SKILL.md`
 - **What happened:** P5's checklist was "implement L1, implement L2, then benchmark the L1+L2 build
   against the pre-P5 commit" — two independent levers, one measurement. L1 turned out to be a 55%
   *regression* on the very shape xdu exists for, and L2 a solid win. Measured together the two partly

@@ -119,6 +119,11 @@ dependent reader/crawler phases. Set top `status: in_progress`, `current_phase` 
 `uv run --with pyyaml python .agents/factory/bin/next_phase.py spec/{slug}/TECH.md` must exit 0 and
 report the first phase.
 
+**The unit of measurement is the unit of change.** A phase bundling two independent performance levers
+behind one benchmark gets one verdict, so a regression on one can be paid for by the other's win and
+ship credited as an improvement. Split them into separate phases, or give the phase a `verify:` that
+reports a verdict per lever and per scenario.
+
 **Every deferral names its destination inline.** When a phase body says "do not fix here", "known
 limitation", or "left as a follow-up", it must also say *where the record goes* — an
 `issues/{slug}.md` (pre-shaped from [`templates/ISSUE.md`](../../factory/templates/ISSUE.md)) plus a
