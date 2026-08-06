@@ -151,7 +151,9 @@ code fence:
 git add spec/{slug}/GOAL.md          # add spec/{slug}/META.md too if you recorded a meta-note
 git commit -m "[{category}] Shape {slug} goal"
 ```
-`{category}` = `fix` for `kind: fix`, else `feature`. **No `Co-Authored-By` trailer.** Do not push.
+`{category}` is the GOAL's `kind` verbatim (`feature`|`fix`|`refactor`) — the same house style as
+`xdu-plan`/`xdu-build`, and all three are in `AGENTS.md`'s category list. **No `Co-Authored-By`
+trailer.** Do not push.
 
 ### Step 8 — Report & hand off
 Report: branch, slug, kind, appetite, the R-ID list, any open clarifications. Tell the human the

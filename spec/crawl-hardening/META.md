@@ -73,7 +73,7 @@
 <!-- Real findings are appended below this line by the lifecycle skills. -->
 
 ## F1 — Commit-category rule ignores `kind: refactor` · seen again (xdu-plan:step8)
-`origin=xdu-feature:step7 severity=low category=instruction status=open target=.claude/skills/xdu-feature/SKILL.md`
+`origin=xdu-feature:step7 severity=low category=instruction status=applied target=.claude/skills/xdu-feature/SKILL.md`
 - **What happened:** Step 7 says `{category} = fix for kind: fix, else feature`, so a `kind: refactor`
   shaping commit is told to use `[feature]` even though this skill accepts `kind: refactor` and
   `AGENTS.md` explicitly lists `refactor` as a valid commit category. I used `[refactor]` instead as

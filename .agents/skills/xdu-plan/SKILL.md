@@ -167,7 +167,8 @@ Likely sources here: the research fan-out mechanics (Step 3), the invariant-gate
 git add -A spec/{slug}      # PLAN.md + TECH.md, plus research/ and META.md when present (research/ is omitted on the lean path)
 git commit -m "[{category}] Plan {slug}: design + phased roadmap"
 ```
-`{category}` = `fix`|`feature`. **No `Co-Authored-By` trailer.** Do not push.
+`{category}` is the `kind` verbatim from `GOAL.md`/`TECH.md` (`feature`|`fix`|`refactor`) — the same
+house style as `xdu-feature`/`xdu-build`. **No `Co-Authored-By` trailer.** Do not push.
 
 ### Step 9 — Report & hand off
 Report the design summary, the phase list (id · name · satisfies · verify), any deviations recorded,
