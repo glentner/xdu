@@ -215,6 +215,23 @@ so it lands next to the scoped-marker work above.
 *Horizon: near-term · Depends on: — · Refs: Completion marker scoped runs (same question, marker side)*
 **Seed:** [`issues/orphan-partition-survives-reindex.md`](issues/orphan-partition-survives-reindex.md)
 
+## Re-indexing an unreadable partition deletes the rows it already held
+
+The sharpest member of the same family, and the only one that destroys data rather than leaving extra.
+When a partition's source directory cannot be read, its walk yields one error and zero files — but the
+partition is still finalized, and `finalize` prunes from chunk 0, taking every chunk the previous index
+held. The prune loop is correct for the job it was written for (retiring the surplus of a prior larger
+run) and simply cannot tell "legitimately smaller now" from "could not be read". With `--allow-errors`
+the run then exits 0 and attests itself, which is the cruel case: that flag exists so an operator who
+*expects* unreadable regions keeps the rest of the index, and today it can leave them with less than
+they started with. The trigger is ordinary on shared storage — a permission change, a stale mount, an
+NFS blip. The prune scope is **pre-existing in `main`**, where the same rows vanish with no diagnostic
+at all; what this pass added was the first visibility into it. Wants per-partition error state on
+`PartitionBuffer` so finalize can decline to prune what it could not read.
+
+*Horizon: near-term · Depends on: — · Refs: the two reconciliation items above — same finalize scope*
+**Seed:** [`issues/unreadable-partition-prunes-prior-chunks.md`](issues/unreadable-partition-prunes-prior-chunks.md)
+
 ## Benchmark harness: stop `baseline` mode overwriting the committed reference
 
 `bench/run.sh baseline` defaults `--out` to `bench/results/baseline.json`, and `baseline` mode is also

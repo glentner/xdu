@@ -145,7 +145,10 @@ printed either way, and all such diagnostics go to standard error so piped
 output on standard output stays clean. Such a run still writes the completion
 marker, recording the tolerated-error count in it, so *xdu-find*(1),
 *xdu-view*(1) and *xdu-rm*(1) warn on standard error that results may be
-incomplete.
+incomplete. Tolerance can also cost data on a re-index: a partition whose
+directory could not be read yields no files, and finalizing it prunes the
+chunks that partition previously held, so rows indexed by an earlier run are
+removed rather than kept.
 
 # SEE ALSO
 

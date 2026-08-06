@@ -3,7 +3,7 @@ slug: crawl-hardening
 title: Harden & optimize the index-build crawl
 kind: refactor
 appetite: big
-status: blocked
+status: in_review
 branch: feature/crawl-hardening
 base: main
 current_phase: done
@@ -211,6 +211,30 @@ phases:
     && grep -q "issues/orphan-partition-survives-reindex.md" ROADMAP.md && cargo fmt
     --all -- --check && cargo clippy --all-targets --all-features -- -D warnings &&
     cargo test
+- id: P14
+  name: 'C4-F1/F2/F3/F4: record the prune defect, and stop the operating manual describing
+    code that is gone'
+  status: done
+  satisfies:
+  - R2
+  - R6
+  - R8
+  - R10
+  depends_on:
+  - P13
+  parallel: false
+  hammerable: false
+  hill: downhill
+  verify: 'test -f issues/unreadable-partition-prunes-prior-chunks.md && grep -q "status:
+    unshaped" issues/unreadable-partition-prunes-prior-chunks.md && grep -qF "issues/unreadable-partition-prunes-prior-chunks.md"
+    ROADMAP.md && scdoc < doc/xdu.1.scd | mandoc -Tutf8 | col -b | tr "\n" " " | tr
+    -s " " | grep -qF "removed rather than kept" && ! grep -rn "record_from_metadata"
+    src/ && ! grep -rn "FileRecord" src/ tests/ && ! grep -rn "derives" AGENTS.md
+    .agents/factory/invariants.md .agents/skills/xdu-release/SKILL.md .agents/skills/xdu-build/SKILL.md
+    && ! grep -rn "FileRecord" AGENTS.md .agents/factory/invariants.md .agents/skills/xdu-plan/SKILL.md
+    && grep -qF "issues/version-flag-missing.md" AGENTS.md && grep -qF "issues/version-flag-missing.md"
+    .agents/factory/invariants.md && cargo fmt --all -- --check && cargo clippy --all-targets
+    --all-features -- -D warnings && cargo test && echo PHASE-OK'
 review:
   last_reviewed_commit: 0c77ccbf1de150bb271284dc36286a0fed390407
   verdict: changes-requested
@@ -1274,6 +1298,74 @@ remembering the second half of the collision.
 - **Touches:** `src/lib.rs`, `src/crawl.rs`, `tests/crawl_tests.rs`, `doc/xdu.1.scd`, `AGENTS.md`,
   `.agents/factory/invariants.md`, `issues/orphan-partition-survives-reindex.md`, `ROADMAP.md`, this
   file. **No marker-format change, no other `src/` change**, per the cycle-3 human gate.
+
+---
+
+## Phase P14 — C4-F1/F2/F3/F4: record the prune defect, and stop the operating manual describing code that is gone
+**Satisfies:** R2, R6, R8, R10 · **Depends on:** P13
+**Goal:** close review cycle 4. Four findings, none of them a regression — one is recorded rather than
+fixed, three are corrections to text that describes code inaccurately. The human gate (cycle-4
+`blocked_reason`) authorized exactly this and **no other `src/` logic change**.
+
+**A class-closure sweep ran before any edit**, because this branch's recurring failure is fixing the
+named instance and missing the rest of the class (C3-F1 and META `F13` are both that mistake). It found
+that each finding named **fewer sites than the class contains**: the `--version` falsehood is asserted
+in **four** live operating files, not the two the review named, and `FileRecord` is named in **four**
+live documents, not two. The extra sites are listed below and are corrected here — the alternative is
+leaving the same trap armed for the next agent, which is the finding's own stated rationale. **The
+`verify:` gate asserts the class is empty, not that the named lines changed.**
+
+- [x] **C4-F1 — record, do not fix.** `finalize`'s prune runs from `num_chunks..`, so a partition that
+      yielded a hard error and zero files finalizes with `num_chunks == 0` and prunes its **entire**
+      prior contents. With `--allow-errors` the run then exits 0 and attests itself. Create
+      `issues/unreadable-partition-prunes-prior-chunks.md` at `status: unshaped` + a `**Seed:**` entry in
+      `ROADMAP.md`, both stating plainly that this is **pre-existing in `main`** — proved by a
+      differential drive against a release build of `main`, where the same rows are destroyed, the run
+      exits 0, and **no diagnostic is printed at all**. Cross-link it to the two sibling `finalize`
+      prune-scope issues; it is the third member of that family and the only one that *destroys* rows.
+- [x] **C4-F1, man page.** One sentence in `doc/xdu.1.scd`'s `--allow-errors` paragraph: tolerating a
+      read error can prune previously-indexed rows. That paragraph is the only surface that enumerates
+      what tolerance costs, so it is the only one that can contradict a new cost — the clap help text and
+      `AGENTS.md`'s CLI bullet delegate to it and stay untouched. Escapes matched to the file's own
+      conventions and **verified as published text** through `scdoc | mandoc | col -b`, not by exit 0.
+- [x] **C4-F2 — the operating manual asserts a flag that does not exist.** Four live sites claim clap
+      derives `--version`; all four binaries exit 2 on it. Correct `AGENTS.md:48`,
+      `.agents/factory/invariants.md:183`, and — found by the sweep, **beyond the two the review
+      named** — `.agents/skills/xdu-release/SKILL.md:93` (an instruction a human follows while cutting a
+      release) and `.agents/skills/xdu-build/SKILL.md:79`. Preserve the *true* half verbatim (single-
+      sourced from `Cargo.toml`; never hardcode a version in `src/`) and excise only the false mechanism
+      clause; point at `issues/version-flag-missing.md` so the recorded defect stays discoverable from
+      the manual it contradicts.
+- [x] **C4-F3 — the concurrency-contract comment names a function that never existed under that name.**
+      `src/bin/xdu.rs:39` cites `record_from_metadata`. Fix the **claim**, not just the token: the
+      sweep confirmed nothing builds a record any more, so "per-file record building" is wrong
+      independently of the name — the direct-to-Arrow rewrite replaced it with `file_size_and_atime` +
+      `lossy_path` appending straight into the builders.
+- [x] **C4-F4 — delete `FileRecord`** (`src/lib.rs`) and its three unit tests. The sweep proved it is
+      unreachable from production: every `use xdu::{…}` is explicit and none names it, and there are no
+      glob imports outside the two test modules. Then remove it from the **four** live documents that
+      name it — `AGENTS.md`'s repo map **and** invariant #1, `.agents/factory/invariants.md` §1, and
+      `.agents/skills/xdu-plan/SKILL.md` (a live instruction to future planners) — so `get_schema()` is
+      named as the sole schema contract. Frozen `spec/` records, the `bench/results/*.json` label, and
+      the `issues/`+`ROADMAP` deferral pair are **left alone**: they are point-in-time evidence, and
+      retrofitting them would destroy the audit trail.
+- **Verify:** the phase gate above. It asserts published man-page text (not exit 0), that
+  `record_from_metadata` and `FileRecord` appear **nowhere** in `src/`/`tests/`, that `derives` appears
+  in **none** of the four operating files, that both manual files now point at
+  `issues/version-flag-missing.md`, that the new issue exists at `status: unshaped` and is linked from
+  `ROADMAP.md`, plus the full pre-release gate.
+  *(Result: green — `PHASE-OK`. 102 tests: 63 lib (66 − the three deleted `FileRecord` cases) + 23
+  `crawl_tests` + 16 `rm_tests`; all four `.scd` render. **Each new gate was seen to fail first**, and
+  per `F3`'s refinement the mutation was confirmed present before the red was trusted: deleting the
+  man-page sentence reddens the flattened-render grep, restoring `derives` to `AGENTS.md` reddens the
+  four-file class check, and a single `FileRecord` mention added to `invariants.md` reddens the
+  manual check. The render grep matches the **flattened** published text, so a future rewrap of that
+  paragraph cannot silently pass it. CLI drive on a throwaway index: 4 rows, `__root__` = 1, marker
+  present, 0 `.partial`, stdout clean — behavior unchanged, as a docs-and-dead-code phase requires.)*
+- **Touches:** `src/lib.rs`, `src/bin/xdu.rs`, `doc/xdu.1.scd`, `AGENTS.md`,
+  `.agents/factory/invariants.md`, `.agents/skills/{xdu-release,xdu-build,xdu-plan}/SKILL.md`,
+  `issues/unreadable-partition-prunes-prior-chunks.md`, `ROADMAP.md`, this file. **No `src/` logic
+  change** — the only code removed is a struct with no production callers.
 
 ---
 

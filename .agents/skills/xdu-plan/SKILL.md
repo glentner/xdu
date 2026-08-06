@@ -113,7 +113,7 @@ with the human (split into a pilot + follow-ups, or trim to the appetite) before
 `satisfies` (R-IDs), `depends_on`, `parallel` (**false** for coupled-core files — `src/lib.rs`,
 `src/cli.rs`, `src/bin/xdu.rs`, `src/bin/xdu-rm.rs`; `true` only for independent `doc/*.scd`/tests
 work), `hammerable` (**false** for correctness/security phases), `hill: uphill`, and a real `verify:`
-command. Foundational schema changes (`get_schema()`/`FileRecord`) must land and pass **before**
+command. Foundational schema changes (`get_schema()` — the sole row-shape contract) must land and pass **before**
 dependent reader/crawler phases. Set top `status: in_progress`, `current_phase` to the first phase,
 `last_updated` today. Then **validate**:
 `uv run --with pyyaml python .agents/factory/bin/next_phase.py spec/{slug}/TECH.md` must exit 0 and

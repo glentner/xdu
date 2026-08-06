@@ -90,8 +90,11 @@ self-contradictory or ambiguous, STOP and ask.
 - **The gate is non-negotiable.** `cargo fmt --all -- --check`, `cargo clippy --all-targets
   --all-features -- -D warnings`, `cargo test --locked`, and `cargo build --release --locked` must ALL
   pass. A red gate is a STOP, never an override-to-ship.
-- **Version is single-sourced.** Bump `Cargo.toml` only; `clap` derives `--version` from
-  `CARGO_PKG_VERSION`, and `cargo update -p xdu` refreshes the `xdu` entry in `Cargo.lock`. The
+- **Version is single-sourced.** Bump `Cargo.toml` only; `cargo update -p xdu` refreshes the `xdu`
+  entry in `Cargo.lock`. **Do not confirm the bump with `xdu --version`** — that flag does not exist
+  (no `#[command(...)]` in `src/cli.rs` sets `version`; recorded in
+  [`issues/version-flag-missing.md`](../../../issues/version-flag-missing.md)). Read `Cargo.toml`, or
+  the `xdu=` line of a completion marker, which is built from `CARGO_PKG_VERSION`. The
   `doc/*.scd` man sources carry **no** version string and completions derive from `src/cli.rs`, so a
   pure version bump does **not** rebuild them; `share/` is a generated artifact built in CI regardless
   ([`invariants.md`](../../factory/invariants.md) §13). Never hardcode a version elsewhere.

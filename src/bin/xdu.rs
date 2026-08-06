@@ -35,9 +35,11 @@ use xdu::{SizeMode, format_bytes, format_count, format_speed, get_schema, parse_
 /// - `thread::scope` propagates the first driver `Err` (or panic under unwind) as the
 ///   run's error. Thread budget: N pool + C drivers + 1 main.
 ///
-/// The pure classification/ordering (`build_work_queue`), per-file record building
-/// (`record_from_metadata`), and Parquet finalization (`PartitionBuffer`) live in
-/// `xdu::crawl` so they are unit-testable; this function is the orchestrator.
+/// The pure classification/ordering (`build_work_queue`), per-file measurement
+/// (`file_size_and_atime`, `lossy_path`), and Parquet finalization (`PartitionBuffer`)
+/// live in `xdu::crawl` so they are unit-testable; this function is the orchestrator.
+/// Nothing builds an intermediate row struct — the measured columns are appended
+/// straight into the Arrow builders.
 ///
 /// The run-level completion marker is cleared once pre-flight passes and written by
 /// `main` only on the success path, so an index this run abandons carries no

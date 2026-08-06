@@ -59,6 +59,14 @@
   against `main` showed the same rows destroyed, exit 0, and no diagnostic at all — turning "this
   branch loses data" into "this branch is the first version that tells you". That single command
   decided the severity, the verdict, and whether a cycle 5 was warranted. See F14.
+- `xdu-build` Step 4's "never advance on a checkbox alone" plus F3's own refinement — *when a negative
+  test passes, first confirm the mutation happened* — are now cheap habit, and P14 shows why they
+  should stay that way. All three of its new gate clauses were seen to fail with the mutation verified
+  present first. One of them mattered: the man-page assertion originally grepped the rendered text for
+  a hyphenated phrase, which `mandoc` is free to break across a line on any future rewrap. Watching it
+  go red is what prompted flattening the render before grepping, turning a gate that happened to pass
+  today into one that cannot silently pass tomorrow. The discipline caught a latent false green, which
+  is the same place it paid out in P10.
 
 ## Friction findings
 
@@ -466,4 +474,43 @@
   drive against `base`**, never asserted from reading — an unproven provenance claim is treated as
   `introduced`. Note this composes with F11 rather than duplicating it: F11 covers *recorded* findings,
   F14 covers *unrecorded pre-existing* ones, and the two together close the routing table.
+- **Confidence:** high · **Effort:** small
+
+## F15 — Remediation is scoped to the file:line a finding names, with no step that asks "is this an instance or a class?"
+
+`origin=xdu-build:P14 severity=medium category=missing-guidance status=open target=.claude/skills/xdu-build/SKILL.md (Step 1.3 remediation mode)`
+
+- **What happened:** P14 remediated four review findings, each stated as a `file:line`. Before editing I
+  ran an unprompted sweep for every *other* instance of each defect, and every finding turned out to
+  name fewer sites than the class held. The `--version` falsehood is asserted in **four** live operating
+  files, not the two the review named — including `.agents/skills/xdu-release/SKILL.md:93`, an
+  instruction a human follows *while cutting a release*, telling them to confirm the bump with a flag
+  that exits 2. `FileRecord` is named in **four** live documents, not two, including
+  `.agents/skills/xdu-plan/SKILL.md`, which instructs future planners to sequence schema phases around a
+  struct that no longer exists. And C4-F3 was not a rename at all: the sweep showed nothing builds a
+  record any more, so swapping the stale symbol for the right one would have left the surrounding
+  sentence describing work the crawler stopped doing. Executing the gate literally would have shipped a
+  phase that closed four `file:line`s and left the same four traps armed.
+- **Skill cause:** Step 1.3 tells me how to *route* a finding — reopen a phase, or `--add-phase` — and
+  Step 3 says to execute every `[ ]` item. Neither asks what the finding is an instance *of*. The
+  handoff format guarantees the problem: `xdu-review` reports evidence-backed `file:line` findings
+  (correctly — that is the executed-evidence spine), and `xdu-build` treats that location as the work
+  item. Nothing in between converts one reproduced instance into the class it belongs to. This is not
+  hypothetical or one-off: it is the **third** time on this feature. C3-F1 was a reserved name guarded
+  in one direction and not the other; META `F13` records the same shape in `invariants.md`; `F12`'s
+  "seen again" note records a code *move* silently disarming a human-sign-off gate because a
+  path-keyed list was restated in two files. Each was found by a later review that should not have had
+  to find it.
+- **Recommended fix:** add a short **Step 2.3 — scope the class** to `xdu-build`, running only in
+  remediation mode: for each finding, before editing, grep the whole repo for the defect's *pattern*
+  rather than its location (the symbol being deleted, the false claim's distinguishing phrase, the
+  renamed identifier), list every live site, and split them into must-change and deliberately-frozen
+  (`spec/**` records, committed measurement labels, and the `issues/`+ROADMAP deferral pair are
+  evidence — retrofitting them destroys the audit trail, so the step must say so explicitly or it will
+  cause a worse problem than it solves). Then **write the phase's `verify:` against the class, not the
+  instance** — assert the pattern appears nowhere, not that the named lines changed. P14's gate does
+  exactly this (`! grep -rn "derives" <the four files>`, `! grep -rn "FileRecord" src/ tests/`) and it
+  is strictly stronger: it fails on a *fifth* site nobody has found yet. Where the sweep widens scope
+  beyond what a human gate authorized, the phase body must say which sites were added and why, so the
+  widening is visible rather than smuggled — P14's body does.
 - **Confidence:** high · **Effort:** small

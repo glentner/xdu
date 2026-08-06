@@ -45,8 +45,11 @@ feature) so there is no external DuckDB dependency.
   `.agents/` factory). This set is **not closed** — coin a new lowercase category when one fits.
 - **No `Co-Authored-By:` trailer on commits** — it is noise in `git log`. Authorship/AI-assistance
   is tracked in the **PR body** instead, which ends with the Claude Code generation line.
-- **Version is single-sourced from `Cargo.toml`** — `clap` derives `--version` from
-  `CARGO_PKG_VERSION`. Never hardcode a version string in `src/`.
+- **Version is single-sourced from `Cargo.toml`** — never hardcode a version string in `src/`; read it
+  from `CARGO_PKG_VERSION` (the completion marker does, `crawl.rs`). **The `--version` flag itself does
+  not exist:** no `#[command(...)]` in `src/cli.rs` sets `version`, so all four binaries reject `-V`
+  and `--version` even though every `doc/*.scd` documents the flag. That mismatch is a recorded defect,
+  not a convention — see [`issues/version-flag-missing.md`](issues/version-flag-missing.md).
 - **A CLI change updates its `doc/*.scd` man page source in the same commit.** Shell completions
   regenerate automatically from `src/cli.rs` (`gen-completions`), so they are not committed; the
   generated `share/` tree is git-ignored (built in CI and by `/xdu-release`).
@@ -85,7 +88,7 @@ literal you intended, which is what the `mandoc | col -b` line above is for.
 
 ```
 src/
-  lib.rs         # shared core: FileRecord, get_schema() (THE index schema), SizeMode, parse_size,
+  lib.rs         # shared core: get_schema() (THE index schema), SizeMode, parse_size,
                  # SortMode, QueryFilters (DuckDB WHERE/ORDER BY builders), format_{count,bytes,speed}
   cli.rs         # the SINGLE clap CLI definition (XduArgs/XduFindArgs/XduViewArgs/XduRmArgs) —
                  # gen-completions + man pages describe exactly this
@@ -205,8 +208,8 @@ kept **in lockstep** with this section (this file wins if they drift). The `xdu-
 
 1. **Parquet schema stability.** `lib.rs::get_schema()` is the ONE contract: exactly three
    **non-null** fields in fixed order — `path: Utf8`, `size: Int64`, `atime: Int64`. Every reader
-   selects these by name. There is **no on-disk schema version**, so any change to `get_schema()`,
-   `FileRecord`, or a reader's column list is a breaking, cross-cutting index-format change (issues
+   selects these by name. There is **no on-disk schema version**, so any change to `get_schema()` or
+   a reader's column list is a breaking, cross-cutting index-format change (issues
    #2/#3 — owner/group/perms — are exactly this: add a schema version first).
 2. **Atomic finalization.** Write `NNNNNN.parquet.partial` → `fs::rename` (same dir) → prune stale
    higher chunks (`crawl.rs::PartitionBuffer::finalize()`). Never `File::create` a final `.parquet`,

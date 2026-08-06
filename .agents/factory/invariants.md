@@ -28,9 +28,10 @@ subsystems.
   `path: Utf8`, `size: Int64`, `atime: Int64`. `size` is bytes as `i64` (meaning depends on the
   `SizeMode` chosen at index time — disk-usage vs apparent vs block-rounded — and is **not** recorded
   in the index); `atime` is Unix epoch seconds as `i64`.
-- There is **no on-disk schema version.** Any change to `get_schema()`, `FileRecord`, or a reader's
-  `read_parquet` column list is a **breaking, cross-cutting** index-format change touching `lib.rs` +
-  the crawler + all three readers + every README `read_parquet` example.
+- There is **no on-disk schema version.** Any change to `get_schema()` or a reader's `read_parquet`
+  column list is a **breaking, cross-cutting** index-format change touching `lib.rs` + the crawler +
+  all three readers + every README `read_parquet` example. `get_schema()` is the *only* in-code
+  statement of the row shape — there is deliberately no mirror struct to drift out of step with it.
 - Issues #2 / #3 (add `owner`/`group`/`permissions`) are exactly this class — **require adding a
   schema version field before evolving the schema.**
 
@@ -180,8 +181,11 @@ ordering is load-bearing:
 
 ## 13. Project conventions (same-commit / packaging) — violations are HIGH, not CRITICAL
 
-- **Version is single-sourced from `Cargo.toml`** (clap derives `--version` from `CARGO_PKG_VERSION`);
-  never hardcode a version in `src/`.
+- **Version is single-sourced from `Cargo.toml`** — never hardcode a version in `src/`; read it from
+  `CARGO_PKG_VERSION`. The `-V`/`--version` **flag does not exist**: no `#[command(...)]` in
+  `src/cli.rs` sets `version`, so all four binaries reject it while all four `doc/*.scd` document it.
+  That is a recorded defect — [`issues/version-flag-missing.md`](../../issues/version-flag-missing.md)
+  — not a convention to reason from.
 - `share/` is a **generated** artifact (man via `scdoc` from `doc/*.scd`; completions via
   `gen-completions` from `src/cli.rs`), git-ignored, rebuilt in CI and by `/xdu-release`; CI asserts
   it generates. `.scd` sources carry no version string (a pure version bump doesn't touch them).

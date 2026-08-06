@@ -12,14 +12,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use arrow::datatypes::{DataType, Field, Schema};
 
-/// A single file metadata record.
-#[derive(Clone, Debug, PartialEq)]
-pub struct FileRecord {
-    pub path: String,
-    pub size: i64,
-    pub atime: i64,
-}
-
 /// Partition name reserved for files lying directly in the indexed root.
 ///
 /// Part of the on-disk layout contract rather than of the crawl, so the writer and every
@@ -735,54 +727,6 @@ mod tests {
         assert_eq!(round_to_block(1, mb), mb);
         assert_eq!(round_to_block(mb, mb), mb);
         assert_eq!(round_to_block(mb + 1, mb), 2 * mb);
-    }
-
-    // FileRecord tests
-    #[test]
-    fn test_file_record_creation() {
-        let record = FileRecord {
-            path: "/data/users/alice/file.txt".to_string(),
-            size: 1024,
-            atime: 1700000000,
-        };
-
-        assert_eq!(record.path, "/data/users/alice/file.txt");
-        assert_eq!(record.size, 1024);
-        assert_eq!(record.atime, 1700000000);
-    }
-
-    #[test]
-    fn test_file_record_equality() {
-        let record1 = FileRecord {
-            path: "/data/file.txt".to_string(),
-            size: 100,
-            atime: 1000,
-        };
-        let record2 = FileRecord {
-            path: "/data/file.txt".to_string(),
-            size: 100,
-            atime: 1000,
-        };
-        let record3 = FileRecord {
-            path: "/data/other.txt".to_string(),
-            size: 100,
-            atime: 1000,
-        };
-
-        assert_eq!(record1, record2);
-        assert_ne!(record1, record3);
-    }
-
-    #[test]
-    fn test_file_record_clone() {
-        let record = FileRecord {
-            path: "/data/file.txt".to_string(),
-            size: 2048,
-            atime: 1600000000,
-        };
-        let cloned = record.clone();
-
-        assert_eq!(record, cloned);
     }
 
     // parse_size() tests
