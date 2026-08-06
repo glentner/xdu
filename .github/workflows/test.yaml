@@ -115,8 +115,11 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Install scdoc
-        run: sudo apt-get update && sudo apt-get install -y scdoc
+      - name: Install scdoc + mandoc
+        # mandoc renders the generated .1 back to plain text so the assertion step below can read
+        # what the page PUBLISHES, not just that it compiled; bsdextrautils supplies `col`, which
+        # strips mandoc's backspace-overstrike bytes (not in the base image on ubuntu-24.04).
+        run: sudo apt-get update && sudo apt-get install -y scdoc mandoc bsdextrautils
 
       - name: Render man pages (doc/*.scd -> share/man/man1/*.1)
         run: |
@@ -125,6 +128,47 @@ jobs:
             name=$(basename "$scd" .1.scd)
             scdoc < "$scd" > "share/man/man1/${name}.1"
           done
+
+      # scdoc exiting 0 is necessary but not sufficient — the same rule the build gate already
+      # states for code. scdoc markup fails two ways: a nesting error is loud, but a mis-escaped
+      # literal is SILENT. doc/xdu.1.scd once shipped `_OUTDIR_/*/*.parquet`, which renders at
+      # exit 0 and publishes `OUTDIR//.parquet` — a wrong glob handed to an operator, past a green
+      # gate. So assert the published TEXT of the artifact this job just produced. Flatten it
+      # first: mandoc is free to rewrap at any width, so a multi-word literal is only greppable
+      # once newlines collapse to spaces. See AGENTS.md "Commands" for both failure modes.
+      - name: Assert critical literals survive into the published man-page text
+        run: |
+          set -eu
+          published() { mandoc -Tutf8 "$1" | col -b | tr '\n' ' ' | tr -s ' '; }
+          fail=0
+          check() {
+            page="$1"; shift
+            text=$(published "$page")
+            for lit in "$@"; do
+              if ! printf '%s' "$text" | grep -qF -- "$lit"; then
+                echo "CORRUPT RENDER: $page is missing the literal: $lit" >&2
+                fail=1
+              fi
+            done
+          }
+          check share/man/man1/xdu.1 \
+            'OUTDIR/<partition>/<chunk>.parquet' \
+            'OUTDIR/*/*.parquet' \
+            'OUTDIR/.xdu-complete' \
+            '__root__' \
+            '.partial' \
+            'st_blocks * 512'
+          check share/man/man1/xdu-find.1 'XDU_INDEX'
+          check share/man/man1/xdu-view.1 'XDU_INDEX'
+          check share/man/man1/xdu-rm.1   'XDU_INDEX' 'XDU_JOBS'
+          # A line starting with `.` or `'` is a roff control request: scdoc drops the period
+          # silently, and the intuitive `\.` escape destroys the rest of the line. Rewrap instead.
+          if grep -nE "^[[:space:]]*['.]" doc/*.scd; then
+            echo "ROFF CONTROL LINE: a doc/*.scd line begins with . or ' — rewrap it instead" >&2
+            fail=1
+          fi
+          [ "$fail" -eq 0 ] || exit 1
+          echo "OK: every asserted literal survived into the published man-page text"
 
       - name: Generate shell completions
         run: |

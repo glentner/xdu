@@ -306,7 +306,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F9 — The man-page gate asserts "it compiled", never "it says what I wrote"
-`origin=xdu-build:P8 severity=medium category=missing-guidance status=open target=.github/workflows/test.yaml + .claude/skills/xdu-review/SKILL.md`
+`origin=xdu-build:P8 severity=medium category=missing-guidance status=applied target=.github/workflows/test.yaml + .claude/skills/xdu-review/SKILL.md`
 - **What happened:** every man-page gate in this repo — CI's render step, `xdu-review`'s evidence spine,
   P8's `verify:` — treats `scdoc` exiting 0 as the pass condition. `doc/xdu.1.scd` shipped
   `_OUTDIR_/*/*.parquet`, which renders at **exit 0** and publishes `OUTDIR//.parquet`. Every gate was
