@@ -23,6 +23,11 @@
   post-design pass is what surfaced that §1 (schema stability) is only **apparently** touched — a diff
   enabling a feature named `parquet` reads as schema-adjacent but changes linkage, not row shape. That
   now sits in `PLAN.md` §3 as an explicit non-finding, which is worth more to the reviewer than silence.
+- `xdu-review`'s insistence that the delegated diff itself be blind (the `':(exclude)spec/'` pathspec,
+  flagged as "load-bearing, not cosmetic") mattered concretely here: this branch commits `PLAN.md`,
+  `TECH.md` and `META.md`, so a bare `git diff main...HEAD` would have handed the reviewer 571 lines of
+  author rationale — including `PLAN.md` §5's own account of what it chose not to measure — as added
+  hunks. The reviewer instead re-derived the release size delta independently from on-disk artifacts.
 
 ## Friction findings
 
@@ -129,4 +134,30 @@ is skipped by the parser):
   `xdu-build` Safety Principles — "If a command is refused by a shell function or wrapper, treat the
   refusal as policy and adopt what it names. Never re-issue it via `command`, `\\cmd`, `env`, `sh -c`
   or an absolute path to get past it; if the named alternative is unavailable, STOP and ask."
+- **Confidence:** high · **Effort:** small
+
+## F5 — The reviewer's "leave the tree clean" rule cannot see build-tree poisoning · seen again (cf. F3)
+
+`origin=xdu-review:step-2 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+- **What happened:** the natural negative control for R3 is to make `target/release/{xdu,xdu-rm}`
+  hostile (`cp /usr/bin/false …`) and require `rm_tests` to stay green. That mutates build state the
+  reviewer must restore. The rubric's *Reviewer conduct* section defines "clean" as **"no edits to
+  tracked files"** with **`git status --porcelain` empty** as the hand-back check — and
+  `target/` is git-ignored, so both conditions hold perfectly while `/usr/bin/false` sits installed as
+  `target/release/xdu`. The hand-back check is blind to exactly the state the control mutates. This run
+  only avoided it because the orchestrator wrote a cleanup-and-verify instruction into the delegation
+  prompt by hand; nothing in the skill or the rubric asked for one.
+- **Skill cause:** this is F3's failure mode arriving through a second door. F3 is filed against
+  `xdu-build`'s `verify:` gates; the fix recommended there does not reach `xdu-review`, whose reviewer
+  runs ad-hoc controls the plan never authored and whose only stated cleanliness contract is
+  tracked-file-shaped. A reviewer that poisons the release tree and hands back "`git status` empty"
+  has satisfied the rubric literally and left the next phase measuring `/usr/bin/false` — the precise
+  incident `AGENTS.md` "Environment & working rules" now recounts.
+- **Recommended fix:** extend the rubric's *Reviewer conduct* bullet beyond tracked files: "If you
+  mutate build state to construct a negative control (poisoning `target/`, moving an artifact, editing
+  an untracked fixture), restoring it is part of the control — assert the restore's post-condition and
+  report it, because `git status --porcelain` is blind to `target/`." Add the matching required-return
+  item to `xdu-review` Step 2's delegation list ("hand-back state: `git status` **plus** confirmation
+  that any build-state mutation was reverted and verified"), so the orchestrator does not have to
+  reinvent it per run. Pairs with F3/F4 — same root, three skills.
 - **Confidence:** high · **Effort:** small

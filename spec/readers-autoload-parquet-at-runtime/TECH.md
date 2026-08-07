@@ -56,10 +56,10 @@ phases:
     RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup} cargo test --locked --all-features &&
     test -z "$(find $COLD -type f)" && echo FULL-SUITE-COLD-CLEAN=$COLD
 review:
-  last_reviewed_commit: ''
-  verdict: none
+  last_reviewed_commit: 5ee1fa9e3726c32f119eda41fcc6d57e250537bc
+  verdict: approved
   blocked_reason: ''
-  cycle: 0
+  cycle: 1
 ---
 # TECH.md — The readers must query offline, and the tests must exercise the binary they just built
 
