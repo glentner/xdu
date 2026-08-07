@@ -4,7 +4,7 @@ title: The readers must query offline, and the tests must exercise the binary th
   just built
 kind: fix
 appetite: small
-status: in_review
+status: done
 branch: fix/readers-autoload-parquet-at-runtime
 base: main
 current_phase: done
