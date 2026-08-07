@@ -53,6 +53,38 @@ feature) so there is no external DuckDB dependency.
 - **A CLI change updates its `doc/*.scd` man page source in the same commit.** Shell completions
   regenerate automatically from `src/cli.rs` (`gen-completions`), so they are not committed; the
   generated `share/` tree is git-ignored (built in CI and by `/xdu-release`).
+- **Delete with `del`, never `rm`** — and read the exceptions in the next bullet before applying this
+  to committed code. `del` ([`delete-cli`](https://pypi.org/project/delete-cli/), the maintainer's)
+  moves a path to the `$HOME` trash instead of unlinking it, so a mistake is recoverable: `del PATH…`
+  removes, `del --list` shows what is there, `del --restore PATH` undoes, `del --empty` reclaims. This
+  binds **every** harness working in this repo, not just Claude Code. It is about the *act*, not the
+  spelling — any irreversible removal of something you did not just create counts, whether written
+  `rm`, `find -delete`, `git clean -fdx`, `shutil.rmtree` or `truncate`. Three sharp edges, each
+  measured: **`-r` means `--restore`, not recursive** — `del -r dir` exits 0 and deletes *nothing*,
+  while plain `del dir` handles directories natively; there is **no `-f`**, and while a missing path
+  is exit 0, a *usage* error is not (`del -rf` exits 2), so do not assume success; and `del` needs a
+  real `$HOME` — unset, it writes `.Trash/` and `.Trash.db` into the working directory, and under a
+  redirected `$HOME` (as `tests/offline_tests.rs` and several `verify:` gates use) it lands in the
+  fixture and reddens it. Not on `PATH`? In order: `uvx --from delete-cli del …` (ephemeral, installs
+  nothing), else `uv tool install delete-cli` once. If neither resolves — no `uv`, no network — **stop
+  and ask.** The interactive shell defines `rm` as a function that refuses, and routing around it with
+  `command /bin/rm`, `\rm`, `env rm` or `sh -c 'rm …'` defeats a guardrail that exists on purpose.
+  That bypass already happened here, and because the refusing `rm` **exits 0**, it read as a clean run
+  while leaving `/usr/bin/false` installed as `target/release/xdu` for two later phases to measure.
+- **…and the deletions that stay `rm`.** The rule above governs what an *agent* removes; it does not
+  reach committed code, and converting these breaks things. Keep `rm` wherever there is no trash to
+  move to, or nothing worth recovering: **container builds** (`Dockerfile` — the point of
+  `rm -rf /var/lib/apt/lists/*` is layer size, and a move keeps the bytes in the layer); **the
+  installer** (`install.sh` runs on a stranger's machine via `curl | sh`, is POSIX `sh` with no Python,
+  and must not seed their trash); **CI**, which has no `del`; **HPC operator instructions**
+  (`bench/HPC-PROTOCOL.md`) — there `$HOME` is a small quota'd filesystem separate from the scratch one,
+  so a trash move becomes a cross-device copy of a multi-million-file index; **the benchmark trees**
+  (`bench/`), which reach millions of sparse files, where trashing frees no disk and puts a rename
+  inside the timed region; **self-cleaning scratch** — any `mktemp -d` that its creator disposes of,
+  script or agent alike; **a tool's own bookkeeping** (`git rm`, `git worktree remove`, `cargo clean`,
+  `docker prune`), which maintains metadata a trash move would strand; **published examples**
+  (`README.md`, `doc/*.scd`) that teach users `xdu-find … | xargs rm`; and **`xdu-rm` itself**, whose
+  entire product purpose is to free blocks.
 
 ## Commands
 

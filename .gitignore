@@ -6,6 +6,11 @@
 __pycache__/
 # JetBrains IDE project files (per-developer, not part of the build).
 /.idea/
+# Belt-and-braces for the `del` convention (AGENTS.md): del trashes under $HOME, but with HOME
+# unset it falls back to "." and writes .Trash/ + .Trash.db into the working directory — which
+# xdu-build's `git add -A` would otherwise sweep into a commit.
+.Trash/
+.Trash.db
 # Benchmark output: raw logs and ad-hoc result documents are per-machine and per-run,
 # so a local `bench/run.sh` never dirties the tree. The reference measurement and any
 # recorded before/after comparison are the artifacts worth keeping.

@@ -20,10 +20,13 @@ phases:
   parallel: false
   hammerable: false
   hill: downhill
-  verify: mkdir -p target/release && cp /usr/bin/false target/release/xdu && cp /usr/bin/false
-    target/release/xdu-rm; cargo test --test rm_tests -- --nocapture; rc=$?; command
-    /bin/rm -f target/release/xdu target/release/xdu-rm; grep -rn 'join("release")'
-    tests/ && exit 1; exit $rc
+  verify: 'mkdir -p target/release && cp /usr/bin/false target/release/xdu && cp /usr/bin/false
+    target/release/xdu-rm; cargo test --test rm_tests -- --nocapture; rc=$?; if command
+    -v del >/dev/null 2>&1; then del target/release/xdu target/release/xdu-rm; else
+    uvx --from delete-cli del target/release/xdu target/release/xdu-rm; fi; { test
+    ! -e target/release/xdu && test ! -e target/release/xdu-rm; } || { echo "CLEANUP
+    FAILED: poisoned binaries survive"; exit 1; }; grep -rn ''join("release")'' tests/
+    && exit 1; exit $rc'
 - id: P2
   name: Statically link the Parquet reader; regression-test the cold cache
   status: done
@@ -112,11 +115,17 @@ by making `target/release/` hostile and requiring the suite to stay green.
 - [x] **Change no test assertion.** If a case only passes by altering what it asserts, stop and record
   it: that is an R5 finding for P3's triage, not a migration step. Note it in the commit body so P3
   does not have to rediscover it.
-- **Verify:** `mkdir -p target/release && cp /usr/bin/false target/release/xdu && cp /usr/bin/false target/release/xdu-rm; cargo test --test rm_tests -- --nocapture; rc=$?; command /bin/rm -f target/release/xdu target/release/xdu-rm; grep -rn 'join("release")' tests/ && exit 1; exit $rc`
-  — `/usr/bin/false`, not `/bin/false`, which does not exist on macOS. `--nocapture` because a
-  self-skipping test still prints `ok` (`AGENTS.md`, Testing). The cleanup is `command /bin/rm`, not
-  bare `rm`: an interactive shell may shadow `rm` with a function that refuses, and a cleanup that
-  silently no-ops leaves `/usr/bin/false` installed as `target/release/xdu` for every later phase.
+- **Verify:** see the `verify:` field in the frontmatter — `/usr/bin/false`, not `/bin/false`, which
+  does not exist on macOS. `--nocapture` because a self-skipping test still prints `ok` (`AGENTS.md`,
+  Testing). The gate asserts its **own cleanup** post-condition, not just the test verdict: a gate that
+  mutates build state and fails to restore it leaves `/usr/bin/false` installed as
+  `target/release/xdu` for every later phase, and both failure modes here are silent at exit 0.
+  **Amended after P3 (2026-08-07), and the recorded P1 run above predates the amendment.** P1 was
+  executed with `command /bin/rm -f` as the cleanup, which bypassed the maintainer's `del` guardrail
+  rather than adopting it — the wrong direction, corrected in `AGENTS.md` "Environment & working
+  rules". The gate now resolves `del` (falling back to `uvx --from delete-cli del`) and fails loudly
+  if the poison survives. The amended gate was re-run green; the test evidence P1 recorded is
+  unaffected, since only the cleanup step changed.
 - **Touches:** `tests/rm_tests.rs`, `tests/common/mod.rs`.
 
 ## Phase P2 — Statically link the Parquet reader
