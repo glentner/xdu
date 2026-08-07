@@ -105,7 +105,7 @@ src/
   bin/xdu-view.rs   # 2487-line ratatui/crossterm TUI (read-only)
   bin/xdu-rm.rs     # destructive bulk delete (safe mode, confirm, dry-run, parallel)
   bin/gen-completions.rs   # emits share/ completions from cli.rs
-tests/           # crawl_tests.rs, rm_tests.rs (integration)
+tests/           # crawl_tests.rs, rm_tests.rs, offline_tests.rs (integration); common/ = shared helpers
 doc/*.scd        # scdoc man page SOURCES (authored); render to share/man/man1/*.1
 share/           # GENERATED (man + completions); git-ignored; built in CI / by /xdu-release
 build.sh install.sh cruft.sh Dockerfile   # packaging / ops scripts
@@ -276,11 +276,21 @@ kept **in lockstep** with this section (this file wins if they drift). The `xdu-
 - `lib.rs` carries strong pure-function unit tests (parse_size, SizeMode, SortMode, QueryFilters,
   formatters, get_schema). Keep new logic in `lib` so it is testable.
 - Integration tests in `tests/` drive the **real binaries** (`std::process::Command`) against real
-  temp indexes (`tempfile` + `libc` dev-deps; `rm_tests.rs` backdates atimes via `utimensat`;
-  `tests/common/mod.rs` holds the shared helpers). Never reimplement production logic in a test.
+  temp indexes (`tempfile` + `libc` dev-deps). **`tests/common/mod.rs` is the one home for binary
+  resolution and fixtures** — every `tests/*.rs` carries `mod common;` and takes `binary_path` (which
+  is `CARGO_BIN_EXE_*`, so a test always drives the artifact Cargo built for the profile under test),
+  `build_index`, the `run_*` wrappers, and `set_atime_days_ago` (backdates atimes via `utimensat`)
+  from it. A fixture that lives in one test file instead is how `rm_tests.rs` came to re-declare a
+  `binary_path` that preferred whatever was lying in `target/release/`, so all 16 destructive tests
+  ran a stale binary while `cargo test` stayed green. Never reimplement production logic in a test.
   Some cases self-skip where the platform can't host them (running as root; APFS rejecting non-UTF-8
   filenames) — a skipping test still prints `ok`, so check with `--nocapture` before trusting a green
   suite to mean a case actually ran.
+- **`offline_tests.rs` guards air-gapped operation.** The readers must answer a query with an empty
+  DuckDB extension cache and write nothing into it; the test redirects `HOME` and asserts that
+  directory stays empty. This is why `Cargo.toml` asks `duckdb` for `parquet` alongside `bundled` —
+  `bundled` alone leaves the Parquet reader to autoinstall a 12 MB extension at runtime. Dropping the
+  feature restores a product defect on air-gapped HPC login nodes, not just a slow first run.
 - **Verify by driving the CLI, not just tests.** Use `.agents/factory/bin/temp_index.sh` so a drive
   hits a throwaway index, never a real one. Exit 0 is necessary but not sufficient — assert a concrete
   post-condition (row count, a stdout token, files actually gone/kept).

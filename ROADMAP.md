@@ -146,25 +146,6 @@ making a centrally stored index explorable by anyone with a link, no shell accou
 *Horizon: long-term · Depends on: S3 as an index target · Refs: —*
 **Seed:** `/xdu-feature Build xdu-web, a Wasm progressive web app that browses an S3-backed index in the browser with list/tree views and search, mirroring xdu-view.`
 
-## The readers need the network on first run, and `rm_tests` tests the wrong binary
-
-Two independent defects found together, and the most urgent thing on this list: `main`'s CI is red
-because of the first, and the second is why it took an afternoon to see. `Cargo.toml` builds DuckDB
-with `features = ["bundled"]`, which does **not** statically link the Parquet reader — autoinstall is
-on instead, so every `xdu-find`/`xdu-view`/`xdu-rm` downloads a 12 MB extension from the internet on
-first use. On a cold CI runner the 39 parallel `xdu-find` calls in `crawl_tests` race to install the
-same file and two of them die; on an air-gapped HPC login node — a normal deployment target — the
-query tools simply do not work. It never reproduces locally because the extension cache goes warm on
-first use and stays warm. Separately, `tests/rm_tests.rs` carries its own `binary_path()` that prefers
-`target/release/` **if it exists**, so all 16 destructive-deletion tests have been asserting against
-whatever release binary happened to be lying around rather than the code under build — the exact
-hazard the shared `tests/common` helper was written to prevent, and which `rm_tests` never adopted.
-The dependency half is a verified one-line change; the harness half needs its own review, because it
-changes what every `xdu-rm` safety test actually exercises.
-
-*Horizon: near-term (CI is red until this lands) · Depends on: — · Refs: crawl-hardening META F10, same stale-binary class*
-**Seed:** [`issues/readers-autoload-parquet-at-runtime.md`](issues/readers-autoload-parquet-at-runtime.md)
-
 ## `--version` is documented but rejected by every binary
 
 All four man pages document `-V, --version`, and `AGENTS.md` states the version is single-sourced from

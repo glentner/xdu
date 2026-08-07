@@ -4,10 +4,10 @@ title: The readers must query offline, and the tests must exercise the binary th
   just built
 kind: fix
 appetite: small
-status: in_progress
+status: in_review
 branch: fix/readers-autoload-parquet-at-runtime
 base: main
-current_phase: P3
+current_phase: done
 last_updated: '2026-08-07'
 phases:
 - id: P1
@@ -40,14 +40,14 @@ phases:
     COLD-HOME-CLEAN=$COLD
 - id: P3
   name: Re-verify the destructive suite against the final binary; close out
-  status: pending
+  status: done
   satisfies:
   - R5
   depends_on:
   - P2
   parallel: false
   hammerable: false
-  hill: uphill
+  hill: downhill
   verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
     -- -D warnings && COLD=$(mktemp -d) && env HOME=$COLD CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}
     RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup} cargo test --locked --all-features &&
@@ -158,26 +158,26 @@ to the binary, not before it — and every deferral this branch made has a home.
 result recorded at the end of P1 would be stale by the time the branch merges. The GOAL's sequencing
 constraint applies to both ends of the branch.
 
-- [ ] Run the `verify:` command and confirm the **whole** suite passes with `HOME` pointed at a fresh
+- [x] Run the `verify:` command and confirm the **whole** suite passes with `HOME` pointed at a fresh
   empty directory and nothing written into it. Note that `CARGO_HOME`/`RUSTUP_HOME` are preserved
   explicitly — without that, cargo itself follows the redirected `HOME` and tries to re-fetch the
   registry. The cold directory is intentionally left on disk: if it is non-empty, its contents are the
   evidence.
-- [ ] **R5 triage.** Review all 16 `rm_tests` outcomes against the final binary, including anything P1
+- [x] **R5 triage.** Review all 16 `rm_tests` outcomes against the final binary, including anything P1
   flagged. A failure that is a stale *test expectation* gets fixed here. A failure exposing a genuine
   `xdu-rm` behaviour defect gets an `issues/{slug}.md` (from
   [`templates/ISSUE.md`](../../.agents/factory/templates/ISSUE.md)) plus a `ROADMAP.md` entry, and is
   left for its own pass — do not repair destructive-deletion semantics inside a close-out phase
   (GOAL non-goals; PLAN §5).
-- [ ] Record absolute release binary sizes (`cargo build --release`; `ls -l target/release/xdu-find
+- [x] Record absolute release binary sizes (`cargo build --release`; `ls -l target/release/xdu-find
   target/release/xdu-rm target/release/xdu-view`) in the commit body, and state plainly that the
   release *delta* was not measured against a rebuilt pre-fix baseline and why (PLAN §5). A stated
   omission, not an implied measurement.
-- [ ] Housekeeping: delete the `ROADMAP.md` entry "The readers need the network on first run, and
+- [x] Housekeeping: delete the `ROADMAP.md` entry "The readers need the network on first run, and
   `rm_tests` tests the wrong binary" — `ROADMAP.md` is the forward-looking index, and a landed item
   left in it is a false backlog — and set the `status:` line in
   `issues/readers-autoload-parquet-at-runtime.md` to resolved, naming this branch.
-- [ ] **Deferral ledger.** Walk P1 and P2 for "do not fix here", "known limitation", "follow-up" and
+- [x] **Deferral ledger.** Walk P1 and P2 for "do not fix here", "known limitation", "follow-up" and
   confirm each has a matching `issues/` file and `ROADMAP.md` entry. Two things are deliberately
   **not** deferrals and need no file: the rejected runtime `autoload` disable (PLAN §2.5 — a rejected
   alternative) and the residual autoload exposure (PLAN §5 — a stated risk with no work being
