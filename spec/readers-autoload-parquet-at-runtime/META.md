@@ -19,6 +19,10 @@
   R-IDs were wrong as written: R2 contracted "CI SHALL exercise a cold cache", which GitHub runners
   already do by construction, and the seed's own open question about `json`/`icu` was answerable in
   one grep. Both were caught only because the step forces renegotiation rather than a paste.
+- `xdu-plan` Step 2/Step 5's *two* invariant checkpoints paid off in an unexpected direction: the
+  post-design pass is what surfaced that §1 (schema stability) is only **apparently** touched — a diff
+  enabling a feature named `parquet` reads as schema-adjacent but changes linkage, not row shape. That
+  now sits in `PLAN.md` §3 as an explicit non-finding, which is worth more to the reviewer than silence.
 
 ## Friction findings
 
@@ -63,4 +67,24 @@ is skipped by the parser):
   "verifying a cited `file:line` still says what the issue claims, and resolving a question the issue
   itself flags for shaping, are *confirmation*, not research: bounded `grep`/`Read` on the cited
   anchors is expected. Broadening past them is `xdu-plan`'s job."
+- **Confidence:** high · **Effort:** small
+
+## F2 — `verify:` must be authored as embedded shell-in-YAML, with no guidance on the quoting traps
+
+`origin=xdu-plan:step-6 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-plan/SKILL.md`
+- **What happened:** Step 6 requires a real `verify:` command per phase, and Step 7 lists "unquoted
+  `verify:` YAML" as a qualifying friction class — so the hazard is known to the skill — but no step
+  says how to author one safely. Two traps in one sitting: `templates/TECH.md`'s example wraps the
+  command in `sh -c "…"` inside a double-quoted YAML scalar, so any nested quote needs a third level
+  (`\\\"`); and backslash escapes are live in double-quoted YAML, so a `\n` intended for `printf`
+  becomes a real newline before the shell sees it. I restructured to a single quoting level (dropping
+  the `sh -c` wrapper — the runner is already a shell) and round-tripped all three strings through
+  `yaml.safe_load` to confirm what the shell would actually receive.
+- **Skill cause:** the skill mandates a non-trivial embedded-shell artifact and names its failure mode
+  in the *retro* step, but offers no authoring rule at the point of authoring.
+- **Recommended fix:** one line in Step 6 — "Author `verify:` as a plain shell command with at most one
+  quoting level; the runner is already a shell, so wrap in `sh -c '…'` only when handing a command to a
+  helper such as `temp_index.sh`. Backslash escapes are live inside double-quoted YAML (`\n` becomes a
+  newline), so prefer one level of `\"` and confirm the round-trip before committing." Consider also
+  fixing `templates/TECH.md`'s P1 example, which models the nested form.
 - **Confidence:** high · **Effort:** small
