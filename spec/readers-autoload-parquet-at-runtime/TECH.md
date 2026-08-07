@@ -1,48 +1,63 @@
 ---
 slug: readers-autoload-parquet-at-runtime
-title: "The readers must query offline, and the tests must exercise the binary they just built"
+title: The readers must query offline, and the tests must exercise the binary they
+  just built
 kind: fix
 appetite: small
 status: in_progress
 branch: fix/readers-autoload-parquet-at-runtime
 base: main
-current_phase: P1
-last_updated: "2026-08-07"
+current_phase: P2
+last_updated: '2026-08-07'
 phases:
-  - id: P1
-    name: "rm_tests adopts tests/common (proved by a poisoned target/release)"
-    status: pending
-    satisfies: [R3, R4]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "mkdir -p target/release && cp /usr/bin/false target/release/xdu && cp /usr/bin/false target/release/xdu-rm; cargo test --test rm_tests -- --nocapture; rc=$?; rm -f target/release/xdu target/release/xdu-rm; grep -rn 'join(\"release\")' tests/ && exit 1; exit $rc"
-  - id: P2
-    name: "Statically link the Parquet reader; regression-test the cold cache"
-    status: pending
-    satisfies: [R1, R2]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test --test offline_tests -- --nocapture && COLD=$(mktemp -d) && .agents/factory/bin/temp_index.sh sh -c \"HOME=$COLD xdu-find --count\" && test -z \"$(find $COLD -type f)\" && echo COLD-HOME-CLEAN=$COLD"
-  - id: P3
-    name: "Re-verify the destructive suite against the final binary; close out"
-    status: pending
-    satisfies: [R5]
-    depends_on: [P2]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && COLD=$(mktemp -d) && env HOME=$COLD CARGO_HOME=${CARGO_HOME:-$HOME/.cargo} RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup} cargo test --locked --all-features && test -z \"$(find $COLD -type f)\" && echo FULL-SUITE-COLD-CLEAN=$COLD"
+- id: P1
+  name: rm_tests adopts tests/common (proved by a poisoned target/release)
+  status: done
+  satisfies:
+  - R3
+  - R4
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: downhill
+  verify: mkdir -p target/release && cp /usr/bin/false target/release/xdu && cp /usr/bin/false
+    target/release/xdu-rm; cargo test --test rm_tests -- --nocapture; rc=$?; command
+    /bin/rm -f target/release/xdu target/release/xdu-rm; grep -rn 'join("release")'
+    tests/ && exit 1; exit $rc
+- id: P2
+  name: Statically link the Parquet reader; regression-test the cold cache
+  status: pending
+  satisfies:
+  - R1
+  - R2
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test --test offline_tests -- --nocapture && COLD=$(mktemp -d) && .agents/factory/bin/temp_index.sh
+    sh -c "HOME=$COLD xdu-find --count" && test -z "$(find $COLD -type f)" && echo
+    COLD-HOME-CLEAN=$COLD
+- id: P3
+  name: Re-verify the destructive suite against the final binary; close out
+  status: pending
+  satisfies:
+  - R5
+  depends_on:
+  - P2
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
+    -- -D warnings && COLD=$(mktemp -d) && env HOME=$COLD CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}
+    RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup} cargo test --locked --all-features &&
+    test -z "$(find $COLD -type f)" && echo FULL-SUITE-COLD-CLEAN=$COLD
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — The readers must query offline, and the tests must exercise the binary they just built
 
 The **context engine and finite-state machine** for building this fix. The YAML frontmatter above is
@@ -79,27 +94,29 @@ ticked.
 **Goal:** every integration test resolves the binary Cargo built for the current profile, demonstrated
 by making `target/release/` hostile and requiring the suite to stay green.
 
-- [ ] **Run the phase's `verify:` command first, before editing anything, and record that it fails.**
+- [x] **Run the phase's `verify:` command first, before editing anything, and record that it fails.**
   It should fail twice over — the poisoned `/usr/bin/false` binaries get executed by the current
   resolver, and the `grep` still finds `join("release")`. This is the negative control; without it a
   later green proves nothing. Note both outcomes in the commit body.
-- [ ] Move `set_atime_days_ago` (`tests/rm_tests.rs:37`) into `tests/common/mod.rs`, keeping the
+- [x] Move `set_atime_days_ago` (`tests/rm_tests.rs:37`) into `tests/common/mod.rs`, keeping the
   `utimensat` call and its mtime-preservation comment intact. It is not a duplicate — it moves because
   a fixture living outside the shared module is what caused this defect in the first place
   (PLAN §2.3).
-- [ ] Add `mod common;` to `tests/rm_tests.rs` and delete the local `binary_path` (l.15),
+- [x] Add `mod common;` to `tests/rm_tests.rs` and delete the local `binary_path` (l.15),
   `create_test_file` (l.27), `build_index` (l.74) and `run_xdu_rm` (l.93).
-- [ ] Rewrite the call sites: `build_index(&source, &index).unwrap()` → `common::build_index(&source,
+- [x] Rewrite the call sites: `build_index(&source, &index).unwrap()` → `common::build_index(&source,
   &index)` (16 sites; the shared helper asserts internally and returns `()`), and
   `run_xdu_rm(&[…]).unwrap()` → `common::run_rm(&[…])` (~18 sites). Prune the imports that go unused
   (`File`, `Write`, `PathBuf`, `Command`, `SystemTime`, `UNIX_EPOCH`) — `clippy -D warnings` will catch
   any that are left, but do not leave them for P3.
-- [ ] **Change no test assertion.** If a case only passes by altering what it asserts, stop and record
+- [x] **Change no test assertion.** If a case only passes by altering what it asserts, stop and record
   it: that is an R5 finding for P3's triage, not a migration step. Note it in the commit body so P3
   does not have to rediscover it.
-- **Verify:** `mkdir -p target/release && cp /usr/bin/false target/release/xdu && cp /usr/bin/false target/release/xdu-rm; cargo test --test rm_tests -- --nocapture; rc=$?; rm -f target/release/xdu target/release/xdu-rm; grep -rn 'join("release")' tests/ && exit 1; exit $rc`
+- **Verify:** `mkdir -p target/release && cp /usr/bin/false target/release/xdu && cp /usr/bin/false target/release/xdu-rm; cargo test --test rm_tests -- --nocapture; rc=$?; command /bin/rm -f target/release/xdu target/release/xdu-rm; grep -rn 'join("release")' tests/ && exit 1; exit $rc`
   — `/usr/bin/false`, not `/bin/false`, which does not exist on macOS. `--nocapture` because a
-  self-skipping test still prints `ok` (`AGENTS.md`, Testing).
+  self-skipping test still prints `ok` (`AGENTS.md`, Testing). The cleanup is `command /bin/rm`, not
+  bare `rm`: an interactive shell may shadow `rm` with a function that refuses, and a cleanup that
+  silently no-ops leaves `/usr/bin/false` installed as `target/release/xdu` for every later phase.
 - **Touches:** `tests/rm_tests.rs`, `tests/common/mod.rs`.
 
 ## Phase P2 — Statically link the Parquet reader

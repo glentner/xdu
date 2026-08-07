@@ -88,3 +88,24 @@ is skipped by the parser):
   newline), so prefer one level of `\"` and confirm the round-trip before committing." Consider also
   fixing `templates/TECH.md`'s P1 example, which models the nested form.
 - **Confidence:** high · **Effort:** small
+
+## F3 — A gate that mutates build state can have its cleanup silently shadowed by the user's shell
+
+`origin=xdu-build:step-4 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
+- **What happened:** P1's gate copies `/usr/bin/false` over `target/release/{xdu,xdu-rm}` and removes
+  them afterwards. The agent shell is initialized from the user's profile, where `rm` is a shell
+  function that prints `"rm" not supported - use "del" instead.` and exits without deleting. The gate
+  still reported the test result it was designed to report, so it read as a clean run — while leaving
+  `/usr/bin/false` installed as `target/release/xdu`. P2 and P3 both drive the release profile
+  (`temp_index.sh` runs `cargo build --release --bins`), so the next two phases would have measured a
+  poisoned binary. Caught only by listing `target/release` on a hunch after the negative control.
+- **Skill cause:** Step 4's hollow-gate guard is entirely about the *assertion* (vacuous, skipped,
+  aggregated). Nothing warns that a gate's **setup/teardown** can fail independently of its verdict, and
+  nothing notes that the agent shell inherits the user's aliases and functions — so any bare `rm`, `mv`
+  or `cp` in a `verify:` is shadowable, and the failure is silent by construction.
+- **Recommended fix:** add to Step 4's hollow-gate paragraph: "If a gate mutates state it must restore,
+  the restore is part of the gate — assert the post-condition of the *cleanup* too, not just the test
+  verdict. Invoke destructive utilities as `command /bin/rm` (never bare `rm`): the shell is initialized
+  from the user's profile and may shadow them with a function that refuses." A matching authoring line
+  belongs in `xdu-plan` Step 6, next to F2's quoting rule.
+- **Confidence:** high · **Effort:** small
