@@ -130,6 +130,44 @@ pub fn run_rm(args: &[&str]) -> (String, String, bool) {
     )
 }
 
+/// Run a project binary with `HOME` redirected; returns (stdout, stderr, success).
+///
+/// `HOME` is the lever for DuckDB's extension cache (`$HOME/.duckdb/extensions`), so
+/// pointing it at an empty directory makes a runtime extension download observable.
+pub fn run_binary_with_home(name: &str, home: &Path, args: &[&str]) -> (String, String, bool) {
+    let output = Command::new(binary_path(name))
+        .args(args)
+        .env("HOME", home)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn {name}: {e}"));
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+        output.status.success(),
+    )
+}
+
+/// Every regular file beneath `dir`, recursively, sorted.
+///
+/// Returns the paths rather than a count so an assertion can report *what* was written,
+/// not merely that something was.
+pub fn list_files_recursive(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(list_files_recursive(&path));
+        } else {
+            found.push(path);
+        }
+    }
+    found.sort();
+    found
+}
+
 /// Query the index row count, optionally scoped by extra `xdu-find` args.
 pub fn find_count(index: &Path, extra: &[&str]) -> i64 {
     let mut args: Vec<&str> = vec!["-i", index.to_str().unwrap(), "--count"];

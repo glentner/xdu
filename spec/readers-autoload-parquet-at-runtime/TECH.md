@@ -7,7 +7,7 @@ appetite: small
 status: in_progress
 branch: fix/readers-autoload-parquet-at-runtime
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-08-07'
 phases:
 - id: P1
@@ -26,7 +26,7 @@ phases:
     tests/ && exit 1; exit $rc
 - id: P2
   name: Statically link the Parquet reader; regression-test the cold cache
-  status: pending
+  status: done
   satisfies:
   - R1
   - R2
@@ -34,7 +34,7 @@ phases:
   - P1
   parallel: false
   hammerable: false
-  hill: uphill
+  hill: downhill
   verify: cargo test --test offline_tests -- --nocapture && COLD=$(mktemp -d) && .agents/factory/bin/temp_index.sh
     sh -c "HOME=$COLD xdu-find --count" && test -z "$(find $COLD -type f)" && echo
     COLD-HOME-CLEAN=$COLD
@@ -124,23 +124,23 @@ by making `target/release/` hostile and requiring the suite to stay green.
 **Goal:** the readers complete a query on a host with an empty extension cache and write nothing into
 it, with a test that has been observed failing before the fix.
 
-- [ ] **Write the test first and watch it fail.** Add `tests/offline_tests.rs` plus the two helpers it
+- [x] **Write the test first and watch it fail.** Add `tests/offline_tests.rs` plus the two helpers it
   needs in `tests/common/mod.rs` — `run_binary_with_home(name, home, args)` and
   `list_files_recursive(dir)` (PLAN §2.2). Build the fixture index with the normal environment (the
   crawler links no DuckDB), then run `xdu-find --count` and `xdu-rm --dry-run` with `HOME` pointed at
   an empty dir inside the test's `TempDir`. Assert exit 0, the **correct row count** (not merely
   success), and zero regular files under that `HOME`, with a failure message naming the diagnosis.
-- [ ] Run `cargo test --test offline_tests` against the **unmodified** `Cargo.toml` and record the
+- [x] Run `cargo test --test offline_tests` against the **unmodified** `Cargo.toml` and record the
   failure, including what appeared under the cold `HOME`. This is what proves `HOME` is the right
   lever and the assertion is not vacuous.
-- [ ] Record `ls -l target/debug/xdu-find` now, as the pre-fix size baseline.
-- [ ] Apply the one-line change: `Cargo.toml:17` → `duckdb = { version = "1", features = ["bundled",
+- [x] Record `ls -l target/debug/xdu-find` now, as the pre-fix size baseline.
+- [x] Apply the one-line change: `Cargo.toml:17` → `duckdb = { version = "1", features = ["bundled",
   "parquet"] }`.
-- [ ] Run `cargo build --locked`. **If `Cargo.lock` changes, stage it in this same commit** — CI runs
+- [x] Run `cargo build --locked`. **If `Cargo.lock` changes, stage it in this same commit** — CI runs
   `cargo build --locked` and `cargo test --locked` and will fail otherwise (PLAN §5).
-- [ ] Record the post-fix debug size and the delta, plus the wall-clock cost of the DuckDB rebuild;
+- [x] Record the post-fix debug size and the delta, plus the wall-clock cost of the DuckDB rebuild;
   both go in the commit body. The release delta is deliberately not measured here (PLAN §5).
-- [ ] In `tests/offline_tests.rs`'s module doc, record why `xdu-view` is not driven (headless) and why
+- [x] In `tests/offline_tests.rs`'s module doc, record why `xdu-view` is not driven (headless) and why
   that is not a coverage gap (the `parquet` feature is on the shared `duckdb` dependency, so linkage
   is crate-wide — PLAN §2.1), so a later reader does not try to run a TUI in CI.
 - **Verify:** `cargo test --test offline_tests -- --nocapture && COLD=$(mktemp -d) && .agents/factory/bin/temp_index.sh sh -c "HOME=$COLD xdu-find --count" && test -z "$(find $COLD -type f)" && echo COLD-HOME-CLEAN=$COLD`
