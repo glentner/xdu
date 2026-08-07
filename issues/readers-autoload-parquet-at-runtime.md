@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: resolved on fix/readers-autoload-parquet-at-runtime (2026-08-07) — see spec/readers-autoload-parquet-at-runtime/
 kind: fix
 appetite: small
 ---

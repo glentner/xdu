@@ -12,6 +12,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Path to a binary built for *this* test invocation.
 ///
@@ -34,6 +35,46 @@ pub fn create_test_file(path: &Path, size: usize) -> std::io::Result<()> {
     }
     let mut file = File::create(path)?;
     file.write_all(&vec![b'x'; size])?;
+    Ok(())
+}
+
+/// Set the access time of a file to a specific number of days ago.
+///
+/// Lives here rather than in a single test file: an integration fixture kept private to
+/// one `tests/*.rs` is how that file ends up re-declaring helpers this module already
+/// provides, which is exactly how a defective local `binary_path` survived here.
+pub fn set_atime_days_ago(path: &Path, days: u64) -> std::io::Result<()> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let old_time = now - (days * 86400);
+
+    // Get current mtime to preserve it
+    let metadata = fs::metadata(path)?;
+    let mtime = metadata
+        .modified()?
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    // Use libc to set atime while preserving mtime
+    let c_path = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+    let times = [
+        libc::timespec {
+            tv_sec: old_time as i64,
+            tv_nsec: 0,
+        },
+        libc::timespec {
+            tv_sec: mtime as i64,
+            tv_nsec: 0,
+        },
+    ];
+    unsafe {
+        if libc::utimensat(libc::AT_FDCWD, c_path.as_ptr(), times.as_ptr(), 0) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
     Ok(())
 }
 
@@ -87,6 +128,44 @@ pub fn run_rm(args: &[&str]) -> (String, String, bool) {
         String::from_utf8_lossy(&output.stderr).to_string(),
         output.status.success(),
     )
+}
+
+/// Run a project binary with `HOME` redirected; returns (stdout, stderr, success).
+///
+/// `HOME` is the lever for DuckDB's extension cache (`$HOME/.duckdb/extensions`), so
+/// pointing it at an empty directory makes a runtime extension download observable.
+pub fn run_binary_with_home(name: &str, home: &Path, args: &[&str]) -> (String, String, bool) {
+    let output = Command::new(binary_path(name))
+        .args(args)
+        .env("HOME", home)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn {name}: {e}"));
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+        output.status.success(),
+    )
+}
+
+/// Every regular file beneath `dir`, recursively, sorted.
+///
+/// Returns the paths rather than a count so an assertion can report *what* was written,
+/// not merely that something was.
+pub fn list_files_recursive(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(list_files_recursive(&path));
+        } else {
+            found.push(path);
+        }
+    }
+    found.sort();
+    found
 }
 
 /// Query the index row count, optionally scoped by extra `xdu-find` args.

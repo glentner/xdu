@@ -14,7 +14,9 @@ jwalk = "0.8"
 anyhow = "1"
 indicatif = "0.17"
 console = "0.15"
-duckdb = { version = "1", features = ["bundled"] }
+# `bundled` compiles DuckDB but does not link the Parquet reader; `parquet` does. Without it
+# the readers autoinstall a 12 MB extension on first use and cannot query an air-gapped host.
+duckdb = { version = "1", features = ["bundled", "parquet"] }
 infer = "0.19"
 ratatui = "0.29"
 crossterm = "0.28"
