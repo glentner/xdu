@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: shaped on fix/manpage-literal-assertion-fails-on-ubuntu (2026-08-08) — see spec/manpage-literal-assertion-fails-on-ubuntu/GOAL.md
 kind: fix
 appetite: small
 ---
