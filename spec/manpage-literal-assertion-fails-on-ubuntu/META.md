@@ -64,3 +64,40 @@ is skipped by the parser):
   `META.md` already carries), and have `xdu-feature` Step 4 / `xdu-publish` each name the exact string
   they write.
 - **Confidence:** high · **Effort:** small
+
+## F2 — `xdu-review` teaches the un-normalized man-page pipeline as sufficient render evidence
+`origin=xdu-plan:step-3 severity=medium category=instruction status=open target=.agents/skills/xdu-review/SKILL.md`
+- **What happened:** `xdu-review/SKILL.md:62-63` says "A render is evidence only when the published
+  text was read — `scdoc < f.scd | mandoc -Tutf8 | col -b`, diffed against the literal you intended".
+  That pipeline is exactly the one this fix exists to correct: it is layout-sensitive, so a literal
+  that is present and intact reads as missing (or vice versa) depending on where the line broke and
+  which `scdoc` built the roff. A reviewer following it on a homebrew box gets the same false green
+  that let this defect reach CI. `.agents/factory/invariants.md:198` restates the same command, but
+  that one is in scope for this feature (R6) and gets fixed at P2; the skill is not.
+- **Skill cause:** the instruction hard-codes a command rather than pointing at `AGENTS.md`'s Commands
+  section, which the same paragraph already cites as the single source for both failure modes. The
+  restatement is what drifted.
+- **Recommended fix:** replace the inline pipeline in `xdu-review/SKILL.md` with a pointer to
+  `AGENTS.md`'s Commands section (as the surrounding sentence already does for the failure modes), so
+  there is one normalization to keep correct instead of three.
+- **Confidence:** high · **Effort:** small
+
+## F3 — The lean path has no design-correctness check, and for a gate-shaped deliverable that is invisible
+`origin=xdu-plan:step-3 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-plan/SKILL.md`
+- **What happened:** Step 3 directs `appetite: small` + `kind: fix` to skip the research fan-out, and
+  Step 5's second invariant gate re-walks `invariants.md` only. Following both faithfully produced a
+  design carrying two defects that were later reproduced on the CI toolchain: whitespace-stripping
+  fuses adjacent tokens so an ordinary sentence (`e.g. partial …`) reddens a correct page, and the new
+  count check dies silently under `pipefail`, reporting **zero** diagnostics for two real corruptions.
+  Neither is an invariant violation, so gate #2 could not see them. They were caught only by an
+  adversarial pass this skill does not prescribe.
+- **Skill cause:** the lean path assumes `xdu-build`'s `verify:` is the safety net. That holds when the
+  deliverable is product code. It inverts when the deliverable **is** a verifier: a design error there
+  makes the gate wrong in the *green* direction, so its own `verify:` passes and nothing downstream
+  disagrees. `kind`/`appetite` are proxies for "is the root cause known?" — they say nothing about
+  whether the artifact can grade itself.
+- **Recommended fix:** add a clause to Step 3's lean path: when the deliverable is itself a gate,
+  assertion, or verification harness (CI steps, `verify:` scripts, test infrastructure), the fan-out is
+  **not** skippable — run at least one adversarial reviewer against the drafted design, tasked with
+  finding cases where it passes on broken input or fails on good input, before `PLAN.md` is committed.
+- **Confidence:** high · **Effort:** small
