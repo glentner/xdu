@@ -186,9 +186,20 @@ jobs:
               return
             fi
             for spec in "$@"; do
+              # `Nx:LITERAL` opts into a count; anything else is a presence check. The prefix is
+              # accepted only when every character before `x:` is a digit, so a literal that
+              # happens to contain `x:` is never mistaken for a count spec, and N is not capped
+              # at one digit — a `10x:` that silently degraded to a presence check would assert a
+              # literal carrying its own prefix, which can never appear on the page.
+              want=""; lit="$spec"
               case "$spec" in
-                [0-9]x:*) want="${spec%%x:*}"; lit="${spec#*x:}" ;;
-                *)        want=""; lit="$spec" ;;
+                [0-9]*x:*)
+                  n="${spec%%x:*}"
+                  case "$n" in
+                    *[!0-9]*) ;;
+                    *) want="$n"; lit="${spec#*x:}" ;;
+                  esac
+                  ;;
               esac
               needle=$(printf '%s' "$lit" | tr -d '[:space:]')
               if [ -n "$want" ]; then

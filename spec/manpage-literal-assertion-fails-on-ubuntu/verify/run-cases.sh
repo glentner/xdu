@@ -71,11 +71,11 @@ prepare() {
 # GitHub Actions' default shell for `run:` is `bash -e`; the pipefail mode exists to prove the
 # gate reaches the same diagnostics under the hardened shell anyone might switch it to.
 run_gate() {
-	_d="$1"; _mode="${2:-plain}"
+	_d="$1"; _mode="${2:-plain}"; _g="${3:-$GATE}"
 	if [ "$_mode" = pipefail ]; then
-		OUT=$(cd "$_d" && bash -eo pipefail "$GATE" 2>&1); RC=$?
+		OUT=$(cd "$_d" && bash -eo pipefail "$_g" 2>&1); RC=$?
 	else
-		OUT=$(cd "$_d" && bash -e "$GATE" 2>&1); RC=$?
+		OUT=$(cd "$_d" && bash -e "$_g" 2>&1); RC=$?
 	fi
 }
 
@@ -199,6 +199,24 @@ for S in "$HOST_LABEL" "$DISTRO_LABEL"; do
 	c_short=$(printf '%s' "$fused" | grep -oF -- '.partial' | wc -l | tr -d ' ') || c_short=0
 	c_long=$(printf '%s' "$fused" | grep -oF -- '.partialsuffix' | wc -l | tr -d ' ') || c_long=0
 	info "fusion fixture ($S): needle '.partial' matches $c_short (false red), '.partial suffix' matches $c_long (correct)"
+
+	# --- R7 parser: `Nx:` must parse an N of any width. A single-digit-only pattern silently
+	#     degrades `12x:LIT` to a PRESENCE check on a literal carrying its own `12x:` prefix — still
+	#     red, but red for the wrong reason and naming a literal that can never appear on any page.
+	#     Assert the gate still counts: against the clean 2-occurrence page it must report the
+	#     observed count against the requested one, and must NOT report a presence miss. ----------
+	gmulti="$SCRATCH/gate-multidigit.sh"
+	sed "s/'2x:\.partial suffix'/'12x:.partial suffix'/" "$GATE" > "$gmulti"
+	if grep -qF '12x:.partial suffix' "$gmulti"; then
+		run_gate "$d" plain "$gmulti"
+		if [ "$RC" -ne 0 ] && out_has 'expected 12' && ! out_has 'missing the literal: 12x:'; then
+			emit R7 "$S" multi-digit-count PASS "N=12 parsed; reported the observed count, not a presence miss"
+		else
+			emit R7 "$S" multi-digit-count FAIL "exit $RC: $(printf '%s' "$OUT" | tr '\n' ' ')"
+		fi
+	else
+		emit R7 "$S" multi-digit-count FAIL "could not build the 12x: gate variant — the mutation did not apply"
+	fi
 
 	# --- Shell hardening: nothing in the repo pins the shell. Two genuine corruptions must
 	#     produce two diagnostics under `bash -e` (today's default) AND under `bash -eo pipefail`,

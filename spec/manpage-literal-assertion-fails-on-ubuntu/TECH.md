@@ -3,7 +3,7 @@ slug: manpage-literal-assertion-fails-on-ubuntu
 title: The man-page literal gate asserts content, not layout
 kind: fix
 appetite: small
-status: blocked
+status: in_review
 branch: fix/manpage-literal-assertion-fails-on-ubuntu
 base: main
 current_phase: done
@@ -137,6 +137,16 @@ diagnoses a failed render as a failed render.
 > ran the same cases" true by construction rather than by two copies staying in sync. The `verify:`
 > command is unchanged.
 >
+> **Amendment (P1, review cycle 1 remediation):** the `Nx:` prefix was matched by `case … in
+> [0-9]x:*)`, which accepts **one digit only** — `12x:LIT` fell through to the presence branch and
+> asserted a literal carrying its own `12x:` prefix, which can never appear on a page
+> ([`REVIEW.md`](REVIEW.md), LOW/CONFIRMED). Now the prefix is accepted whenever *every* character
+> before `x:` is a digit, so N is unbounded **and** a literal that merely contains `x:` is never
+> mistaken for a count spec. `run-cases.sh` gained a `multi-digit-count` case (R7: 8 → **12** cases;
+> `gate-matrix.sh`'s declared R7 count updated in lockstep). Mutation-proved: reverting the parser
+> turns those 4 cases red with the reviewer's exact diagnostic,
+> `missing the literal: 12x:.partial suffix`.
+>
 > **Amendment (P1, build):** `EVIDENCE.md` records a **contradiction with `PLAN.md` §4**. The plan
 > states the pre-fix gate fails 51/51 pad values on the 1.11.2 roff and attributes the seed's
 > green/red flipping to 1.11.5; re-measured here it is **9/51 red on 1.11.2** (including pad 0, the
@@ -170,6 +180,31 @@ diagnoses a failed render as a failed render.
 - **Verify:** `sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh`
 - **Touches:** `AGENTS.md`, `.agents/factory/invariants.md`, `.github/workflows/test.yaml` (cross-reference comment only), `spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh`.
 
+> **Amendment (P2, review cycle 1 remediation):** R6 was met *as written* — the normalization was
+> byte-identical — but the documented check was **presence-only**, and CI counts one literal
+> (`2x:.partial suffix`). Corrupting one of the two occurrences was green locally and red in CI
+> ([`REVIEW.md`](REVIEW.md), MEDIUM/CONFIRMED): the exact local-vs-CI divergence this pass exists to
+> close, reintroduced through the count mechanism P1 added. `AGENTS.md` and `invariants.md` §13 now
+> both carry the counting form and state why presence *cannot* predict CI for a duplicated literal.
+> `doc-parity.sh` was retuned to assert the **class**, not the cited lines: it extracts the count
+> snippet as a second input and **refuses to report a verdict if AGENTS.md documents no count form**,
+> adds a `one-partial` fixture variant, and compares four count verdicts per (variant × counted
+> literal). Mutation-proved: deleting the snippet makes the gate die rather than pass. Note the
+> `one-partial` presence rows all read `ok`/AGREE — presence is genuinely blind there — so only the
+> count rows carry that case, which is precisely the finding.
+>
+> **Amendment (P2, review cycle 1 — class sweep disposition).** The remediation was scoped to the
+> *class*, not the two cited lines. Live sites carrying the rule: `AGENTS.md` Commands,
+> `invariants.md` §13, and the workflow step — all three changed here, as the lockstep requires.
+> **`.agents/skills/xdu-review/SKILL.md:62` was deliberately left alone**: it teaches the *reading*
+> pipeline (`scdoc | mandoc | col -b`), which is still correct and which `AGENTS.md:108` keeps for
+> exactly that purpose — it is not a restatement of the assertion rule, so the lockstep remains three
+> places. Its phrasing does invite misuse as a grep assertion; that is a skill-instruction defect,
+> already recorded as [`META.md`](META.md) F2 for `/xdu-harness`, and not fixable from a fix branch
+> without a harness change riding in on a product PR. Frozen sites left untouched by design:
+> `spec/**`, `issues/manpage-*.md`, the `ROADMAP.md` deferral entries, and `spec/crawl-hardening/**`
+> — all point-in-time evidence whose value is being contemporaneous.
+>
 > **Amendment (P2, build):** **P2's `verify:` requires docker too** — the conventions block above lists
 > only P1 and P3. "The local check reaches the same verdict CI will" is only measurable across the two
 > real `scdoc`s, and ubuntu-24.04's cannot be installed on the host, so a host-only parity run would

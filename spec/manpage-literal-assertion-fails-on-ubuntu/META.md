@@ -34,6 +34,13 @@
   the reviewer reporting R4's recorded sweep as unverifiable, and the orchestrator assuming it had
   been covered.
 
+- `xdu-build` Step 2.3's "scope the class before editing … retune the gate to assert the pattern is
+  absent, not that the named lines changed" changed the outcome twice in one phase. It is why the
+  remediation swept `.agents/**` and recorded a disposition for `xdu-review/SKILL.md:62` instead of
+  silently fixing two cited lines, and why `doc-parity.sh` now **refuses to report a verdict** when
+  `AGENTS.md` documents no count form rather than merely testing that today's snippet works — a gate
+  that fails on a regression nobody has written yet.
+
 ## Friction findings
 
 Zero or more findings, appended below — each a markdown **section** so appending is a low-corruption
@@ -183,3 +190,45 @@ is skipped by the parser):
   not become a way to ship a real defect. Keep auto-block unconditional for anything touching
   `invariants.md` §1–§12, the high-blast-radius core, or an unmet R-ID, regardless of graded severity.
 - **Confidence:** med · **Effort:** medium
+
+## F7 — Per-phase commits collide with a same-commit obligation when a remediation spans two phases
+`origin=xdu-build:step-1.3 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
+- **What happened:** the review returned two findings — one mapping to P1 (`R7`, the workflow parser)
+  and one to P2 (`R6`, `AGENTS.md` + `invariants.md` §13). Step 1.3 says to "prefer reopening the
+  existing phase(s)", which I did, but Step 7 then commits **one phase per commit**. The fix those two
+  phases share *is* the three-place lockstep this very branch declared — `AGENTS.md`, the workflow
+  step, and `invariants.md` §13 must change in one commit. Following both steps literally would have
+  split the lockstep across two commits and shipped a branch that violates the rule it added. I used
+  `bundle` semantics without the argument having been passed, and recorded the reason as a `TECH.md`
+  amendment.
+- **Skill cause:** Step 1.3 explicitly contemplates a remediation reopening **multiple** phases, and
+  Step 7's commit granularity is per phase, but nothing connects the two. `bundle` exists for exactly
+  this and is documented only as a *user* argument in Argument Parsing — there is no instruction
+  telling the skill to select it itself when the phases are coupled, and no mention that a product-side
+  same-commit rule can force it.
+- **Recommended fix:** in Step 1.3, add: "if the reopened phases share a same-commit obligation (a
+  documented lockstep, a CLI↔man-page pair), commit them together as if `bundle` had been passed, and
+  record why in a `TECH.md` amendment." Cross-reference it from Step 7.
+- **Confidence:** high · **Effort:** small
+
+## F8 — Step 2.3's class sweep claims `.agents/**` that `AGENTS.md` routes to `/xdu-harness`
+`origin=xdu-build:step-2.3 severity=medium category=instruction status=open target=.agents/skills/xdu-build/SKILL.md`
+- **What happened:** Step 2.3 directs the sweep to "list every **live** site: anything an agent or
+  human still acts on, `.agents/**` and `AGENTS.md` included, since a stale instruction inside the
+  factory re-arms the trap." The sweep surfaced `.agents/skills/xdu-review/SKILL.md:62`, which restates
+  the man-page pipeline — a live instruction an agent acts on, squarely inside the named scope. But
+  `AGENTS.md`'s four-homes table says skill feedback goes to `META.md` and is applied by the
+  human-gated `/xdu-harness`, and that site is *already* recorded as F2. Two rules, opposite answers,
+  no tiebreak. I had to adjudicate it myself and write the reasoning into a `TECH.md` amendment so the
+  next reviewer would not read the omission as a missed site.
+- **Skill cause:** Step 2.3 draws the sweep boundary by **directory** (`.agents/**`) while the
+  constitution draws it by **kind of artifact** (product fact vs. agent instruction). `invariants.md`
+  and `AGENTS.md` both live inside the sweep and are correctly in scope; a `skills/*/SKILL.md` is in
+  the same directory and is not. The step never names the distinction, so every remediation that
+  sweeps into `.agents/` has to re-derive it.
+- **Recommended fix:** in Step 2.3, replace the directory-keyed scope with the artifact-keyed one:
+  in-scope live sites are those stating a **fact about the product** (`AGENTS.md`, `invariants.md`,
+  workflows, `doc/`); a defect in a **skill's own instructions** is `META.md` + `/xdu-harness`, never a
+  fix-branch edit — a harness change must not ride in on a product PR. Add the one-line test: *would
+  fixing this change what the tool does, or what an agent is told to do?*
+- **Confidence:** high · **Effort:** small

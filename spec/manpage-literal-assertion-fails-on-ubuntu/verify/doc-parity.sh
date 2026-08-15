@@ -58,6 +58,25 @@ NNORM=$(grep -oF "tr -d '[:space:]'" "$WORK/doccheck.tmpl" | wc -l | tr -d ' ')
 [ "$NNORM" -ge 2 ] \
 	|| die "documented snippet strips whitespace $NNORM time(s) — the page AND the literal must be normalized"
 
+# (a2) The documented COUNT snippet: from its `lit=…; want=` line through the `MISCOUNT:` report.
+# A presence check is satisfied by whichever copy survived, so it structurally cannot reproduce
+# CI's verdict for a literal the gate counts. Its absence from AGENTS.md is the defect this
+# extraction exists to make un-missable — refusing here is the point, not an inconvenience.
+awk '
+	/^lit=.*want=/ { inblk = 1 }
+	inblk          { print }
+	inblk && /MISCOUNT:/ { exit }
+' "$REPO/AGENTS.md" > "$WORK/doccount.tmpl"
+
+CNT_LINES=$(wc -l < "$WORK/doccount.tmpl" | tr -d ' ')
+[ -s "$WORK/doccount.tmpl" ] \
+	|| die "AGENTS.md documents no COUNT form — a presence check cannot predict CI for a literal the gate asserts as 'Nx:'"
+[ "$CNT_LINES" -ge 3 ] || die "documented count snippet is only $CNT_LINES lines — refusing to judge parity on a fragment"
+grep -q 'grep -oF' "$WORK/doccount.tmpl" || die "documented count snippet does not count occurrences (no 'grep -oF')"
+CNORM=$(grep -oF "tr -d '[:space:]'" "$WORK/doccount.tmpl" | wc -l | tr -d ' ')
+[ "$CNORM" -ge 2 ] \
+	|| die "documented count snippet strips whitespace $CNORM time(s) — the page AND the literal must be normalized"
+
 # (b) The live gate body — same extraction and same refusals as gate-matrix.sh.
 awk '
 	/^      - name: Assert critical literals/ { instep = 1; next }
@@ -95,6 +114,29 @@ awk '
 NLIT=$(wc -l < "$WORK/literals.txt" | tr -d ' ')
 [ "$NLIT" -ge 5 ] || die "extracted only $NLIT literals from the gate's xdu.1 check — expected the whole list"
 
+# (c2) The COUNTED literals, with their expected N — same source, prefix kept this time. Emitted as
+# `N|literal`. If the gate ever stops counting anything this is empty and the count parity below
+# becomes vacuous, so the runner asserts non-emptiness rather than skipping silently.
+awk '
+	/^check share\/man\/man1\/xdu\.1/ { inlist = 1; next }
+	inlist && /^check /               { exit }
+	inlist {
+		line = $0
+		sub(/^[[:space:]]+/, "", line)
+		sub(/[[:space:]]*\\$/, "", line)
+		if (line ~ /^'"'"'[0-9]+x:.*'"'"'$/) {
+			gsub(/^'"'"'|'"'"'$/, "", line)
+			n = line; sub(/x:.*$/, "", n)
+			sub(/^[0-9]+x:/, "", line)
+			print n "|" line
+		}
+	}
+' "$WORK/gate.sh" > "$WORK/counts.txt"
+
+NCNT=$(wc -l < "$WORK/counts.txt" | tr -d ' ')
+[ "$NCNT" -ge 1 ] \
+	|| die "the gate asserts no 'Nx:' counted literal — count parity would be vacuous"
+
 # ---------------------------------------------------------------------------------------------
 # 2. Both real scdocs, both fixtures.
 # ---------------------------------------------------------------------------------------------
@@ -115,9 +157,12 @@ CTR_LABEL="scdoc-$(docker run --rm "$IMAGE" scdoc -v 2>&1 | awk '{print $2}')"
 [ "$HOST_LABEL" != "$CTR_LABEL" ] || die "host and container both report $HOST_LABEL — there is no skew left to test"
 
 # `clean` must agree because nothing is wrong; `unescaped-glob` must agree because something is, and
-# a check that never fires would agree with everything.
+# a check that never fires would agree with everything. `one-partial` corrupts exactly ONE of the two
+# `.partial suffix` occurrences — the case a presence check is blind to by construction, so it is the
+# variant that separates "the local check normalizes correctly" from "the local check predicts CI".
+VARIANTS='clean unescaped-glob one-partial'
 for LBL in "$HOST_LABEL" "$CTR_LABEL"; do
-	for V in clean unescaped-glob; do
+	for V in $VARIANTS; do
 		mkdir -p "$WORK/t/$LBL/$V/doc" "$WORK/t/$LBL/$V/share/man/man1"
 		cp "$REPO"/doc/*.scd "$WORK/t/$LBL/$V/doc/"
 	done
@@ -125,11 +170,15 @@ for LBL in "$HOST_LABEL" "$CTR_LABEL"; do
 		> "$WORK/t/$LBL/unescaped-glob/doc/xdu.1.scd"
 	grep -qF '_OUTDIR_/*/*.parquet' "$WORK/t/$LBL/unescaped-glob/doc/xdu.1.scd" \
 		|| die "unescaped-glob mutation did not apply for $LBL"
+	awk '{ if (!done && sub(/\.partial suffix/, "partial suffix")) done = 1; print }' \
+		"$REPO/doc/xdu.1.scd" > "$WORK/t/$LBL/one-partial/doc/xdu.1.scd"
+	[ "$(grep -cF '.partial suffix' "$WORK/t/$LBL/one-partial/doc/xdu.1.scd")" -eq 1 ] \
+		|| die "one-partial mutation did not leave exactly one occurrence for $LBL"
 done
 
 # Render each tree's pages with the scdoc that tree is labelled with. The container writes only
 # into its own label's tree and never sees the host's.
-for V in clean unescaped-glob; do
+for V in $VARIANTS; do
 	for scd in "$WORK/t/$HOST_LABEL/$V/doc"/*.scd; do
 		scdoc < "$scd" > "$WORK/t/$HOST_LABEL/$V/share/man/man1/$(basename "$scd" .1.scd).1"
 	done
@@ -155,7 +204,7 @@ cat > "$WORK/parity-run.sh" <<'RUNNER'
 set -u
 ROOT="$1"; LABEL="$2"; SCRATCH="$3"
 mkdir -p "$SCRATCH"
-for V in clean unescaped-glob; do
+for V in clean unescaped-glob one-partial; do
 	D="$ROOT/t/$LABEL/$V"
 	GOUT=$(cd "$D" && bash -e "$ROOT/gate.sh" 2>&1) || true
 	while IFS= read -r L; do
@@ -180,6 +229,23 @@ for V in clean unescaped-glob; do
 
 		printf 'ROW|%s|%s|%s|%s|%s|%s\n' "$LABEL" "$V" "$L" "$DV" "$GV" "$UV"
 	done < "$ROOT/literals.txt"
+
+	# Counted literals: the documented COUNT snippet against the gate's count diagnostic. On the
+	# `one-partial` variant the presence rows above legitimately AGREE on "present" — one copy
+	# survived — so only these rows can tell whether a maintainer would see what CI sees.
+	while IFS='|' read -r WANT L; do
+		[ -n "$L" ] || continue
+		{ printf "lit='%s'; want=%s\n" "$L" "$WANT"; tail -n +2 "$ROOT/doccount.tmpl"; } > "$SCRATCH/dn.sh"
+		NOUT=$(cd "$D" && sh "$SCRATCH/dn.sh" 2>&1)
+		case "$NOUT" in *"MISCOUNT:"*) NV=wrong ;; *) NV=ok ;; esac
+
+		GN=ok
+		case "$GOUT" in
+			*"occurrence(s) of the literal '$L', expected"*) GN=wrong ;;
+		esac
+
+		printf 'CROW|%s|%s|%s|%s|%s|%s\n' "$LABEL" "$V" "$L" "$WANT" "$NV" "$GN"
+	done < "$ROOT/counts.txt"
 done
 RUNNER
 
@@ -190,14 +256,18 @@ docker run --rm -v "$WORK:/w:ro" -v "$WORK/scratch-ctr:/scratch" "$IMAGE" \
 # ---------------------------------------------------------------------------------------------
 # 4. Report.
 # ---------------------------------------------------------------------------------------------
+NVAR=$(set -- $VARIANTS; echo $#)
+
 echo "=== doc/CI parity: AGENTS.md's documented check vs the committed gate ==="
-echo "documented : AGENTS.md 'Commands' — $DOC_LINES lines extracted"
+echo "documented : AGENTS.md 'Commands' — $DOC_LINES lines presence + $CNT_LINES lines count"
 echo "gate       : .github/workflows/test.yaml 'Assert critical literals…' — $GATE_LINES lines extracted"
-echo "literals   : $NLIT, taken from the gate itself (no second list to drift)"
+echo "literals   : $NLIT ($NCNT counted), taken from the gate itself (no second list to drift)"
+echo "variants   : $NVAR — $VARIANTS"
 echo "toolchains : host $HOST_LABEL · container $CTR_LABEL (ubuntu-24.04, what CI installs)"
 echo
 
-awk -F'|' -v nlit="$NLIT" -v hostlbl="$HOST_LABEL" -v ctrlbl="$CTR_LABEL" '
+awk -F'|' -v nlit="$NLIT" -v ncnt="$NCNT" -v nvar="$NVAR" \
+    -v hostlbl="$HOST_LABEL" -v ctrlbl="$CTR_LABEL" '
 	$1 == "ROW" {
 		key = $3 "|" $4
 		doc[$2 "|" key] = $5
@@ -205,7 +275,15 @@ awk -F'|' -v nlit="$NLIT" -v hostlbl="$HOST_LABEL" -v ctrlbl="$CTR_LABEL" '
 		unnorm[$2 "|" key] = $7
 		if (!(key in seenkey)) { seenkey[key] = ++nkeys; keys[nkeys] = key }
 	}
+	$1 == "CROW" {
+		ckey = $3 "|" $4
+		cwant[ckey] = $5
+		cdoc[$2 "|" ckey] = $6
+		cgate[$2 "|" ckey] = $7
+		if (!(ckey in cseen)) { cseen[ckey] = ++nckeys; ckeys[nckeys] = ckey }
+	}
 	function mark(v) { return (v == "present") ? "ok" : "MISS" }
+	function cmark(v) { return (v == "ok") ? "ok" : "WRONG" }
 	END {
 		printf "%-15s %-38s  %-6s %-6s %-6s %-6s   %-6s %-6s  %s\n", \
 			"variant", "literal", "doc@h", "doc@d", "gate@h", "gate@d", "raw@h", "raw@d", "verdict"
@@ -233,7 +311,32 @@ awk -F'|' -v nlit="$NLIT" -v hostlbl="$HOST_LABEL" -v ctrlbl="$CTR_LABEL" '
 				p[1], p[2], mark(dh), mark(dd), mark(gh), mark(gd), mark(uh), mark(ud), v
 		}
 		print ""
-		want = nlit * 2
+
+		# --- count parity: the rows a presence check structurally cannot produce -----------------
+		printf "%-15s %-38s  %-6s %-6s %-6s %-6s  %s\n", \
+			"variant", "counted literal (want N)", "cnt@h", "cnt@d", "gate@h", "gate@d", "verdict"
+		crows = 0; cbad = 0; cfired = 0
+		for (i = 1; i <= nckeys; i++) {
+			split(ckeys[i], q, "|")
+			nh = cdoc[hostlbl "|" ckeys[i]];  nd = cdoc[ctrlbl "|" ckeys[i]]
+			kh = cgate[hostlbl "|" ckeys[i]]; kd = cgate[ctrlbl "|" ckeys[i]]
+			crows++
+			if (nh == "" || nd == "" || kh == "" || kd == "") {
+				printf "%-15s %-38s  %s\n", q[1], q[2], "MISSING-DATA"
+				cbad++
+				continue
+			}
+			cv = (nh == nd && nd == kh && kh == kd) ? "AGREE" : "DISAGREE"
+			if (cv == "DISAGREE") cbad++
+			if (kh == "wrong" || kd == "wrong") cfired++
+			printf "%-15s %-38s  %-6s %-6s %-6s %-6s  %s\n", \
+				q[1], sprintf("%s (%s)", q[2], cwant[ckeys[i]]), \
+				cmark(nh), cmark(nd), cmark(kh), cmark(kd), cv
+		}
+		print ""
+
+		want = nlit * nvar
+		cwantrows = ncnt * nvar
 		rc = 0
 		if (rows != want) {
 			printf "R6     FAIL  %d of %d (variant x literal) rows produced — cases are missing\n", rows, want
@@ -243,6 +346,23 @@ awk -F'|' -v nlit="$NLIT" -v hostlbl="$HOST_LABEL" -v ctrlbl="$CTR_LABEL" '
 			rc = 1
 		} else {
 			printf "R6     PASS  %d/%d rows agree across all four columns (doc@h == doc@d == gate@h == gate@d)\n", rows, rows
+		}
+		if (crows != cwantrows) {
+			printf "R6cnt  FAIL  %d of %d (variant x counted-literal) rows produced — cases are missing\n", crows, cwantrows
+			rc = 1
+		} else if (cbad > 0) {
+			printf "R6cnt  FAIL  %d/%d count rows disagree — the documented COUNT form does not predict CI\n", cbad, crows
+			rc = 1
+		} else {
+			printf "R6cnt  PASS  %d/%d count rows agree — single-occurrence corruption reads the same locally and in CI\n", crows, crows
+		}
+		# Anti-vacuity for the count rows: if the gate never reported a wrong count, the one-partial
+		# mutation did not land and every count row agreed on "ok" for free.
+		if (cfired > 0) {
+			printf "CTRL   PASS  the gate reported a wrong count on %d count row(s) — the counted case is live, not vacuous\n", cfired
+		} else {
+			printf "CTRL   FAIL  the gate never reported a wrong count — the one-partial mutation did not fire\n"
+			rc = 1
 		}
 		# Anti-vacuity. If the un-normalized form reached the same verdicts, the normalization would
 		# be unmotivated and these columns would be measuring nothing.

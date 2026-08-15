@@ -116,6 +116,16 @@ scdoc < doc/xdu.1.scd | mandoc -Tutf8 | col -b   # read the PUBLISHED text, not 
 lit='OUTDIR/.xdu-complete'
 scdoc < doc/xdu.1.scd | mandoc -Tutf8 | col -b | tr -d '[:space:]' |
   grep -qF -- "$(printf '%s' "$lit" | tr -d '[:space:]')" || echo "MISSING: $lit"
+
+# A literal that occurs MORE THAN ONCE needs a count, not a presence check — `grep -q` is satisfied
+# by the surviving copy, so corrupting one of two occurrences reads green here and red in CI, which
+# asserts it as `2x:.partial suffix`. Count the same normalized way. Keep the needle specific enough
+# that stripping whitespace cannot FUSE two adjacent tokens into a synthetic match: `e.g. partial`
+# becomes `e.g.partial`, so count `.partial suffix`, never a bare `.partial`.
+lit='.partial suffix'; want=2
+got=$(scdoc < doc/xdu.1.scd | mandoc -Tutf8 | col -b | tr -d '[:space:]' |
+  grep -oF -- "$(printf '%s' "$lit" | tr -d '[:space:]')" | wc -l | tr -d ' ') || got=0
+[ "$got" -eq "$want" ] || echo "MISCOUNT: $lit — $got, expected $want"
 ```
 
 **Rendering is not optional, and exit 0 is not sufficient.** `scdoc` markup fails in two ways: a
@@ -142,6 +152,15 @@ does not, so the same `.scd` yields two different roffs and a check can be green
 been green in CI. The normalization now lives in three places that must change together:
 `.github/workflows/test.yaml`'s assertion step, the snippet above, and
 [`invariants.md`](.agents/factory/invariants.md) §13.
+
+**Presence is the wrong question for a literal that appears twice.** `grep -q` is satisfied by
+whichever copy survived, so corrupting exactly one of `doc/xdu.1.scd`'s two `.partial suffix`
+occurrences is invisible to it — which is why CI counts that one (`2x:.partial suffix`) instead. A
+local presence check on a duplicated literal therefore *cannot* predict CI's verdict no matter how
+correctly it normalizes; use the counting form above. Counting is what makes stripping whitespace
+dangerous in the other direction: the strip is lossy and can fuse adjacent tokens into a match that
+never appeared on the page, which is harmless for presence (at worst a false green) but a false
+**red** for a count — so a counted needle must be specific enough that fusion cannot synthesize it.
 
 ## Repository map
 

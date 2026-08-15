@@ -220,7 +220,7 @@ echo "fixtures  : $NVARIANT variants × 4 pages × 2 real scdocs (clean xdu.1 ro
 echo "sweeps    : widths $WIDTH_MIN..$WIDTH_MAX · pads 0..$PAD_MAX step $PAD_STEP at the default width"
 echo
 
-awk -F'|' -v expected="R1=2 R2=2 R3=4 R4=8 R5=8 R7=8 SHELL=8" '
+awk -F'|' -v expected="R1=2 R2=2 R3=4 R4=8 R5=8 R7=12 SHELL=8" '
 	BEGIN {
 		n = split(expected, kv, " ")
 		for (i = 1; i <= n; i++) { split(kv[i], p, "="); want[p[1]] = p[2]; order[i] = p[1] }
@@ -230,7 +230,7 @@ awk -F'|' -v expected="R1=2 R2=2 R3=4 R4=8 R5=8 R7=8 SHELL=8" '
 		desc["R3"]    = "mis-escaped markup published at scdoc exit 0 is caught, by name"
 		desc["R4"]    = "verdict independent of render width, break position and tab indent"
 		desc["R5"]    = "a page that did not render is reported as that, not as corrupt literals"
-		desc["R7"]    = "corruption of ONE of two occurrences is caught; fusion does not false-red"
+		desc["R7"]    = "corruption of ONE of two occurrences is caught; fusion does not false-red; N parses at any width"
 		desc["SHELL"] = "same diagnostics under bash -e and bash -eo pipefail"
 	}
 	$1 == "RESULT" { seen[$2]++; if ($6 == "FAIL") { bad[$2]++; fails[++nf] = $0 } detail[$2] = detail[$2] sprintf("         %-4s %-13s %-14s %-30s %s\n", $6, $3, $4, $5, $7) }
