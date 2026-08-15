@@ -1,48 +1,61 @@
 ---
 slug: manpage-literal-assertion-fails-on-ubuntu
-title: "The man-page literal gate asserts content, not layout"
+title: The man-page literal gate asserts content, not layout
 kind: fix
 appetite: small
 status: in_progress
 branch: fix/manpage-literal-assertion-fails-on-ubuntu
 base: main
-current_phase: P1
-last_updated: "2026-08-09"
+current_phase: P2
+last_updated: '2026-08-14'
 phases:
-  - id: P1
-    name: "Rewrite the literal assertion: normalize, guard the render, count occurrences"
-    status: pending
-    satisfies: [R1, R2, R3, R4, R5, R7]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: crest
-    verify: "sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/gate-matrix.sh"
-  - id: P2
-    name: "Reconcile the documented local check with CI (AGENTS.md + invariants.md lockstep)"
-    status: pending
-    satisfies: [R6]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: crest
-    verify: "sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh"
-  - id: P3
-    name: "Packaging-job simulation + deferral ledger"
-    status: pending
-    satisfies: []
-    depends_on: [P1, P2]
-    parallel: false
-    hammerable: false
-    hill: downhill
-    verify: "sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/job-sim.sh && test -f issues/manpage-groff-hyphenates-marker-path.md && test -f issues/manpage-gate-coverage-gaps.md && grep -qF 'issues/manpage-groff-hyphenates-marker-path.md' ROADMAP.md && grep -qF 'issues/manpage-gate-coverage-gaps.md' ROADMAP.md && git diff --quiet HEAD -- src tests bench Cargo.toml Cargo.lock && echo PHASE-OK"
+- id: P1
+  name: 'Rewrite the literal assertion: normalize, guard the render, count occurrences'
+  status: done
+  satisfies:
+  - R1
+  - R2
+  - R3
+  - R4
+  - R5
+  - R7
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: crest
+  verify: sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/gate-matrix.sh
+- id: P2
+  name: Reconcile the documented local check with CI (AGENTS.md + invariants.md lockstep)
+  status: pending
+  satisfies:
+  - R6
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: crest
+  verify: sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh
+- id: P3
+  name: Packaging-job simulation + deferral ledger
+  status: pending
+  satisfies: []
+  depends_on:
+  - P1
+  - P2
+  parallel: false
+  hammerable: false
+  hill: downhill
+  verify: sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/job-sim.sh && test
+    -f issues/manpage-groff-hyphenates-marker-path.md && test -f issues/manpage-gate-coverage-gaps.md
+    && grep -qF 'issues/manpage-groff-hyphenates-marker-path.md' ROADMAP.md && grep
+    -qF 'issues/manpage-gate-coverage-gaps.md' ROADMAP.md && git diff --quiet HEAD
+    -- src tests bench Cargo.toml Cargo.lock && echo PHASE-OK
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — The man-page literal gate asserts content, not layout
 
 The **context engine and finite-state machine** for building this fix. The YAML frontmatter above is
@@ -83,22 +96,22 @@ diagnoses a failed render as a failed render.
 > blended verdict is honored by `verify:` **printing a separate PASS/FAIL line per R-ID** (see below) —
 > a regression on any one of them fails the phase on its own.
 
-- [ ] Rewrite the body of the step named `Assert critical literals survive into the published man-page
+- [x] Rewrite the body of the step named `Assert critical literals survive into the published man-page
       text` (`.github/workflows/test.yaml`, currently `:139-172`) to the shape in **PLAN §2**. Do not
       restructure into separate `check`/`check_count` helpers — the single-render-then-guard ordering is
       load-bearing (PLAN §2, point 1).
-- [ ] **Keep the step's name prefix `Assert critical literals`** and the `run: |` block at its current
+- [x] **Keep the step's name prefix `Assert critical literals`** and the `run: |` block at its current
       indentation — `verify/gate-matrix.sh` extracts the body by keying on them.
-- [ ] Literal list: unchanged except `'.partial'` → `'2x:.partial suffix'`. Do **not** shorten the
+- [x] Literal list: unchanged except `'.partial'` → `'2x:.partial suffix'`. Do **not** shorten the
       needle to `'2x:.partial'`; PLAN §2 point 4 records the measured false-red.
-- [ ] Leave the source-side roff-control tripwire (`grep -nE "^[[:space:]]*['.]" doc/*.scd`) exactly as
+- [x] Leave the source-side roff-control tripwire (`grep -nE "^[[:space:]]*['.]" doc/*.scd`) exactly as
       it is — it covers a class invisible from the rendered side.
-- [ ] Rewrite the step's leading comment to state the *invariants*, not the history: why whitespace is
+- [x] Rewrite the step's leading comment to state the *invariants*, not the history: why whitespace is
       stripped on both sides (a break can land inside a token; `col -b` indents with tabs); that the
       strip is lossy so an exact-count needle must be specific enough that fusion cannot synthesize it;
       why the count exists at all; and why `|| got=0` is there (`pipefail`). Cross-reference
       `AGENTS.md`'s Commands section rather than restating the escaping rules. **No `R#`/`P#` ids.**
-- [ ] Write `spec/manpage-literal-assertion-fails-on-ubuntu/verify/gate-matrix.sh`. It must:
+- [x] Write `spec/manpage-literal-assertion-fails-on-ubuntu/verify/gate-matrix.sh`. It must:
       - extract the gate body from `test.yaml` by `awk` and **refuse to run** unless the extraction is
         non-empty, >20 lines, and contains `CORRUPT RENDER` (guards the silent partial-extraction false
         green — PLAN §5 risk 4);
@@ -111,10 +124,24 @@ diagnoses a failed render as a failed render.
         `e.g. partial` fusion regression;
       - print one `PASS`/`FAIL` line **per R-ID** plus the raw counts, and exit non-zero if any line is
         FAIL.
-- [ ] Run it and record its full output to `spec/manpage-literal-assertion-fails-on-ubuntu/EVIDENCE.md`
+- [x] Run it and record its full output to `spec/manpage-literal-assertion-fails-on-ubuntu/EVIDENCE.md`
       (this is the recorded sweep the GOAL's Q4 asked for; commit it).
 - **Verify:** `sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/gate-matrix.sh`
-- **Touches:** `.github/workflows/test.yaml`, `spec/manpage-literal-assertion-fails-on-ubuntu/verify/gate-matrix.sh`, `spec/manpage-literal-assertion-fails-on-ubuntu/EVIDENCE.md`.
+- **Touches:** `.github/workflows/test.yaml`, `spec/manpage-literal-assertion-fails-on-ubuntu/verify/gate-matrix.sh`, `spec/manpage-literal-assertion-fails-on-ubuntu/verify/run-cases.sh`, `spec/manpage-literal-assertion-fails-on-ubuntu/EVIDENCE.md`.
+
+> **Amendment (P1, build):** the harness is **two** files, not one. `gate-matrix.sh` orchestrates
+> (extract, fixtures, docker, aggregation) and `verify/run-cases.sh` is the platform-portable case
+> suite that gate-matrix.sh runs twice — once on the host, once inside `ubuntu:24.04` — with identical
+> arguments. Keeping the suite in one file that both platforms execute is what makes "both platforms
+> ran the same cases" true by construction rather than by two copies staying in sync. The `verify:`
+> command is unchanged.
+>
+> **Amendment (P1, build):** `EVIDENCE.md` records a **contradiction with `PLAN.md` §4**. The plan
+> states the pre-fix gate fails 51/51 pad values on the 1.11.2 roff and attributes the seed's
+> green/red flipping to 1.11.5; re-measured here it is **9/51 red on 1.11.2** (including pad 0, the
+> real CI failure) and **0/51 on 1.11.5** — the flipping is on 1.11.2. Almost certainly a different
+> padding method. No R-ID or verdict depends on the number; pad 0 is red pre-fix and green post-fix
+> either way. Left as a recorded correction rather than an edit to the plan's measurement.
 
 ## Phase P2 — Reconcile the documented local check with CI
 **Satisfies:** R6 · **Depends on:** P1

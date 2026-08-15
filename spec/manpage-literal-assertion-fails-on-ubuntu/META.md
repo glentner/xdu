@@ -20,6 +20,13 @@
   without that instruction the obvious move is to copy them across, and four contract-level questions
   (intra-literal whitespace, the `AGENTS.md` scope, the two fold-ins, how R4 is evidenced) would have
   been silently pre-decided by the issue's author rather than negotiated.
+- `xdu-build` Step 4's named hollow-gate shapes ("an assertion over a collection passing vacuously
+  because the collection came back empty"; "a phase holding more than one independent change measured
+  once") converted directly into harness design: each R-ID declares how many cases it must contribute
+  and a count mismatch is a FAIL even when every line present says PASS, and each fixture mutation is
+  re-read after being written so a mutation that failed to apply cannot let its case pass vacuously.
+  Without that paragraph the natural implementation is "no FAIL lines → green", which a bad `awk`
+  extraction would have satisfied silently.
 
 ## Friction findings
 
@@ -100,4 +107,24 @@ is skipped by the parser):
   assertion, or verification harness (CI steps, `verify:` scripts, test infrastructure), the fan-out is
   **not** skippable — run at least one adversarial reviewer against the drafted design, tasked with
   finding cases where it passes on broken input or fails on good input, before `PLAN.md` is committed.
+- **Confidence:** high · **Effort:** small
+
+## F4 — The mandated mutation test says "revert" without naming a safe revert, and the reflex one destroys the phase's work
+`origin=xdu-build:step-4 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
+- **What happened:** Step 4 requires "mutate what it checks, confirm the mutation landed, confirm red,
+  revert … Revert before Step 7's `git add -A`". The file I had to mutate to see the gate fail was
+  `.github/workflows/test.yaml` — the same file the phase had just rewritten and had **not** committed,
+  because Step 7 commits after Step 4 by construction. I reverted the mutation with
+  `git checkout .github/workflows/test.yaml`, which restored HEAD and silently discarded the entire
+  phase deliverable. It was recoverable only because a `sed -i.bak` from the mutation itself happened
+  to hold a copy; with a `Write`-based mutation the work would have been gone with no diagnostic.
+- **Skill cause:** the step's own ordering guarantees the mutation target is dirty, and `git checkout`
+  / `git restore` / `git stash pop` are the reflex reverts — every one of them resolves against HEAD,
+  i.e. against the state *before* the phase. The instruction names the obligation ("revert") but not
+  the hazard it creates, and the surrounding safety principles never say the working tree is the only
+  copy of the phase's work between Step 3 and Step 7.
+- **Recommended fix:** in Step 4, state the revert mechanism: copy the file aside before mutating and
+  restore with `cp`, verifying with `cmp -s`; and add an explicit "never `git checkout`/`git restore`/
+  `git stash` a file the phase has edited — HEAD predates your work". Optionally note that a Step 4
+  mutation is the one place a phase can lose committed-quality work without any command failing.
 - **Confidence:** high · **Effort:** small
