@@ -160,6 +160,11 @@ jobs:
       # `|| got=0` is load-bearing: grep exits 1 on zero matches, so under a shell with `pipefail`
       # set -e would kill the step before the diagnostic is printed — in exactly the zero-count
       # case the count was added to catch.
+      #
+      # This normalization is one rule in three places: here, the grep snippet in AGENTS.md's
+      # "Commands" section (what a maintainer runs locally), and .agents/factory/invariants.md §13.
+      # Changing it here means changing both of those in the same commit — otherwise the local check
+      # stops predicting CI's verdict, which is the defect this step was rewritten to fix.
       - name: Assert critical literals survive into the published man-page text
         run: |
           set -eu

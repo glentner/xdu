@@ -6,7 +6,7 @@ appetite: small
 status: in_progress
 branch: fix/manpage-literal-assertion-fails-on-ubuntu
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-08-14'
 phases:
 - id: P1
@@ -26,7 +26,7 @@ phases:
   verify: sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/gate-matrix.sh
 - id: P2
   name: Reconcile the documented local check with CI (AGENTS.md + invariants.md lockstep)
-  status: pending
+  status: done
   satisfies:
   - R6
   depends_on:
@@ -148,26 +148,38 @@ diagnoses a failed render as a failed render.
 **Goal:** the command a maintainer is told to run locally reaches the same verdict CI will, and the
 `scdoc` skew that hid this defect is written down where they will read it.
 
-- [ ] `AGENTS.md` "Commands" (currently `:105-108`): keep the readable
+- [x] `AGENTS.md` "Commands" (currently `:105-108`): keep the readable
       `scdoc … | mandoc -Tutf8 | col -b` line for *reading* the page, and add the normalized form CI
       actually matches with (`… | tr -d '[:space:]'`, and the literal stripped the same way). Note that
       homebrew `scdoc` escapes hyphen-minus while the distro package does not, so an un-normalized local
       grep can pass for you and fail in CI. **Do not name a minimum `scdoc` version** — only
       ubuntu-24.04 = 1.11.2 is measured (GOAL Q2).
-- [ ] `AGENTS.md` prose (`:111-120`): extend with the layout-vs-content distinction — a literal can be
+- [x] `AGENTS.md` prose (`:111-120`): extend with the layout-vs-content distinction — a literal can be
       *present and intact* yet unfindable by a naive grep because the line broke inside it.
-- [ ] `.agents/factory/invariants.md` §13 (`:193-198`): update the restated pipeline in lockstep. It
+- [x] `.agents/factory/invariants.md` §13 (`:193-198`): update the restated pipeline in lockstep. It
       restates the *command*, and `invariants.md` is required to track `AGENTS.md`; leaving it stale
       recreates the divergence through a different door.
-- [ ] Add a short cross-reference in **all three** places (workflow comment, `AGENTS.md`,
+- [x] Add a short cross-reference in **all three** places (workflow comment, `AGENTS.md`,
       `invariants.md` §13) naming the other two, so changing the normalization becomes a same-commit
       obligation like the CLI↔man-page rule. This is the agreed mitigation for the drift risk the human
       accepted when choosing inline-and-restate over one shared script (PLAN §5 risk 1).
-- [ ] Write `spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh`: extract the
+- [x] Write `spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh`: extract the
       documented command from `AGENTS.md`, run it against both real roff variants, and assert its
       verdict matches the committed gate's on a clean tree **and** on the un-escaped-glob mutation.
 - **Verify:** `sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh`
-- **Touches:** `AGENTS.md`, `.agents/factory/invariants.md`, `spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh`.
+- **Touches:** `AGENTS.md`, `.agents/factory/invariants.md`, `.github/workflows/test.yaml` (cross-reference comment only), `spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh`.
+
+> **Amendment (P2, build):** **P2's `verify:` requires docker too** — the conventions block above lists
+> only P1 and P3. "The local check reaches the same verdict CI will" is only measurable across the two
+> real `scdoc`s, and ubuntu-24.04's cannot be installed on the host, so a host-only parity run would
+> assert nothing. Same rule as P1/P3: docker absent ⇒ the phase is **blocked**, not passed.
+>
+> **Amendment (P2, build):** `doc-parity.sh` compares **four** verdicts per (fixture × literal), not
+> two — the documented snippet and the gate, each on both toolchains — and takes its literal list from
+> the gate's own `xdu.1` call so this phase introduces no second list to drift. It also carries two
+> **controls**: the pre-fix un-normalized form must still contradict the gate somewhere, and must give
+> *different* answers on the two toolchains. Without them a parity gate passes trivially when both
+> sides are equally blind, which is how the original defect survived.
 
 ## Phase P3 — Packaging-job simulation + deferral ledger
 **Satisfies:** — · **Depends on:** P1, P2

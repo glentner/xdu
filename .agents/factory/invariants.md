@@ -194,8 +194,16 @@ ordering is load-bearing:
   mis-escaped `*` turned `_OUTDIR_/*/*.parquet` into `OUTDIR//.parquet`; a line beginning with `.`
   loses that period), so a green render gate proves nothing about the text. The escaping and
   line-start rules are single-sourced in `AGENTS.md`'s **Commands** section — read them before
-  touching a `.scd`, and do not restate them here. Reviewing a `.scd` change means diffing
-  `scdoc < f.scd | mandoc -Tutf8 | col -b` against the literal you intended, never exit 0 alone.
+  touching a `.scd`, and do not restate them here. Reviewing a `.scd` change means reading the
+  published text (`scdoc < f.scd | mandoc -Tutf8 | col -b`), never exit 0 alone.
+- **Asserting a literal survived is a separate step, and it must be layout-insensitive.** `mandoc`
+  breaks lines wherever the fill lands, including *inside* a token, so an un-normalized `grep` calls
+  an intact literal missing; `col -b` also indents with TABs. Match the way CI does — pipe the page
+  through `| tr -d '[:space:]'` and strip the literal the same way. A local check that skips this can
+  be green on homebrew `scdoc` (which escapes hyphen-minus) and red on the distro package (which does
+  not). This normalization is **one rule in three places** — `AGENTS.md`'s Commands section, the
+  `Assert critical literals` step in `.github/workflows/test.yaml`, and this bullet — and changing it
+  is a same-commit obligation across all three, like the CLI↔man-page rule.
 - Release tarball layout — `bin/{xdu,xdu-find,xdu-view,xdu-rm}` +
   `share/{man/man1/*.1, bash-completion/completions/*, zsh/site-functions/*}` — matches `install.sh`
   extraction exactly; keep them in lockstep.

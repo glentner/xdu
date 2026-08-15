@@ -106,6 +106,16 @@ cargo fmt --all -- --check                              # format gate
 brew install scdoc                     # macOS  (apt-get install -y scdoc on Debian/Ubuntu, as CI does)
 for scd in doc/*.scd; do scdoc < "$scd" > /dev/null || echo "FAILED $scd"; done
 scdoc < doc/xdu.1.scd | mandoc -Tutf8 | col -b   # read the PUBLISHED text, not just exit 0
+
+# ...and to ASSERT a literal survived, match it the way CI does. Strip all whitespace from the page
+# AND from the literal: mandoc breaks lines wherever the fill lands, including inside a token, so an
+# un-normalized grep calls an intact literal missing. Your scdoc is probably not CI's — homebrew's
+# escapes hyphen-minus, the distro package does not — so the un-normalized form can pass for you and
+# fail on ubuntu-24.04. Keep this in lockstep with the "Assert critical literals" step in
+# .github/workflows/test.yaml and its restatement in .agents/factory/invariants.md §13.
+lit='OUTDIR/.xdu-complete'
+scdoc < doc/xdu.1.scd | mandoc -Tutf8 | col -b | tr -d '[:space:]' |
+  grep -qF -- "$(printf '%s' "$lit" | tr -d '[:space:]')" || echo "MISSING: $lit"
 ```
 
 **Rendering is not optional, and exit 0 is not sufficient.** `scdoc` markup fails in two ways: a
@@ -118,6 +128,20 @@ also silently. None of this is mechanically fixable — `*/*` is a corrupted glo
 legitimate bold-slash (the `/` key) in `xdu-view.1.scd`, so intent has to be read. Catching the
 silent class requires diffing the rendered text against the literal you intended, which is what the
 `mandoc | col -b` line above is for.
+
+**A third mode is not a markup error at all: the literal is intact and still unfindable.** `mandoc`
+fills each paragraph to its own width and will break a line *inside* a token — a bare roff `-` is a
+legal break opportunity — so `OUTDIR/.xdu-complete` can publish as `OUTDIR/.xdu-` + newline +
+`complete`. Collapsing newlines to spaces does not recover it (the break was *within* a word, not
+between two), and `col -b` indents continuation lines with a literal TAB, which squeezing spaces
+never touches. That is **layout, not content**: nothing is corrupt, and the fix is to compare with
+all whitespace stripped from both sides — the second snippet above. Whether you ever see it depends
+on your `scdoc`: 1.11.5 substitutes `\-` for a bare `-` (upstream `1d4143d`), ubuntu-24.04's 1.11.2
+does not, so the same `.scd` yields two different roffs and a check can be green on your box while
+`main` is red. Which is exactly what happened — the gate arrived already broken and had never once
+been green in CI. The normalization now lives in three places that must change together:
+`.github/workflows/test.yaml`'s assertion step, the snippet above, and
+[`invariants.md`](.agents/factory/invariants.md) §13.
 
 ## Repository map
 
