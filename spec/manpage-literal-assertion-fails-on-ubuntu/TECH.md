@@ -3,10 +3,10 @@ slug: manpage-literal-assertion-fails-on-ubuntu
 title: The man-page literal gate asserts content, not layout
 kind: fix
 appetite: small
-status: in_progress
+status: in_review
 branch: fix/manpage-literal-assertion-fails-on-ubuntu
 base: main
-current_phase: P3
+current_phase: done
 last_updated: '2026-08-14'
 phases:
 - id: P1
@@ -37,7 +37,7 @@ phases:
   verify: sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh
 - id: P3
   name: Packaging-job simulation + deferral ledger
-  status: pending
+  status: done
   satisfies: []
   depends_on:
   - P1
@@ -186,13 +186,13 @@ diagnoses a failed render as a failed render.
 **Goal:** the whole packaging job is green end to end on the real CI image, and every deferral this
 pass generated has a home on disk.
 
-- [ ] Write `verify/job-sim.sh`: in `ubuntu:24.04`, from a clean `git archive` of the branch, install
+- [x] Write `verify/job-sim.sh`: in `ubuntu:24.04`, from a clean `git archive` of the branch, install
       `scdoc mandoc bsdextrautils`, run the packaging job's render step and the (rewritten) assertion
       step verbatim, and assert exit 0 plus the `OK:` line. Also assert the source-side tripwire passes.
-- [ ] **Deferral ledger.** Walk P1 and P2 for "known limitation" / "do not fix here" / "follow-up" and
+- [x] **Deferral ledger.** Walk P1 and P2 for "known limitation" / "do not fix here" / "follow-up" and
       confirm each has a matching `issues/{slug}.md` **and** a `ROADMAP.md` entry. An unrecorded
       deferral is a phase failure, not a tidy-up. The two known ones:
-- [ ] `issues/manpage-groff-hyphenates-marker-path.md` (from [`templates/ISSUE.md`](../../.agents/factory/templates/ISSUE.md),
+- [x] `issues/manpage-groff-hyphenates-marker-path.md` (from [`templates/ISSUE.md`](../../.agents/factory/templates/ISSUE.md),
       `status: unshaped`) + a `ROADMAP.md` entry. Content: groff 1.23.0 publishes
       `OUTDIR/.xdu-com` + **U+2010** + newline + `plete` at default width on **both** roff variants
       (10 U+2010 per page); `man-db` uses groff, so this is the page real operators read and copy-paste.
@@ -200,7 +200,7 @@ pass generated has a home on disk.
       adversarial run measured zero U+2010"), and that CI is unaffected because it runs `mandoc`, which
       does not hyphenate. Options to weigh when shaped: also strip `U+2010`/`U+00AD`; assert a groff
       render in CI; or reword the source.
-- [ ] `issues/manpage-gate-coverage-gaps.md` + a `ROADMAP.md` entry. Three measured gaps in the gate's
+- [x] `issues/manpage-gate-coverage-gaps.md` + a `ROADMAP.md` entry. Three measured gaps in the gate's
       coverage *model*, all out of scope here because no R-ID reaches them: (a) **no page identity** —
       copying `xdu-find.1` over `xdu-view.1` is green, since no literal names the binary it belongs to;
       (b) **the page list is hard-coded** — a fifth `doc/*.scd` is entirely unasserted and can ship the
@@ -208,12 +208,30 @@ pass generated has a home on disk.
       `XDU_INDEX`/`XDU_JOBS` have no silent-corruption mode (mid-word `_` is safe by design), so all of
       the gate's real detection power sits on `xdu.1`, and `xdu-rm.1` — the destructive binary — carries
       only two inert names.
-- [ ] Confirm no Rust changed: `git diff --quiet HEAD -- src tests bench Cargo.toml Cargo.lock`. The
+- [x] Confirm no Rust changed: `git diff --quiet HEAD -- src tests bench Cargo.toml Cargo.lock`. The
       `fmt`/`clippy`/`test` gate is not re-run here because nothing it covers was touched; CI runs it on
       the PR regardless.
 - **Verify:** the frontmatter command (job simulation + both `issues/` files + both ROADMAP entries +
   no-Rust-diff).
-- **Touches:** `issues/*.md`, `ROADMAP.md`, `spec/manpage-literal-assertion-fails-on-ubuntu/verify/job-sim.sh`.
+- **Touches:** `issues/manpage-groff-hyphenates-marker-path.md`, `issues/manpage-gate-coverage-gaps.md`, `ROADMAP.md`, `spec/manpage-literal-assertion-fails-on-ubuntu/verify/job-sim.sh`.
+
+> **Amendment (P3, build):** `job-sim.sh` **hard-refuses** when `.github/workflows/test.yaml` or `doc/`
+> carries uncommitted changes. It reads the tree through `git archive HEAD`, so an uncommitted edit to
+> either input would make it report on something other than what it just simulated — the same
+> "green here, red there" shape this whole pass is about. Refusing beats a silent divergence.
+>
+> **Amendment (P3, build):** the coverage-gaps issue records **four** gaps, not the three enumerated
+> above. The fourth was measured while verifying the groff claim: outside a UTF-8 locale, `col -b`
+> rewrites each multibyte character as the literal ASCII text `\xNN`. It is harmless today (every
+> asserted literal is ASCII, and P1's matrix confirms host/container agreement) but it bounds what can
+> ever be asserted, and it is what made an initial U+2010 count read zero against a demonstrably
+> broken page.
+>
+> **Amendment (P3, build):** unlike `PLAN.md` §4's pad numbers (which P1 could not reproduce),
+> **`PLAN.md` §5 risk 3 reproduced exactly** — 10 U+2010 on `xdu.1` under groff 1.23.0, on both roff
+> variants, marker literal absent after stripping, `mandoc` unaffected at 0. `man(1)` via man-db shows
+> the same. Re-measured rather than transcribed, and the per-page counts (`xdu-find.1` 1, `xdu-rm.1` 1,
+> `xdu-view.1` 0) are new detail the plan did not carry.
 
 ---
 

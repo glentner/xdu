@@ -169,6 +169,37 @@ is measurably defeated by a routine documentation edit.
 *Horizon: near-term · Depends on: — · Refs: `.agents/factory/harness-log.md` (why the flatten exists); the Docker builder defect from the same CI run*
 **Seed:** [`issues/manpage-literal-assertion-fails-on-ubuntu.md`](issues/manpage-literal-assertion-fails-on-ubuntu.md)
 
+## `man xdu` hyphenates the completion-marker path, so the page operators read is wrong
+
+Fixing the CI gate made `main` green; it did not make the page correct. `man-db` renders with `groff`,
+and `groff` hyphenates where `mandoc` does not — so at the default width `man xdu` publishes
+`OUTDIR/.xdu-com` + **U+2010** + newline + `plete`, ten such hyphens on that page alone, and an operator
+who copy-pastes the marker path gets a filename that cannot exist. It reproduces identically on roff
+from both `scdoc` versions, so neither the normalization fix nor pinning a newer `scdoc` touches it,
+and CI cannot see it because CI renders with `mandoc`. Notably this **falsifies the premise** recorded
+when the question was set aside ("one adversarial run measured zero U+2010") — the boundary was
+reasonable, the reason given for it was not. The choice to weigh is whether to teach the gate to
+tolerate the hyphen, or to render with `groff` in CI and actually catch the class users are exposed to.
+
+*Horizon: near-term · Depends on: — (independent of the gate fix; the fix does not address it) · Refs: the man-page gate entry above; `spec/manpage-literal-assertion-fails-on-ubuntu/EVIDENCE.md`*
+**Seed:** [`issues/manpage-groff-hyphenates-marker-path.md`](issues/manpage-groff-hyphenates-marker-path.md)
+
+## The man-page literal gate is correct but narrow
+
+Four measured gaps in what the literal gate can structurally see, all pre-existing and all left alone
+because the pass that found them was scoped to making the *existing* assertions layout-insensitive. No
+literal names the binary it belongs to, so copying one rendered page over another is green. The page
+list is hard-coded while the render step globs `doc/*.scd`, so a fifth man page is entirely unasserted
+— measured shipping the exact historical `OUTDIR//.parquet` corruption past a green gate, which matters
+because `xdu-mv`/`xdu-tar` are queued above. Four of the ten assertions are inert env-var names with no
+silent-corruption mode, leaving `xdu-rm.1` — the destructive binary — effectively uncovered. And
+`col -b` rewrites multibyte characters as literal `\xNN` text outside a UTF-8 locale, which bounds what
+can ever be asserted and already mis-measured the `groff` work above. Deriving the page list from
+`doc/*.scd` is nearly free and converts the widest gap into a build error.
+
+*Horizon: near-term, low priority · Depends on: — · Refs: the two entries above; `issues/ci-gates-are-advisory.md` (a gate that binds nothing is the wider version)*
+**Seed:** [`issues/manpage-gate-coverage-gaps.md`](issues/manpage-gate-coverage-gaps.md)
+
 ## `--version` is documented but rejected by every binary
 
 All four man pages document `-V, --version`, and `AGENTS.md` states the version is single-sourced from

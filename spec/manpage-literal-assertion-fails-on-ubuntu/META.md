@@ -109,7 +109,7 @@ is skipped by the parser):
   finding cases where it passes on broken input or fails on good input, before `PLAN.md` is committed.
 - **Confidence:** high · **Effort:** small
 
-## F4 — The mandated mutation test says "revert" without naming a safe revert, and the reflex one destroys the phase's work
+## F4 — The mandated mutation test says "revert" without naming a safe revert, and the reflex one destroys the phase's work · seen again
 `origin=xdu-build:step-4 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
 - **What happened:** Step 4 requires "mutate what it checks, confirm the mutation landed, confirm red,
   revert … Revert before Step 7's `git add -A`". The file I had to mutate to see the gate fail was
@@ -127,4 +127,11 @@ is skipped by the parser):
   restore with `cp`, verifying with `cmp -s`; and add an explicit "never `git checkout`/`git restore`/
   `git stash` a file the phase has edited — HEAD predates your work". Optionally note that a Step 4
   mutation is the one place a phase can lose committed-quality work without any command failing.
+- **Seen again (P3), second shape:** P3's gate reads its inputs through `git archive HEAD`, so mutating
+  them requires a **commit** — a working-tree edit is invisible to it — and the "copy aside, restore
+  with `cp`" remedy above does not reach that case at all. The safe mechanism there is a throwaway
+  `git worktree add --detach`, commit the mutation inside it, run the gate, `git worktree remove
+  --force`; the branch never moves. The fix should name both shapes: mutate the *working tree* →
+  restore by `cp` + `cmp -s`; mutate *committed state* → do it in a detached worktree, never on the
+  branch.
 - **Confidence:** high · **Effort:** small
