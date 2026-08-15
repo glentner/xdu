@@ -3,7 +3,7 @@ slug: manpage-literal-assertion-fails-on-ubuntu
 title: The man-page literal gate asserts content, not layout
 kind: fix
 appetite: small
-status: in_review
+status: blocked
 branch: fix/manpage-literal-assertion-fails-on-ubuntu
 base: main
 current_phase: done
@@ -51,12 +51,13 @@ phases:
     -qF 'issues/manpage-gate-coverage-gaps.md' ROADMAP.md && git diff --quiet HEAD
     -- src tests bench Cargo.toml Cargo.lock && echo PHASE-OK
 review:
-  last_reviewed_commit: b4d32d6971d676579278657a2200be65d6c882e4
+  last_reviewed_commit: 194f6a7161c8d5d405e4a4568b02678926a29fba
   verdict: changes-requested
-  blocked_reason: 'R7 unmet for 4 of 10 specs: XDU_INDEX x3 + XDU_JOBS occur twice
-    per page but are presence-asserted; single-occurrence corruption ships green.
-    invariants.md:207''s new COUNT rule is false as written.'
-  cycle: 2
+  blocked_reason: 'R1-R7 all pass. Two operating-manual overclaims: invariants.md:213
+    promises a count-derivation that expires at merge (spec/verify is unreachable
+    post-merge); AGENTS.md:164 claims a new page joins the build counts-checked, contradicting
+    deferred gap (b).'
+  cycle: 3
 ---
 # TECH.md — The man-page literal gate asserts content, not layout
 

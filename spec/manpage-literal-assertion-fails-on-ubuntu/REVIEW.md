@@ -271,3 +271,102 @@ human on non-convergence. The remedy is small and mechanical, so convergence in 
 expectation — but note this finding is the *same class* as cycle-1 Finding A (presence vs. count on a
 duplicated literal), found in a different set of literals, which is the signal that the fix was
 applied to the instance rather than the class.
+
+---
+
+## Review cycle 3 — changes-requested (2026-08-15)
+
+- **Reviewed commit:** 194f6a7161c8d5d405e4a4568b02678926a29fba · **Base:** main · **Prior cycle:** b4d32d6
+- **Mode:** **fresh full blind pass** over `git diff main...HEAD -- . ':(exclude)spec/'` (the default for
+  a later cycle; no scope argument given). Deliberate: cycle 2's lesson was that the residual risk is a
+  *different* class surfacing, which a remediation-scoped pass cannot see.
+- **Contract drift:** none — `GOAL.md` still touched only by `4c1e2d1`.
+- **Blindness:** fresh subagent; nothing under `spec/` opened, including the author's retuned harness.
+  Gate body extracted via `yaml.safe_load` (77 lines, 2× `CORRUPT RENDER`, sanity-checked before use).
+
+### Every R-ID passes
+
+| R | Verified how (independently executed) | Result |
+|---|---|---|
+| R1 | ubuntu:24.04 / `scdoc 1.11.2-1`, gate under `bash -e`, `bash -eo pipefail`, and `dash` | `OK:` rc=0 on all three. **Negative control:** `main`'s gate body on the same tree → the exact reported failure, rc=1 |
+| R2 | host `scdoc 1.11.5` | rc=0; the author/CI divergence reproduced on `main`'s body and shown removed |
+| R3 | un-escaped `_OUTDIR_/*/*.parquet`; also a dropped leading `_` | rc=1 naming the literal, both toolchains |
+| R4 | own `mandoc` width shim, `seq 40 200` × full gate × both toolchains (322 renders) | **0 failing widths / 161 on each.** TAB covered because `[:space:]` includes it |
+| R5 | absent page; 0-byte; 150-byte; base64 garbage | `RENDER FAILED` / `RENDER EMPTY` rc=1; `mandoc` rc=0 on empty confirms the length guard is non-redundant; margin 1780–4921 chars vs the 200 guard |
+| R6 | both `AGENTS.md` snippets run **verbatim** on clean + 3 corrupted trees × both toolchains | verdicts identical to CI in every cell; homebrew/distro note present; no minimum version named (Q2) |
+| R7 | derived the published count of **every** asserted literal, then corrupted one occurrence of each duplicated one — 8 trials × both toolchains | **all fire, rc=1.** Counts identical on both toolchains; every presence-checked literal is published exactly once, so presence ≡ count for them |
+| R4 (Q4 artifact) | orchestrator read [`EVIDENCE.md`](EVIDENCE.md) | satisfies Q4 |
+
+**Non-goals held:** `git diff main...HEAD --stat -- .github/ src/ doc/ tests/ Cargo.toml Cargo.lock`
+→ only `.github/workflows/test.yaml`. No `src/`, no man-page content, no `release.yaml`, no `scdoc`
+pin, no width widening, no standing multi-width render.
+
+**Deferral ledger:** every factual claim in both new `issues/*.md` re-reproduced exactly — the `col -b`
+locale bytes, the U+2010 table (10/1/0/1 groff vs 0/0/0/0 mandoc), the marker literal ABSENT under
+groff and FOUND under mandoc, scdoc-version independence of the groff defect, and coverage gaps (a)
+and (b). All 11 ROADMAP seed links resolve.
+
+### Findings — both are false claims in the operating manual, not gate defects
+
+#### [HIGH/CONFIRMED] `invariants.md` promises a durable count-derivation that does not survive merge
+- **Where:** `.agents/factory/invariants.md:213`; mirrored at `AGENTS.md:164` and `.github/workflows/test.yaml:199`
+- **Defect:** §13 tells the next agent *not* to maintain the duplicate-count judgement by hand because
+  "the verify harness derives every asserted literal's published count and fails both on an uncounted
+  duplicate and on a declared N that no longer matches." That harness is
+  `spec/{slug}/verify/run-cases.sh`, run by `/xdu-build` for **this feature's phases only**. Nothing
+  outside `spec/` references it:
+  ```
+  $ grep -rn 'verify/' .github/workflows/          -> no reference
+  $ grep -rln 'run-cases|gate-matrix|doc-parity' --exclude-dir=spec .  -> nothing outside spec/
+  ```
+  After merge the spec is a retained record, not a running gate. The `Nx:` list in `test.yaml` is
+  hand-maintained and is the only durable enforcement.
+- **Failure scenario (reproduced):** an ordinary `.scd` edit adds a second, legitimate mention of a
+  currently-unique presence-checked literal — e.g. a cross-reference to `_OUTDIR_/.xdu-complete`.
+  Published count goes 1 → 2; gate green. Corrupting the *original* occurrence then leaves the
+  paragraph that tells an operator how to verify an index naming a file that cannot exist — and the
+  gate still prints `OK:` at exit 0.
+- **Why it is a finding rather than an accepted limitation:** the residual gap is defensible on a
+  `small` appetite; **stating that it is handled** is what degrades the gate, because a future
+  `xdu-plan`/`xdu-review` draws from `invariants.md` §13 and will not re-derive counts it has been
+  told are automatic. Rubric item 5, severity HIGH ("stale text in `invariants.md`").
+- **Does not make R7 unmet:** R7 is satisfied for every literal the gate asserts today (matrix above).
+
+#### [MEDIUM/CONFIRMED] `AGENTS.md` claims a new page joins the build with its counts checked
+- **Where:** `AGENTS.md:164-165`
+- **Defect:** the `check` list is hard-coded to four pages while the render step globs `doc/*.scd`, so
+  a fifth page is entirely unasserted — which **this same diff** states as deferred gap (b) in
+  `issues/manpage-gate-coverage-gaps.md:26-30`. The two files contradict each other.
+- **Evidence:** a fifth `doc/xdu-mv.1.scd` publishing the historical `OUTDIR//.parquet` *and* a
+  duplicated `XDU_INDEX` → gate `OK:`, `EXIT=0`.
+
+### Observation (sub-threshold, fold into the same edit)
+
+`ROADMAP.md:189` opens "Four measured gaps … all pre-existing and **all left alone**", then six lines
+later notes (c)'s duplicate-occurrence half "was an unmet R7 and is already fixed". Self-contradictory
+after the cycle-2 edit; the issue file already says "three remaining gaps".
+
+### Probes that dissolved (recorded so cycle 4+ need not re-litigate)
+
+`|| got=0` under `pipefail` (diagnostic survives on all three shells); count-spec parser unit-probed
+(`10x:` parses, `2abcx:` falls loud to presence, `3x:a x: b` splits on shortest prefix — no asserted
+literal is misparsable); locale (`LC_ALL=C` ≡ `C.UTF-8`, all literals ASCII); fusion (bare `.partial`
+also counts 2 — nothing synthesizable); missing `col`/`mandoc` (fail-closed, not false green);
+character-*adding* typos like `XDU_INDEX2` (green, but no markup mis-escape adds characters — outside
+R3's stated model, would be a manufactured gap); count-assert false red on a legitimate third mention
+(designed, loud, documented as a same-commit obligation).
+
+### Human-gate triggers
+
+**None.** No CONFIRMED finding touches the high-blast-radius core (this branch changes no Rust) or
+`invariants.md` §4 / §1 / §2 / §5. The live section is §13 — HIGH, not auto-CRITICAL.
+
+### Loop status — BOUND REACHED, escalating
+
+**Cycle 3 of ≤3.** `review-rubric.md` requires STOP-and-escalate rather than a fourth cycle.
+
+The honest reading: **the product converged; the prose did not.** R1–R7 have passed every cycle, and
+all three cycles' findings are the same shape — a sentence written into the operating manual that
+claims more than what ships (cycle 1: the documented check omitted the count form; cycle 2: §13 said
+duplicated literals are counted while 4 of 10 were not; cycle 3: §13 says the counts are auto-derived
+when the deriving harness expires at merge). No gate behaviour has been wrong since cycle 1.

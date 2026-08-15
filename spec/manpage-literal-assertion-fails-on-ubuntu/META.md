@@ -41,6 +41,12 @@
   `AGENTS.md` documents no count form rather than merely testing that today's snippet works — a gate
   that fails on a regression nobody has written yet.
 
+- `xdu-review`'s rubric item 5 (**operating-manual drift** — "a diff that moves the code owns the map",
+  graded by checking that what `AGENTS.md`/`invariants.md` *claim* is true of what shipped) is the
+  highest-yield item in the rubric on this feature. It is the sole source of every finding in cycles 2
+  and 3. Without it all three cycles would have returned clean while §13 carried a rule the gate does
+  not enforce — which is worse than no rule, because the next `xdu-plan` trusts it.
+
 ## Friction findings
 
 Zero or more findings, appended below — each a markdown **section** so appending is a low-corruption
@@ -171,7 +177,7 @@ is skipped by the parser):
   diff, have anything to run?* If no, the orchestrator owns it.
 - **Confidence:** high · **Effort:** small
 
-## F6 — Any CONFIRMED finding auto-blocks, so two documentation-level findings loop a contract-complete fix
+## F6 — Any CONFIRMED finding auto-blocks, so two documentation-level findings loop a contract-complete fix · seen again
 `origin=xdu-review:step-4 severity=medium category=instruction status=open target=.agents/factory/review-rubric.md`
 - **What happened:** all seven R-IDs verified PASS by executed command on both toolchains, no Rust
   touched, no human-gate trigger — and the pass still returns `blocked` / `changes-requested`, because
@@ -190,6 +196,15 @@ is skipped by the parser):
   not become a way to ship a real defect. Keep auto-block unconditional for anything touching
   `invariants.md` §1–§12, the high-blast-radius core, or an unmet R-ID, regardless of graded severity.
 - **Confidence:** med · **Effort:** medium
+- **Seen again (cycle 3), sharper shape:** the *bounded loop* has the same flaw as the verdict routing.
+  R1–R7 passed in all three cycles; every finding across cycles 1–3 was a prose overclaim in the
+  operating manual, and no gate behaviour has been wrong since cycle 1. Yet cycle 3 consumes the last
+  of the ≤3 budget and forces a STOP-and-escalate whose wording ("non-convergence") implies the fix is
+  failing, when what actually failed to converge is documentation accuracy. The rubric should
+  distinguish **the product regressed / an R-ID is unmet** (a real non-convergence signal) from
+  **every R-ID passes and only manual text is wrong** (which should not consume a cycle of a loop
+  budget sized for correctness risk). Same recommended remedy as above: let severity and R-ID status
+  route both the verdict *and* the cycle accounting.
 
 ## F7 — Per-phase commits collide with a same-commit obligation when a remediation spans two phases
 `origin=xdu-build:step-1.3 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
