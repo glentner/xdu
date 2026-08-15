@@ -3,7 +3,7 @@ slug: manpage-literal-assertion-fails-on-ubuntu
 title: The man-page literal gate asserts content, not layout
 kind: fix
 appetite: small
-status: in_review
+status: done
 branch: fix/manpage-literal-assertion-fails-on-ubuntu
 base: main
 current_phase: done
