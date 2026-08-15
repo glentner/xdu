@@ -51,13 +51,13 @@ phases:
     -qF 'issues/manpage-gate-coverage-gaps.md' ROADMAP.md && git diff --quiet HEAD
     -- src tests bench Cargo.toml Cargo.lock && echo PHASE-OK
 review:
-  last_reviewed_commit: 194f6a7161c8d5d405e4a4568b02678926a29fba
-  verdict: changes-requested
+  last_reviewed_commit: 05ca786c84b256ff80fbedb2082d05e700d107b4
+  verdict: approved
   blocked_reason: 'R1-R7 all pass. Two operating-manual overclaims: invariants.md:213
     promises a count-derivation that expires at merge (spec/verify is unreachable
     post-merge); AGENTS.md:164 claims a new page joins the build counts-checked, contradicting
     deferred gap (b).'
-  cycle: 3
+  cycle: 4
 ---
 # TECH.md — The man-page literal gate asserts content, not layout
 

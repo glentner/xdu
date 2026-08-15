@@ -370,3 +370,44 @@ all three cycles' findings are the same shape — a sentence written into the op
 claims more than what ships (cycle 1: the documented check omitted the count form; cycle 2: §13 said
 duplicated literals are counted while 4 of 10 were not; cycle 3: §13 says the counts are auto-derived
 when the deriving harness expires at merge). No gate behaviour has been wrong since cycle 1.
+
+---
+
+## Review cycle 4 — approved (2026-08-15) · **human override, not a review pass**
+
+- **Approved commit:** 05ca786c84b256ff80fbedb2082d05e700d107b4 · **Base:** main
+- **Mode:** **no blind pass was run.** The maintainer approved on explicit request after reading the
+  basis below. Recorded as a cycle because `set_phase.py --verdict` increments the durable counter on
+  every verdict event; it is *not* a fourth adversarial review, and nothing here was independently
+  re-graded by a fresh reviewer.
+
+### Basis for the override
+
+1. **The contract was fully verified one commit earlier.** Cycle 3 ran a fresh full blind pass at
+   `194f6a7` and graded **R1–R7 all PASS**, independently executed on both real toolchains — R4 at
+   0 failing widths out of 161 on each, R7 with the published count of every asserted literal derived
+   and one occurrence of each duplicated literal corrupted (8 trials × 2 toolchains, all firing). It
+   found **no gate defect**.
+2. **The commit since then changes no executable line.** `05ca786` corrects four prose overclaims in
+   the operating manual plus one `ROADMAP.md` sentence. The only edit inside the gate body is a
+   comment. A fourth blind cycle would be grading English against a diff with no behaviour in it.
+3. **All three gates were re-run green against the committed tree:** `GATE-MATRIX-OK` (R7 16/16),
+   `DOC-PARITY-OK` (R6 18/18 presence + 3/3 count rows), `JOB-SIM-OK` (the packaging job green end to
+   end on CI's own image, from a clean `git archive`).
+4. **The loop budget was spent.** Cycle 3 reached the `review-rubric.md` bound and escalated. The
+   escalation resolved as: the product converged at cycle 1 and stayed converged; what kept failing was
+   the accuracy of prose in `AGENTS.md`/`invariants.md`, which cycles 2 and 3 fixed.
+
+### What is knowingly shipped unclosed
+
+Neither is a regression; both are pre-existing and now **accurately described** rather than papered
+over — which was the whole substance of cycle 3.
+
+- **Duplicate-literal counts are hand-maintained.** The `Nx:` list in `test.yaml` is the durable
+  enforcement; nothing standing re-derives it. A future `.scd` edit that adds a second mention of a
+  currently-unique literal re-opens a single-occurrence blind spot silently.
+- **A new man page is entirely unasserted.** The `check` list names four pages while the render step
+  globs `doc/*.scd`.
+
+Both are recorded in [`issues/manpage-gate-coverage-gaps.md`](../../issues/manpage-gate-coverage-gaps.md)
+(R1 and R3), which is the standing home for closing them durably.
