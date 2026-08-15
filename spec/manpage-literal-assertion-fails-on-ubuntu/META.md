@@ -232,3 +232,26 @@ is skipped by the parser):
   fix-branch edit — a harness change must not ride in on a product PR. Add the one-line test: *would
   fixing this change what the tool does, or what an agent is told to do?*
 - **Confidence:** high · **Effort:** small
+
+## F9 — Nothing tells a remediation to close the class when the finding names one instance
+`origin=xdu-build:step-2.3 severity=high category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
+- **What happened:** cycle 1's finding named one duplicated literal. Step 2.3's class sweep is keyed on
+  *textual* patterns ("the deleted symbol, the false claim's distinguishing phrase, the renamed
+  identifier"), so I grepped for restatements of the rule and fixed those — and shipped a §13 invariant
+  asserting duplicated literals are counted while four of ten specs were still presence-asserted. The
+  defining property here was not textual at all: it was *"how many times does this literal appear in
+  the rendered page"*, computable only by rendering all four pages and counting. Cycle 2 found it, at
+  the cost of a full review cycle out of a bounded three.
+- **Skill cause:** Step 2.3 says to retune the gate to "assert the pattern is absent", which I did for
+  the two named instances — but its worked examples are all `Grep`-able identifiers, so the natural
+  reading is a text sweep. Nothing prompts "what property makes this a defect, and can that property be
+  *computed* over every candidate?" A gate that enumerates instances is exactly the failure the step is
+  trying to prevent, and following it literally still produced one.
+- **Recommended fix:** add to Step 2.3: "state the defect's defining property as a predicate, then find
+  every site by **evaluating** it, not only by grepping for text. If the predicate needs a build or a
+  render to evaluate, that is the strongest possible gate — encode the predicate itself so the check
+  covers items nobody enumerated." Cite this pass: text-grep found 3 sites, the derived predicate found
+  4 more that no grep could have.
+- **Severity note:** `high` because it is a *gate* gap — it let a remediation ship an invariant that was
+  false when written, and the review cycle it cost is a scarce resource under the ≤3 bound.
+- **Confidence:** high · **Effort:** small

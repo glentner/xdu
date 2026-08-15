@@ -155,9 +155,15 @@ been green in CI. The normalization now lives in three places that must change t
 
 **Presence is the wrong question for a literal that appears twice.** `grep -q` is satisfied by
 whichever copy survived, so corrupting exactly one of `doc/xdu.1.scd`'s two `.partial suffix`
-occurrences is invisible to it — which is why CI counts that one (`2x:.partial suffix`) instead. A
-local presence check on a duplicated literal therefore *cannot* predict CI's verdict no matter how
-correctly it normalizes; use the counting form above. Counting is what makes stripping whitespace
+occurrences is invisible to it — which is why CI counts that one (`2x:.partial suffix`) instead. The
+same is true of every `*XDU_INDEX*` / `*XDU_JOBS*`: each appears twice on its page, once as a
+cross-reference in the flag description and once as the `ENVIRONMENT` entry, so corrupting only the
+`ENVIRONMENT` entry publishes a variable name that does not exist while a presence check stays green.
+All of them are counted for that reason. **Whether a literal is duplicated is a fact about the page,
+not about the literal** — adding one cross-reference to a `.scd` can duplicate a previously-unique
+literal — so it is derived by the verify harness rather than remembered, and a new page joins the
+build with its counts checked. A local presence check on a duplicated literal therefore *cannot*
+predict CI's verdict no matter how correctly it normalizes; use the counting form above. Counting is what makes stripping whitespace
 dangerous in the other direction: the strip is lossy and can fuse adjacent tokens into a match that
 never appeared on the page, which is harmless for presence (at worst a false green) but a false
 **red** for a count — so a counted needle must be specific enough that fusion cannot synthesize it.

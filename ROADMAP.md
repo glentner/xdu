@@ -191,8 +191,9 @@ because the pass that found them was scoped to making the *existing* assertions 
 literal names the binary it belongs to, so copying one rendered page over another is green. The page
 list is hard-coded while the render step globs `doc/*.scd`, so a fifth man page is entirely unasserted
 — measured shipping the exact historical `OUTDIR//.parquet` corruption past a green gate, which matters
-because `xdu-mv`/`xdu-tar` are queued above. Four of the ten assertions are inert env-var names with no
-silent-corruption mode, leaving `xdu-rm.1` — the destructive binary — effectively uncovered. And
+because `xdu-mv`/`xdu-tar` are queued above. The four env-var assertions are thin literals — a
+well-chosen path per page would catch more than a variable name does (their *duplicate-occurrence*
+blind spot was an unmet R7 and is already fixed). And
 `col -b` rewrites multibyte characters as literal `\xNN` text outside a UTF-8 locale, which bounds what
 can ever be asserted and already mis-measured the `groff` work above. Deriving the page list from
 `doc/*.scd` is nearly free and converts the widest gap into a build error.

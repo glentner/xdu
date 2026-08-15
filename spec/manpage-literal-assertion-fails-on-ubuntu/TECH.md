@@ -3,7 +3,7 @@ slug: manpage-literal-assertion-fails-on-ubuntu
 title: The man-page literal gate asserts content, not layout
 kind: fix
 appetite: small
-status: blocked
+status: in_review
 branch: fix/manpage-literal-assertion-fails-on-ubuntu
 base: main
 current_phase: done
@@ -138,6 +138,25 @@ diagnoses a failed render as a failed render.
 > ran the same cases" true by construction rather than by two copies staying in sync. The `verify:`
 > command is unchanged.
 >
+> **Amendment (P1, review cycle 2 remediation):** cycle 1's fix closed R7 for the literal the
+> reviewer named and left it open for four others. `XDU_INDEX` (on `xdu-find.1`, `xdu-view.1`,
+> `xdu-rm.1`) and `XDU_JOBS` (on `xdu-rm.1`) each publish **twice** — once as a cross-reference in the
+> flag description, once as the `ENVIRONMENT` entry — and all four were presence-asserted, so
+> corrupting only the `ENVIRONMENT` entry shipped a non-existent variable name past a green gate
+> ([`REVIEW.md`](REVIEW.md) cycle 2, HIGH/CONFIRMED). `GOAL.md`'s parenthetical "Today `.partial` is
+> the only such literal" is a **factual error in the contract**, not a scope boundary, so this was an
+> unmet R-ID. All four are now `2x:` counted.
+>
+> The instance fix is not the point. **`run-cases.sh` gained `class-duplicate-scan`**, which parses
+> *every* `check` invocation out of the gate body, derives each literal's published occurrence count,
+> and fails on (a) any literal published more than once that is asserted by presence and (b) any
+> declared `N` that no longer matches what the page publishes. "Occurs more than once" is a property
+> of the *page*, so a future `.scd` edit that adds one cross-reference re-opens the hole silently — the
+> scan is what makes R7 hold for literals, and pages, that do not exist yet. R7: 12 → **16** cases;
+> `gate-matrix.sh`'s declared count updated in lockstep. Mutation-proved: reverting the four specs to
+> presence turns the scan red on all four platform × roff combinations, naming each spec by derivation
+> rather than from a list.
+>
 > **Amendment (P1, review cycle 1 remediation):** the `Nx:` prefix was matched by `case … in
 > [0-9]x:*)`, which accepts **one digit only** — `12x:LIT` fell through to the presence branch and
 > asserted a literal carrying its own `12x:` prefix, which can never appear on a page
@@ -181,6 +200,13 @@ diagnoses a failed render as a failed render.
 - **Verify:** `sh spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh`
 - **Touches:** `AGENTS.md`, `.agents/factory/invariants.md`, `.github/workflows/test.yaml` (cross-reference comment only), `spec/manpage-literal-assertion-fails-on-ubuntu/verify/doc-parity.sh`.
 
+> **Amendment (P2, review cycle 2 remediation):** the §13 bullet added in cycle 1 asserted that "a
+> literal that occurs more than once is asserted by COUNT, not presence" — **false of the shipped gate
+> for 4 of 10 specs at the time it was written**, which is operating-manual drift introduced by the
+> remediation itself. Both `AGENTS.md` and `invariants.md` §13 now say the true thing: duplication is a
+> property of the page rather than of the literal, every duplicated literal *is* counted, and the fact
+> is derived by the harness rather than maintained by hand.
+>
 > **Amendment (P2, review cycle 1 remediation):** R6 was met *as written* — the normalization was
 > byte-identical — but the documented check was **presence-only**, and CI counts one literal
 > (`2x:.partial suffix`). Corrupting one of the two occurrences was green locally and red in CI
@@ -252,6 +278,16 @@ pass generated has a home on disk.
   no-Rust-diff).
 - **Touches:** `issues/manpage-groff-hyphenates-marker-path.md`, `issues/manpage-gate-coverage-gaps.md`, `ROADMAP.md`, `spec/manpage-literal-assertion-fails-on-ubuntu/verify/job-sim.sh`.
 
+> **Amendment (P3, review cycle 2 remediation):** the deferral ledger carried a **disproven
+> rationale**. `issues/manpage-gate-coverage-gaps.md` gap (c) deferred the four env-var literals on the
+> grounds that they "have no silent-corruption mode: they can only fail if the page is missing or
+> empty" — three reproductions with neither a missing nor an empty page falsify that. Gap (c) is now
+> struck through and reclassified: the duplicate-occurrence half was an unmet R7 and is fixed here, and
+> the surviving residue is the weaker "an env-var name is a thin literal" point, carried into R3 of
+> that issue. The issue title, its problem statement, its "why it was deferred" paragraph and the
+> `ROADMAP.md` entry were all corrected in step. A frozen deferral record is still frozen — but a
+> *false reason* in a candidate spec that `/xdu-feature` will later promote is a trap, not evidence.
+>
 > **Amendment (P3, build):** `job-sim.sh` **hard-refuses** when `.github/workflows/test.yaml` or `doc/`
 > carries uncommitted changes. It reads the tree through `git archive HEAD`, so an uncommitted edit to
 > either input would make it report on something other than what it just simulated — the same

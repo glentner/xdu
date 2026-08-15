@@ -4,7 +4,7 @@ kind: fix
 appetite: small
 ---
 
-# The man-page literal gate is correct but narrow: four measured gaps in what it can see
+# The man-page literal gate is correct but narrow: three remaining gaps in what it can see
 
 > **Pre-shaped candidate, not a contract.** `/xdu-feature` promotes this into `spec/{slug}/GOAL.md`,
 > where appetite, non-goals and R-IDs get negotiated. Do not copy it verbatim.
@@ -14,8 +14,10 @@ appetite: small
 The `Assert critical literals survive into the published man-page text` step in
 `.github/workflows/test.yaml` is now robust *at what it checks* — its verdict depends on content, not
 layout, across both `scdoc` versions, 161 render widths and both userlands. These are gaps in its
-**coverage model**: things it is structurally unable to see. All four were measured; none is a
-regression, and no R-ID in the pass that found them reaches any of them.
+**coverage model**: things it is structurally unable to see. All were measured. A fourth item,
+originally filed here as (c), turned out to be an unmet `R7` rather than a coverage gap and was fixed
+in that pass — it is kept below, struck through, because the rationale recorded for deferring it was
+disproven and a future shaping session must not inherit it.
 
 **(a) No page identity.** No literal names the binary it belongs to, so the gate cannot tell the four
 pages apart. Copying `xdu-find.1` over `xdu-view.1` and running the gate is **green** — both pages
@@ -29,12 +31,26 @@ source-side roff-control tripwire does glob `doc/*.scd`, but it only catches lin
 or `'` — a different class. A new binary's man page joins the build with no literal coverage and
 nothing says so.
 
-**(c) Four of the ten assertions are inert.** The set is 6 literals on `xdu.1`, 1 on `xdu-find.1`, 1
-on `xdu-view.1`, 2 on `xdu-rm.1`. The four env-var names (`XDU_INDEX` ×3, `XDU_JOBS`) are written
-`*XDU_INDEX*` in the sources — bold with a **mid-word** underscore, which `AGENTS.md` documents as
-safe by construction. They have no silent-corruption mode: they can only fail if the page is missing
-or empty, which `RENDER FAILED`/`RENDER EMPTY` already report. So the gate's entire real detection
-power sits on `xdu.1`, and **`xdu-rm.1` — the destructive binary — is covered by two inert names**.
+**(c) ~~Four of the ten assertions are inert.~~ RESOLVED — and the rationale below was wrong.**
+The set is 6 literals on `xdu.1`, 1 on `xdu-find.1`, 1 on `xdu-view.1`, 2 on `xdu-rm.1`. The four
+env-var names (`XDU_INDEX` ×3, `XDU_JOBS`) are written `*XDU_INDEX*` in the sources — bold with a
+**mid-word** underscore, which `AGENTS.md` documents as safe by construction. This issue originally
+claimed they therefore "have no silent-corruption mode: they can only fail if the page is missing or
+empty".
+
+**That is false.** Review cycle 2 of `manpage-literal-assertion-fails-on-ubuntu` measured each of them
+appearing **twice** on its page — once as a cross-reference in the flag description, once as the
+`ENVIRONMENT` entry — while all four were asserted by *presence*. Corrupting only the `ENVIRONMENT`
+entry (`doc/xdu-find.1.scd:66` `*XDU_INDEX*` → `*XDU-INDEX*`) publishes a variable name that does not
+exist, and the gate exited **0** with its `OK:` line. No missing or empty page involved. The same
+reproduced on `doc/xdu-rm.1.scd:81`, the destructive binary's page, and on deleting the whole
+`ENVIRONMENT` section.
+
+That was an unmet `R7`, not a coverage gap, so it was **fixed in that pass**, not deferred: all four
+are now `2x:` counted, and the verify harness derives every literal's published count so an uncounted
+duplicate fails by construction rather than by being noticed. What survives of (c) is the weaker,
+genuinely-deferred point: an env-var name is still a *thin* literal, and one well-chosen path or glob
+per page would catch more classes than four env-var names do. R3 below is that residue.
 
 **(d) `col -b` is locale-dependent, which silently bounds what can ever be asserted.** Under a
 non-UTF-8 locale, `col -b` rewrites each multibyte character as the literal ASCII text `\xNN`:
@@ -55,8 +71,8 @@ render read zero while the page was demonstrably broken.
 
 ## Why it was deferred
 
-All four are **pre-existing** — (a), (b) and (c) arrived with the gate in `9c579cf`; (d) is a property
-of `col` that predates the repo. `spec/manpage-literal-assertion-fails-on-ubuntu/GOAL.md` scoped that
+The remaining three are **pre-existing** — (a) and (b) arrived with the gate in `9c579cf`; (d) is a
+property of `col` that predates the repo. `spec/manpage-literal-assertion-fails-on-ubuntu/GOAL.md` scoped that
 pass to making the existing assertion layout-insensitive (R1–R5, R7) and reconciling the documented
 local check (R6). Widening *what* is asserted is a different question from making the existing
 assertions correct, and folding it in would have meant negotiating new coverage under an appetite
@@ -76,7 +92,8 @@ caller's locale.
 - **R2** — Each of the four pages SHALL assert at least one literal unique to that page, so swapping
   two rendered pages fails (closes (a)).
 - **R3** — `xdu-rm.1` SHALL assert at least one literal with a real silent-corruption mode — a path,
-  glob or escaped-`*` construct — rather than only env-var names (closes (c)).
+  glob or escaped-`*` construct — rather than only env-var names (the residue of (c); the
+  duplicate-occurrence half was an unmet R7 and is already fixed).
 - **R4** — The gate's verdict SHALL be identical under `LC_ALL=C` and a UTF-8 locale, or the job
   SHALL pin the locale it requires (closes (d)).
 
@@ -86,8 +103,9 @@ caller's locale.
   on any page with no `check` entry, rather than maintaining a parallel list. That converts a silent
   gap into a build error the next time a binary is added — and `ROADMAP.md` has `xdu-mv`/`xdu-tar`
   queued, so it will be exercised.
-- (c) suggests the fix is choosing better literals, not more of them. One well-chosen path per page
-  beats four env-var names.
+- (c)'s residue suggests the fix is choosing better literals, not more of them. One well-chosen path
+  per page beats four env-var names — the counts now added stop single-occurrence corruption, but they
+  do not make a thin literal thick.
 - Reproductions for (a) and (b): render `doc/*.scd`, then either `cp share/man/man1/xdu-find.1
   share/man/man1/xdu-view.1`, or add a fifth `.scd` carrying `_OUTDIR_/*/*.parquet`; run the extracted
   gate body in either case and observe `OK:`.
@@ -95,4 +113,4 @@ caller's locale.
   other deferral from the same pass — and the one (d) interferes with measuring);
   [`ci-gates-are-advisory.md`](ci-gates-are-advisory.md) (a gate that binds nothing is the wider
   version of this); `spec/manpage-literal-assertion-fails-on-ubuntu/EVIDENCE.md`.
-- Found by: `manpage-literal-assertion-fails-on-ubuntu` P3.
+- Found by: `manpage-literal-assertion-fails-on-ubuntu` P3; (c) reclassified and closed by its review cycle 2.

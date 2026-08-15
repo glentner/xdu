@@ -204,15 +204,20 @@ ordering is load-bearing:
   not). This normalization is **one rule in three places** — `AGENTS.md`'s Commands section, the
   `Assert critical literals` step in `.github/workflows/test.yaml`, and this bullet — and changing it
   is a same-commit obligation across all three, like the CLI↔man-page rule.
-- **A literal that occurs more than once is asserted by COUNT, not presence.** `grep -q` is satisfied
-  by whichever copy survived, so corrupting one of two occurrences passes a presence check while CI
-  fails. The gate's `Nx:LITERAL` spec asserts exactly N (today `2x:.partial suffix`), and `AGENTS.md`'s
-  Commands section documents the matching local form — a presence-only local check on a duplicated
-  literal cannot predict CI however well it normalizes. Counting is also what makes the strip
-  dangerous in the other direction: fusing two adjacent tokens is at worst a false *green* for
-  presence but a false *red* for a count, so a counted needle must be specific enough that fusion
-  cannot synthesize it (`.partial suffix`, never bare `.partial`). Adding, removing or re-counting a
-  literal carries the same three-place same-commit obligation as the normalization above.
+- **A literal published more than once must be asserted by COUNT, not presence.** `grep -q` is
+  satisfied by whichever copy survived, so corrupting one of two occurrences passes a presence check
+  while the page ships wrong. The gate's `Nx:LITERAL` spec asserts exactly N. **"More than once" is a
+  property of the page, not of the literal** — an env-var name appears twice because the flag
+  description cross-references the `ENVIRONMENT` entry, so an ordinary `.scd` edit can duplicate a
+  literal that used to be unique and silently re-open the hole. Do not maintain that judgement by
+  hand: the verify harness derives every asserted literal's published count and fails both on an
+  uncounted duplicate and on a declared N that no longer matches. `AGENTS.md`'s Commands section
+  documents the matching local form — a presence-only local check on a duplicated literal cannot
+  predict CI however well it normalizes. Counting is also what makes the strip dangerous in the other
+  direction: fusing two adjacent tokens is at worst a false *green* for presence but a false *red* for
+  a count, so a counted needle must be specific enough that fusion cannot synthesize it
+  (`.partial suffix`, never bare `.partial`). Adding, removing or re-counting a literal carries the
+  same three-place same-commit obligation as the normalization above.
 - Release tarball layout — `bin/{xdu,xdu-find,xdu-view,xdu-rm}` +
   `share/{man/man1/*.1, bash-completion/completions/*, zsh/site-functions/*}` — matches `install.sh`
   extraction exactly; keep them in lockstep.

@@ -95,6 +95,60 @@ for S in "$HOST_LABEL" "$DISTRO_LABEL"; do
 		emit "$CLEAN_RID" "$S" control FAIL "exit $RC: $(printf '%s' "$OUT" | tr '\n' ' ')"
 	fi
 
+	# --- R7 class scan: EVERY asserted literal, not the subset someone remembered to count.
+	#     "Occurs more than once" is a property of the PAGE, not of the literal, so a future
+	#     cross-reference added to any .scd silently re-opens the hole. Derive each literal's
+	#     published count and fail on an uncounted duplicate — and on a declared N that no longer
+	#     matches, which is the same drift from the other direction. This is what makes R7 hold
+	#     for literals nobody has looked at yet, including a page that does not exist today. -----
+	MANDOC_WIDTH=""
+	awk -v q="'" '
+		{
+			line = $0
+			buf = cont ? buf " " line : line
+			if (line ~ /\\$/) { cont = 1; sub(/\\[ \t]*$/, "", buf); next }
+			cont = 0
+			if (buf !~ /^check[ \t]/) next
+			split(buf, f, /[ \t]+/); page = f[2]
+			rest = buf
+			sub(/^check[ \t]+[^ \t]+[ \t]*/, "", rest)
+			while (match(rest, q "[^" q "]*" q)) {
+				print page "|" substr(rest, RSTART + 1, RLENGTH - 2)
+				rest = substr(rest, RSTART + RLENGTH)
+			}
+		}
+	' "$GATE" > "$SCRATCH/specs-$S.txt"
+	nspec=$(wc -l < "$SCRATCH/specs-$S.txt" | tr -d ' ')
+	if [ "$nspec" -lt 5 ]; then
+		emit R7 "$S" class-duplicate-scan FAIL "parsed only $nspec spec(s) from the gate — the extraction is wrong, not the gate"
+	else
+		cbad=0; cdetail=""
+		while IFS='|' read -r pg spec; do
+			[ -n "$spec" ] || continue
+			case "$spec" in
+				[0-9]*x:*)
+					want="${spec%%x:*}"; lit="${spec#*x:}"
+					case "$want" in *[!0-9]*) want=""; lit="$spec" ;; esac ;;
+				*) want=""; lit="$spec" ;;
+			esac
+			needle=$(printf '%s' "$lit" | tr -d '[:space:]')
+			got=$(mandoc -Tutf8 "$d/$pg" | col -b | tr -d '[:space:]' \
+				| grep -oF -- "$needle" | wc -l | tr -d ' ') || got=0
+			if [ -z "$want" ] && [ "$got" -gt 1 ]; then
+				cbad=$((cbad + 1))
+				cdetail="$cdetail; $pg '$lit' publishes $got copies but is asserted by presence"
+			elif [ -n "$want" ] && [ "$got" -ne "$want" ]; then
+				cbad=$((cbad + 1))
+				cdetail="$cdetail; $pg '$lit' declares ${want}x but publishes $got"
+			fi
+		done < "$SCRATCH/specs-$S.txt"
+		if [ "$cbad" -eq 0 ]; then
+			emit R7 "$S" class-duplicate-scan PASS "$nspec specs scanned; every literal published more than once is counted, every declared N matches"
+		else
+			emit R7 "$S" class-duplicate-scan FAIL "$cbad of $nspec specs wrong$cdetail"
+		fi
+	fi
+
 	# --- R4 width sweep: the verdict must not depend on where mandoc breaks a line -------------
 	wfail=0; wtot=0; wfirst=""
 	w=$WIDTH_MIN

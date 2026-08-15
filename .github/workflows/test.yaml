@@ -187,10 +187,18 @@ jobs:
             fi
             for spec in "$@"; do
               # `Nx:LITERAL` opts into a count; anything else is a presence check. The prefix is
-              # accepted only when every character before `x:` is a digit, so a literal that
-              # happens to contain `x:` is never mistaken for a count spec, and N is not capped
-              # at one digit — a `10x:` that silently degraded to a presence check would assert a
-              # literal carrying its own prefix, which can never appear on the page.
+              # accepted whenever every character before `x:` is a digit, so N is not capped at
+              # one digit — a `10x:` that degraded to a presence check would assert a literal
+              # carrying its own prefix, which can never appear on the page. A literal whose own
+              # text starts with digits followed by `x:` would be read as a count, but that fails
+              # loud rather than silently, and no such literal exists here.
+              #
+              # ANY literal published more than once must be counted, not merely present: `grep`
+              # is satisfied by whichever copy survived, so corrupting one of two occurrences is
+              # invisible. That is a property of the page, not of the literal, so it has to be
+              # re-checked whenever a page changes — see the paired assertion in the verify
+              # harness, which derives every literal's published count and fails on an uncounted
+              # duplicate rather than trusting this list to have remembered.
               want=""; lit="$spec"
               case "$spec" in
                 [0-9]*x:*)
@@ -221,9 +229,13 @@ jobs:
             '__root__' \
             '2x:.partial suffix' \
             'st_blocks * 512'
-          check share/man/man1/xdu-find.1 'XDU_INDEX'
-          check share/man/man1/xdu-view.1 'XDU_INDEX'
-          check share/man/man1/xdu-rm.1   'XDU_INDEX' 'XDU_JOBS'
+          # Each of these names its variable twice per page — once as a cross-reference in the
+          # flag description, once as the ENVIRONMENT entry — so presence alone is satisfied by
+          # whichever copy survived, and corrupting the ENVIRONMENT entry publishes a variable
+          # name that does not exist. Counted for the same reason `.partial suffix` is.
+          check share/man/man1/xdu-find.1 '2x:XDU_INDEX'
+          check share/man/man1/xdu-view.1 '2x:XDU_INDEX'
+          check share/man/man1/xdu-rm.1   '2x:XDU_INDEX' '2x:XDU_JOBS'
           # A line starting with `.` or `'` is a roff control request: scdoc drops the period
           # silently, and the intuitive `\.` escape destroys the rest of the line. Rewrap instead.
           if grep -nE "^[[:space:]]*['.]" doc/*.scd; then
