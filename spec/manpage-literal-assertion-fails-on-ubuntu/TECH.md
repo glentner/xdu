@@ -3,7 +3,7 @@ slug: manpage-literal-assertion-fails-on-ubuntu
 title: The man-page literal gate asserts content, not layout
 kind: fix
 appetite: small
-status: in_review
+status: blocked
 branch: fix/manpage-literal-assertion-fails-on-ubuntu
 base: main
 current_phase: done
@@ -51,10 +51,11 @@ phases:
     -qF 'issues/manpage-gate-coverage-gaps.md' ROADMAP.md && git diff --quiet HEAD
     -- src tests bench Cargo.toml Cargo.lock && echo PHASE-OK
 review:
-  last_reviewed_commit: ''
-  verdict: none
-  blocked_reason: ''
-  cycle: 0
+  last_reviewed_commit: 82a0a4b1ce12c3357a263fe2947d5b09160245e1
+  verdict: changes-requested
+  blocked_reason: 'Documented local check omits CI''s Nx: count form (MEDIUM); Nx:
+    parses single-digit N only (LOW)'
+  cycle: 1
 ---
 # TECH.md — The man-page literal gate asserts content, not layout
 

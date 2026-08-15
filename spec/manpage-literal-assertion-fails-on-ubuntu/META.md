@@ -27,6 +27,12 @@
   re-read after being written so a mutation that failed to apply cannot let its case pass vacuously.
   Without that paragraph the natural implementation is "no FAIL lines → green", which a bad `awk`
   extraction would have satisfied silently.
+- `xdu-review` Step 2's "artifact-deliverable R-IDs are graded by you, not by the reviewer" paragraph
+  earned its length on this diff. `EVIDENCE.md` and 913 lines of `verify/*.sh` live under `spec/`, so
+  the `':(exclude)spec/'` pathspec strips the majority of the branch from the reviewer's view. Without
+  that instruction the two contexts would have split the evidence spine with neither owning the gap —
+  the reviewer reporting R4's recorded sweep as unverifiable, and the orchestrator assuming it had
+  been covered.
 
 ## Friction findings
 
@@ -135,3 +141,45 @@ is skipped by the parser):
   restore by `cp` + `cmp -s`; mutate *committed state* → do it in a detached worktree, never on the
   branch.
 - **Confidence:** high · **Effort:** small
+
+## F5 — Artifact-deliverable R-IDs are sourced from the wrong file, so the one on this branch was nearly missed
+`origin=xdu-review:step-2 severity=medium category=instruction status=open target=.agents/skills/xdu-review/SKILL.md`
+- **What happened:** Step 2 says to "identify them from `TECH.md`'s `satisfies` notes before
+  delegating". I did, and `TECH.md` gave no signal: `satisfies:` lists R4 under P1 alongside R1/R2/R3/
+  R5/R7, all of which are ordinary behavioral requirements verifiable from the workflow file. Nothing
+  in the frontmatter distinguishes "R4's *behavior* is in the diff" from "R4's *demonstration* is a
+  committed document under `spec/`". I only caught it by reading `GOAL.md`'s Clarifications, where Q4
+  says R4 is demonstrated by a recorded one-off sweep rather than by new CI surface. Had I followed
+  the instruction literally I would have delegated R4 whole, and the reviewer — blinded from
+  `EVIDENCE.md` — would have graded only half of it while reporting a clean pass.
+- **Skill cause:** `satisfies:` maps R-IDs to *phases*, not to deliverable *kind*; it structurally
+  cannot carry the signal the step asks it for. The signal that a requirement is discharged by an
+  artifact lives in `GOAL.md`'s Clarifications and non-goals ("demonstrated by a recorded sweep, not
+  by new permanent CI surface"), which the step never mentions — and `GOAL.md` is the one file the
+  orchestrator is guaranteed to read anyway.
+- **Recommended fix:** change the step to source artifact-deliverable R-IDs from **`GOAL.md`'s
+  Clarifications / non-goals first** (a requirement whose acceptance is phrased as "recorded",
+  "documented", "assessed" or "evidenced in the spec" is one), with `TECH.md`'s `satisfies` as a
+  secondary cross-check. Add the one-line test: *would the reviewer, seeing only the spec-excluded
+  diff, have anything to run?* If no, the orchestrator owns it.
+- **Confidence:** high · **Effort:** small
+
+## F6 — Any CONFIRMED finding auto-blocks, so two documentation-level findings loop a contract-complete fix
+`origin=xdu-review:step-4 severity=medium category=instruction status=open target=.agents/factory/review-rubric.md`
+- **What happened:** all seven R-IDs verified PASS by executed command on both toolchains, no Rust
+  touched, no human-gate trigger — and the pass still returns `blocked` / `changes-requested`, because
+  Step 4 and the rubric's "Verdict & loop" both key on the *existence* of a CONFIRMED finding with no
+  severity threshold. The two findings here are a MEDIUM doc omission and a LOW latent parse limit
+  that can only ever fail loudly. Both are worth fixing; neither is worth spending one of the three
+  bounded cycles on, and the binary rule gives no way to say so.
+- **Skill cause:** the severity table exists and is used to *grade* findings, but nothing downstream
+  consumes the grade — `CRITICAL` and `LOW` route identically. The PLAUSIBLE channel is the only
+  non-blocking outlet and it is the wrong one: downgrading a reproduced finding to PLAUSIBLE to avoid
+  a cycle would corrupt the evidence spine, so the instructions push toward either an over-heavy loop
+  or a misclassification.
+- **Recommended fix:** let severity route the verdict — CRITICAL/HIGH auto-block; MEDIUM/LOW return
+  `approved-with-findings`, recorded in `REVIEW.md` and surfaced by `xdu-publish` in the PR body, with
+  the human free to loop. **Handle with care:** this touches the review↔build loop, so the change must
+  not become a way to ship a real defect. Keep auto-block unconditional for anything touching
+  `invariants.md` §1–§12, the high-blast-radius core, or an unmet R-ID, regardless of graded severity.
+- **Confidence:** med · **Effort:** medium
