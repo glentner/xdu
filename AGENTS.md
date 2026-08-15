@@ -161,8 +161,11 @@ cross-reference in the flag description and once as the `ENVIRONMENT` entry, so 
 `ENVIRONMENT` entry publishes a variable name that does not exist while a presence check stays green.
 All of them are counted for that reason. **Whether a literal is duplicated is a fact about the page,
 not about the literal** — adding one cross-reference to a `.scd` can duplicate a previously-unique
-literal — so it is derived by the verify harness rather than remembered, and a new page joins the
-build with its counts checked. A local presence check on a duplicated literal therefore *cannot*
+literal — so re-count when you edit a `.scd` that carries an asserted literal; nothing re-derives it
+for you. A new page is not covered at all: the `check` list names four pages while the render step
+globs `doc/*.scd`, so a fifth man page ships entirely unasserted. Both gaps are recorded in
+[`issues/manpage-gate-coverage-gaps.md`](issues/manpage-gate-coverage-gaps.md).
+A local presence check on a duplicated literal therefore *cannot*
 predict CI's verdict no matter how correctly it normalizes; use the counting form above. Counting is what makes stripping whitespace
 dangerous in the other direction: the strip is lossy and can fuse adjacent tokens into a match that
 never appeared on the page, which is harmless for presence (at worst a false green) but a false

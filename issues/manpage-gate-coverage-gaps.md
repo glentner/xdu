@@ -47,8 +47,9 @@ reproduced on `doc/xdu-rm.1.scd:81`, the destructive binary's page, and on delet
 `ENVIRONMENT` section.
 
 That was an unmet `R7`, not a coverage gap, so it was **fixed in that pass**, not deferred: all four
-are now `2x:` counted, and the verify harness derives every literal's published count so an uncounted
-duplicate fails by construction rather than by being noticed. What survives of (c) is the weaker,
+are now `2x:` counted. Those counts are hand-maintained, though — the derivation that found them ran
+in that pass's `verify/` harness and did not outlive it, which is gap (b)'s territory below. What
+survives of (c) is the weaker,
 genuinely-deferred point: an env-var name is still a *thin* literal, and one well-chosen path or glob
 per page would catch more classes than four env-var names do. R3 below is that residue.
 

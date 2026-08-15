@@ -270,3 +270,23 @@ is skipped by the parser):
 - **Severity note:** `high` because it is a *gate* gap — it let a remediation ship an invariant that was
   false when written, and the review cycle it cost is a scarce resource under the ≤3 bound.
 - **Confidence:** high · **Effort:** small
+
+## F10 — Nothing warns that a `spec/*/verify/` harness is temporary when you cite it in the permanent manual
+`origin=xdu-build:step-2.3 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
+- **What happened:** Step 2.3 says a diff that moves the code owns the map, so I updated `AGENTS.md`
+  and `invariants.md` §13 to describe the new duplicate-count rule — and cited the harness I had just
+  built as the thing that enforces it. That harness lives in `spec/{slug}/verify/`, is invoked only by
+  this feature's `verify:` fields, and is a retained *record* the moment the spec merges. So a
+  permanent invariant now pointed at a temporary mechanism, telling the next agent a hole was closed
+  when it was not. It cost the last cycle of a bounded three.
+- **Skill cause:** `verify:` harnesses are written and run exactly like durable tests — same shell,
+  same green/red, same mutation discipline — and nothing in the skill marks the asymmetry between
+  `tests/` (runs forever, on every PR) and `spec/*/verify/` (runs during this feature, then stops).
+  Step 2.3 actively pushes toward updating the permanent manual in the same breath as building the
+  temporary harness, which is precisely when the two get conflated.
+- **Recommended fix:** state the lifetime explicitly where `verify:` is introduced — "a `verify:`
+  harness proves the phase; it is a record after merge, not a gate" — and add to Step 2.3: "when
+  writing into `AGENTS.md`/`invariants.md`, cite only mechanisms that survive merge (`tests/`, CI
+  workflows, code). If the enforcement lives in `spec/*/verify/`, say the rule is maintained by hand
+  and file the durable version as an issue."
+- **Confidence:** high · **Effort:** small

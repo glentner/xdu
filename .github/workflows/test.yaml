@@ -196,9 +196,10 @@ jobs:
               # ANY literal published more than once must be counted, not merely present: `grep`
               # is satisfied by whichever copy survived, so corrupting one of two occurrences is
               # invisible. That is a property of the page, not of the literal, so it has to be
-              # re-checked whenever a page changes — see the paired assertion in the verify
-              # harness, which derives every literal's published count and fails on an uncounted
-              # duplicate rather than trusting this list to have remembered.
+              # re-checked BY HAND whenever a page changes; nothing here re-derives it. The same
+              # applies to coverage: this list names four pages while the render step globs
+              # doc/*.scd, so a fifth page is unasserted. Both gaps are recorded in
+              # issues/manpage-gate-coverage-gaps.md.
               want=""; lit="$spec"
               case "$spec" in
                 [0-9]*x:*)

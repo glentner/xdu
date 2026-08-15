@@ -186,8 +186,9 @@ tolerate the hyphen, or to render with `groff` in CI and actually catch the clas
 
 ## The man-page literal gate is correct but narrow
 
-Four measured gaps in what the literal gate can structurally see, all pre-existing and all left alone
-because the pass that found them was scoped to making the *existing* assertions layout-insensitive. No
+Four measured gaps in what the literal gate can structurally see, all pre-existing. Three were left
+alone because the pass that found them was scoped to making the *existing* assertions
+layout-insensitive; the fourth turned out to be an unmet requirement of that pass and was fixed there. No
 literal names the binary it belongs to, so copying one rendered page over another is green. The page
 list is hard-coded while the render step globs `doc/*.scd`, so a fifth man page is entirely unasserted
 — measured shipping the exact historical `OUTDIR//.parquet` corruption past a green gate, which matters

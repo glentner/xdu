@@ -209,9 +209,14 @@ ordering is load-bearing:
   while the page ships wrong. The gate's `Nx:LITERAL` spec asserts exactly N. **"More than once" is a
   property of the page, not of the literal** — an env-var name appears twice because the flag
   description cross-references the `ENVIRONMENT` entry, so an ordinary `.scd` edit can duplicate a
-  literal that used to be unique and silently re-open the hole. Do not maintain that judgement by
-  hand: the verify harness derives every asserted literal's published count and fails both on an
-  uncounted duplicate and on a declared N that no longer matches. `AGENTS.md`'s Commands section
+  literal that used to be unique and silently re-open the hole. **That judgement is maintained by
+  hand** in the workflow's literal list — nothing standing re-derives it, so re-count when you touch a
+  `.scd` carrying an asserted literal. (A feature's `spec/{slug}/verify/` harness can derive the counts
+  during a build pass, but it is a record once the spec merges, not a gate.) Coverage of a *new* page
+  is likewise not automatic — the `check` list names four pages while the render step globs
+  `doc/*.scd`. Both gaps are the standing record in
+  [`issues/manpage-gate-coverage-gaps.md`](../../issues/manpage-gate-coverage-gaps.md).
+  `AGENTS.md`'s Commands section
   documents the matching local form — a presence-only local check on a duplicated literal cannot
   predict CI however well it normalizes. Counting is also what makes the strip dangerous in the other
   direction: fusing two adjacent tokens is at worst a false *green* for presence but a false *red* for

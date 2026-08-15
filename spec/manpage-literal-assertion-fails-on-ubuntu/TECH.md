@@ -3,7 +3,7 @@ slug: manpage-literal-assertion-fails-on-ubuntu
 title: The man-page literal gate asserts content, not layout
 kind: fix
 appetite: small
-status: blocked
+status: in_review
 branch: fix/manpage-literal-assertion-fails-on-ubuntu
 base: main
 current_phase: done
@@ -138,6 +138,27 @@ diagnoses a failed render as a failed render.
 > arguments. Keeping the suite in one file that both platforms execute is what makes "both platforms
 > ran the same cases" true by construction rather than by two copies staying in sync. The `verify:`
 > command is unchanged.
+>
+> **Amendment (P1+P2+P3, review cycle 3 remediation):** cycle 3 graded R1–R7 all PASS and found no
+> gate defect. Its two CONFIRMED findings were **prose**: the operating manual claimed a guarantee the
+> shipped gate does not make. §13 and `AGENTS.md` said duplicate counts are "derived by the verify
+> harness rather than remembered" — but that harness is `spec/{slug}/verify/`, run by `/xdu-build` for
+> this feature's phases only, referenced by nothing outside `spec/`, and therefore a record rather than
+> a gate once merged. `AGENTS.md` additionally claimed "a new page joins the build with its counts
+> checked", contradicting deferred gap (b) in the same diff.
+>
+> Corrected to state what actually ships: the `Nx:` counts are **hand-maintained**; a build-pass
+> harness can derive them but does not outlive the pass; a new page is not covered at all; and
+> `issues/manpage-gate-coverage-gaps.md` is the standing record of both gaps. The class sweep found a
+> **fourth** site the review did not cite — the same overclaim in `issues/manpage-gate-coverage-gaps.md`
+> itself, written during cycle 2 — plus a `ROADMAP.md` sentence that said the gaps were "all left
+> alone" six lines before noting one was fixed. Both corrected.
+>
+> **No new gate.** "The manual describes what ships" is not mechanically assertable without brittle
+> string-matching on prose, and inventing one here would add exactly the maintenance surface this
+> change is removing. Verified instead by re-running all three gates green and by the review's own
+> reproductions no longer being true of the text. The durable closure of the underlying coverage gaps
+> is `issues/manpage-gate-coverage-gaps.md` R1/R3, deliberately left deferred.
 >
 > **Amendment (P1, review cycle 2 remediation):** cycle 1's fix closed R7 for the literal the
 > reviewer named and left it open for four others. `XDU_INDEX` (on `xdu-find.1`, `xdu-view.1`,
