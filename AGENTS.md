@@ -106,6 +106,26 @@ cargo fmt --all -- --check                              # format gate
 brew install scdoc                     # macOS  (apt-get install -y scdoc on Debian/Ubuntu, as CI does)
 for scd in doc/*.scd; do scdoc < "$scd" > /dev/null || echo "FAILED $scd"; done
 scdoc < doc/xdu.1.scd | mandoc -Tutf8 | col -b   # read the PUBLISHED text, not just exit 0
+
+# ...and to ASSERT a literal survived, match it the way CI does. Strip all whitespace from the page
+# AND from the literal: mandoc breaks lines wherever the fill lands, including inside a token, so an
+# un-normalized grep calls an intact literal missing. Your scdoc is probably not CI's — homebrew's
+# escapes hyphen-minus, the distro package does not — so the un-normalized form can pass for you and
+# fail on ubuntu-24.04. Keep this in lockstep with the "Assert critical literals" step in
+# .github/workflows/test.yaml and its restatement in .agents/factory/invariants.md §13.
+lit='OUTDIR/.xdu-complete'
+scdoc < doc/xdu.1.scd | mandoc -Tutf8 | col -b | tr -d '[:space:]' |
+  grep -qF -- "$(printf '%s' "$lit" | tr -d '[:space:]')" || echo "MISSING: $lit"
+
+# A literal that occurs MORE THAN ONCE needs a count, not a presence check — `grep -q` is satisfied
+# by the surviving copy, so corrupting one of two occurrences reads green here and red in CI, which
+# asserts it as `2x:.partial suffix`. Count the same normalized way. Keep the needle specific enough
+# that stripping whitespace cannot FUSE two adjacent tokens into a synthetic match: `e.g. partial`
+# becomes `e.g.partial`, so count `.partial suffix`, never a bare `.partial`.
+lit='.partial suffix'; want=2
+got=$(scdoc < doc/xdu.1.scd | mandoc -Tutf8 | col -b | tr -d '[:space:]' |
+  grep -oF -- "$(printf '%s' "$lit" | tr -d '[:space:]')" | wc -l | tr -d ' ') || got=0
+[ "$got" -eq "$want" ] || echo "MISCOUNT: $lit — $got, expected $want"
 ```
 
 **Rendering is not optional, and exit 0 is not sufficient.** `scdoc` markup fails in two ways: a
@@ -118,6 +138,38 @@ also silently. None of this is mechanically fixable — `*/*` is a corrupted glo
 legitimate bold-slash (the `/` key) in `xdu-view.1.scd`, so intent has to be read. Catching the
 silent class requires diffing the rendered text against the literal you intended, which is what the
 `mandoc | col -b` line above is for.
+
+**A third mode is not a markup error at all: the literal is intact and still unfindable.** `mandoc`
+fills each paragraph to its own width and will break a line *inside* a token — a bare roff `-` is a
+legal break opportunity — so `OUTDIR/.xdu-complete` can publish as `OUTDIR/.xdu-` + newline +
+`complete`. Collapsing newlines to spaces does not recover it (the break was *within* a word, not
+between two), and `col -b` indents continuation lines with a literal TAB, which squeezing spaces
+never touches. That is **layout, not content**: nothing is corrupt, and the fix is to compare with
+all whitespace stripped from both sides — the second snippet above. Whether you ever see it depends
+on your `scdoc`: 1.11.5 substitutes `\-` for a bare `-` (upstream `1d4143d`), ubuntu-24.04's 1.11.2
+does not, so the same `.scd` yields two different roffs and a check can be green on your box while
+`main` is red. Which is exactly what happened — the gate arrived already broken and had never once
+been green in CI. The normalization now lives in three places that must change together:
+`.github/workflows/test.yaml`'s assertion step, the snippet above, and
+[`invariants.md`](.agents/factory/invariants.md) §13.
+
+**Presence is the wrong question for a literal that appears twice.** `grep -q` is satisfied by
+whichever copy survived, so corrupting exactly one of `doc/xdu.1.scd`'s two `.partial suffix`
+occurrences is invisible to it — which is why CI counts that one (`2x:.partial suffix`) instead. The
+same is true of every `*XDU_INDEX*` / `*XDU_JOBS*`: each appears twice on its page, once as a
+cross-reference in the flag description and once as the `ENVIRONMENT` entry, so corrupting only the
+`ENVIRONMENT` entry publishes a variable name that does not exist while a presence check stays green.
+All of them are counted for that reason. **Whether a literal is duplicated is a fact about the page,
+not about the literal** — adding one cross-reference to a `.scd` can duplicate a previously-unique
+literal — so re-count when you edit a `.scd` that carries an asserted literal; nothing re-derives it
+for you. A new page is not covered at all: the `check` list names four pages while the render step
+globs `doc/*.scd`, so a fifth man page ships entirely unasserted. Both gaps are recorded in
+[`issues/manpage-gate-coverage-gaps.md`](issues/manpage-gate-coverage-gaps.md).
+A local presence check on a duplicated literal therefore *cannot*
+predict CI's verdict no matter how correctly it normalizes; use the counting form above. Counting is what makes stripping whitespace
+dangerous in the other direction: the strip is lossy and can fuse adjacent tokens into a match that
+never appeared on the page, which is harmless for presence (at worst a false green) but a false
+**red** for a count — so a counted needle must be specific enough that fusion cannot synthesize it.
 
 ## Repository map
 

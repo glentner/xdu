@@ -146,6 +146,62 @@ making a centrally stored index explorable by anyone with a link, no shell accou
 *Horizon: long-term · Depends on: S3 as an index target · Refs: —*
 **Seed:** `/xdu-feature Build xdu-web, a Wasm progressive web app that browses an S3-backed index in the browser with list/tree views and search, mirroring xdu-view.`
 
+## The man-page gate false-alarms on distro `scdoc`, and `main` is red because of it
+
+CI's packaging job fails on `ubuntu-24.04` with `CORRUPT RENDER: share/man/man1/xdu.1 is missing the
+literal: OUTDIR/.xdu-complete` — but the man page is fine. No character is lost; `mandoc` simply fills
+the paragraph and breaks the line inside `xdu-complete`, and the gate's newline-to-space flatten cannot
+survive a break *inside* a token. The variable turns out to be `scdoc`, not `mandoc`: 1.11.5 (homebrew,
+what a maintainer runs locally) escapes hyphen-minus so the token cannot break, and 1.11.2 (what noble
+ships, what CI installs) does not. So the gate passes for the author and fails for everyone else, and
+the local check `AGENTS.md` documents cannot predict CI's verdict.
+
+The gate is worth keeping — it exists because a mis-escaped literal renders at `scdoc` exit 0 and once
+published a wrong glob to an operator past a green build. What it needs is to assert *content* rather
+than *layout*, so its verdict no longer depends on which `scdoc` built the roff, what width `mandoc`
+filled to, or where the next paragraph edit pushes a line break. A second brittleness class is already
+latent in the same line (mandoc indents with tabs, the flatten squeezes only spaces), and one
+normalization closes both. This is **pre-existing** — it arrived with the gate itself, in the
+post-merge harness commit `9c579cf`, and `main` was already red before PR #10 — and the fix is two
+lines, but settling *which* two required an adversarial reproduction: the obvious widen-the-render fix
+is measurably defeated by a routine documentation edit.
+
+*Horizon: near-term · Depends on: — · Refs: `.agents/factory/harness-log.md` (why the flatten exists); the Docker builder defect from the same CI run*
+**Seed:** [`issues/manpage-literal-assertion-fails-on-ubuntu.md`](issues/manpage-literal-assertion-fails-on-ubuntu.md)
+
+## `man xdu` hyphenates the completion-marker path, so the page operators read is wrong
+
+Fixing the CI gate made `main` green; it did not make the page correct. `man-db` renders with `groff`,
+and `groff` hyphenates where `mandoc` does not — so at the default width `man xdu` publishes
+`OUTDIR/.xdu-com` + **U+2010** + newline + `plete`, ten such hyphens on that page alone, and an operator
+who copy-pastes the marker path gets a filename that cannot exist. It reproduces identically on roff
+from both `scdoc` versions, so neither the normalization fix nor pinning a newer `scdoc` touches it,
+and CI cannot see it because CI renders with `mandoc`. Notably this **falsifies the premise** recorded
+when the question was set aside ("one adversarial run measured zero U+2010") — the boundary was
+reasonable, the reason given for it was not. The choice to weigh is whether to teach the gate to
+tolerate the hyphen, or to render with `groff` in CI and actually catch the class users are exposed to.
+
+*Horizon: near-term · Depends on: — (independent of the gate fix; the fix does not address it) · Refs: the man-page gate entry above; `spec/manpage-literal-assertion-fails-on-ubuntu/EVIDENCE.md`*
+**Seed:** [`issues/manpage-groff-hyphenates-marker-path.md`](issues/manpage-groff-hyphenates-marker-path.md)
+
+## The man-page literal gate is correct but narrow
+
+Four measured gaps in what the literal gate can structurally see, all pre-existing. Three were left
+alone because the pass that found them was scoped to making the *existing* assertions
+layout-insensitive; the fourth turned out to be an unmet requirement of that pass and was fixed there. No
+literal names the binary it belongs to, so copying one rendered page over another is green. The page
+list is hard-coded while the render step globs `doc/*.scd`, so a fifth man page is entirely unasserted
+— measured shipping the exact historical `OUTDIR//.parquet` corruption past a green gate, which matters
+because `xdu-mv`/`xdu-tar` are queued above. The four env-var assertions are thin literals — a
+well-chosen path per page would catch more than a variable name does (their *duplicate-occurrence*
+blind spot was an unmet R7 and is already fixed). And
+`col -b` rewrites multibyte characters as literal `\xNN` text outside a UTF-8 locale, which bounds what
+can ever be asserted and already mis-measured the `groff` work above. Deriving the page list from
+`doc/*.scd` is nearly free and converts the widest gap into a build error.
+
+*Horizon: near-term, low priority · Depends on: — · Refs: the two entries above; `issues/ci-gates-are-advisory.md` (a gate that binds nothing is the wider version)*
+**Seed:** [`issues/manpage-gate-coverage-gaps.md`](issues/manpage-gate-coverage-gaps.md)
+
 ## `--version` is documented but rejected by every binary
 
 All four man pages document `-V, --version`, and `AGENTS.md` states the version is single-sourced from
@@ -242,6 +298,46 @@ regression" means. A `usage()` warning exists; the loaded default does not.
 
 *Horizon: near-term · Depends on: — · Refs: —*
 **Seed:** [`issues/bench-baseline-overwrite-guard.md`](issues/bench-baseline-overwrite-guard.md)
+
+## The container image has not built since January, and what is published is missing `xdu-rm`
+
+The Dockerfile's builder stage installs no packages, and `rust:1-slim-bookworm` ships a C compiler but
+no `c++` — which is the tool name cc-rs looks for when the `bundled` DuckDB feature compiles DuckDB
+from C++ source. Every `docker build` since 2026-01-20 has died at `ToolNotFound: failed to find tool
+"c++"`. The cause is one deleted line: the musl→glibc revert swapped `FROM rust:alpine` for
+`FROM rust:slim` and dropped the `apk add … g++` that went with it. Nothing caught it because the PR
+guardrail did not exist until July, `release.yaml` has no dependency on a green image build, and there
+is no scheduled canary — so three tagged releases shipped with the image build red.
+
+The user-facing half is worse than a stale tag. Because `ghcr.io/glentner/xdu:latest` predates that
+same commit, it is still the January `FROM scratch` musl image built from v0.2.1: it has no shell and
+contains only `xdu`, `xdu-find` and `xdu-view` — **`xdu-rm` has never been in any published image**.
+Fixing the Dockerfile is one apt layer and is proven to work end to end, offline and non-root; the
+harder part is deciding what happens to the live tags, and putting some signal in place so a red image
+is noticed in days rather than months.
+
+*Horizon: near-term, low priority · Depends on: — · Refs: the man-page gate defect from the same CI run; base-image digest pinning is a deliberate follow-up, not part of this*
+**Seed:** [`issues/dockerfile-builder-missing-cxx-toolchain.md`](issues/dockerfile-builder-missing-cxx-toolchain.md)
+
+## CI gates are advisory: nothing enforces a red check
+
+The repository has good gates — format, clippy, the test matrix, the man-page literal assertion, a
+container build guardrail — and nothing anywhere makes any of them binding. `main` is unprotected with
+no rulesets, so a pull request merges over failing checks (PR #10 did, with three), commits reach
+`main` directly without a PR at all (ten of the last fifteen), and a batched push means a newly added
+gate may never be executed before it lands — which is exactly how the man-page assertion arrived
+already broken and stayed that way. Releases do not depend on a green image build either, so three of
+them shipped with it red.
+
+This is the reason the other two defects survived rather than a defect in its own right, and it is why
+they are being written down instead of quietly fixed: the gap is between "the gate exists" and "the
+gate binds anything". The fix is small — a ruleset with required checks and no direct pushes, plus a
+scheduled canary for the image build that no PR reliably triggers — but it has a hard ordering
+constraint. Enforcement has to land *after* the two red gates are green, or it blocks the very changes
+that would fix them.
+
+*Horizon: near-term · Depends on: the man-page gate and container-image fixes above must land first (enforcement would otherwise block its own remediation) · Refs: `spec/readers-autoload-parquet-at-runtime/META.md` F6 covers the factory-skill half*
+**Seed:** [`issues/ci-gates-are-advisory.md`](issues/ci-gates-are-advisory.md)
 
 ## Native OS packages (DEB / RPM)
 

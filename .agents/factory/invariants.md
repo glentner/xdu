@@ -194,8 +194,35 @@ ordering is load-bearing:
   mis-escaped `*` turned `_OUTDIR_/*/*.parquet` into `OUTDIR//.parquet`; a line beginning with `.`
   loses that period), so a green render gate proves nothing about the text. The escaping and
   line-start rules are single-sourced in `AGENTS.md`'s **Commands** section — read them before
-  touching a `.scd`, and do not restate them here. Reviewing a `.scd` change means diffing
-  `scdoc < f.scd | mandoc -Tutf8 | col -b` against the literal you intended, never exit 0 alone.
+  touching a `.scd`, and do not restate them here. Reviewing a `.scd` change means reading the
+  published text (`scdoc < f.scd | mandoc -Tutf8 | col -b`), never exit 0 alone.
+- **Asserting a literal survived is a separate step, and it must be layout-insensitive.** `mandoc`
+  breaks lines wherever the fill lands, including *inside* a token, so an un-normalized `grep` calls
+  an intact literal missing; `col -b` also indents with TABs. Match the way CI does — pipe the page
+  through `| tr -d '[:space:]'` and strip the literal the same way. A local check that skips this can
+  be green on homebrew `scdoc` (which escapes hyphen-minus) and red on the distro package (which does
+  not). This normalization is **one rule in three places** — `AGENTS.md`'s Commands section, the
+  `Assert critical literals` step in `.github/workflows/test.yaml`, and this bullet — and changing it
+  is a same-commit obligation across all three, like the CLI↔man-page rule.
+- **A literal published more than once must be asserted by COUNT, not presence.** `grep -q` is
+  satisfied by whichever copy survived, so corrupting one of two occurrences passes a presence check
+  while the page ships wrong. The gate's `Nx:LITERAL` spec asserts exactly N. **"More than once" is a
+  property of the page, not of the literal** — an env-var name appears twice because the flag
+  description cross-references the `ENVIRONMENT` entry, so an ordinary `.scd` edit can duplicate a
+  literal that used to be unique and silently re-open the hole. **That judgement is maintained by
+  hand** in the workflow's literal list — nothing standing re-derives it, so re-count when you touch a
+  `.scd` carrying an asserted literal. (A feature's `spec/{slug}/verify/` harness can derive the counts
+  during a build pass, but it is a record once the spec merges, not a gate.) Coverage of a *new* page
+  is likewise not automatic — the `check` list names four pages while the render step globs
+  `doc/*.scd`. Both gaps are the standing record in
+  [`issues/manpage-gate-coverage-gaps.md`](../../issues/manpage-gate-coverage-gaps.md).
+  `AGENTS.md`'s Commands section
+  documents the matching local form — a presence-only local check on a duplicated literal cannot
+  predict CI however well it normalizes. Counting is also what makes the strip dangerous in the other
+  direction: fusing two adjacent tokens is at worst a false *green* for presence but a false *red* for
+  a count, so a counted needle must be specific enough that fusion cannot synthesize it
+  (`.partial suffix`, never bare `.partial`). Adding, removing or re-counting a literal carries the
+  same three-place same-commit obligation as the normalization above.
 - Release tarball layout — `bin/{xdu,xdu-find,xdu-view,xdu-rm}` +
   `share/{man/man1/*.1, bash-completion/completions/*, zsh/site-functions/*}` — matches `install.sh`
   extraction exactly; keep them in lockstep.

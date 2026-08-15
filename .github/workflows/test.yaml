@@ -133,19 +133,91 @@ jobs:
       # states for code. scdoc markup fails two ways: a nesting error is loud, but a mis-escaped
       # literal is SILENT. doc/xdu.1.scd once shipped `_OUTDIR_/*/*.parquet`, which renders at
       # exit 0 and publishes `OUTDIR//.parquet` — a wrong glob handed to an operator, past a green
-      # gate. So assert the published TEXT of the artifact this job just produced. Flatten it
-      # first: mandoc is free to rewrap at any width, so a multi-word literal is only greppable
-      # once newlines collapse to spaces. See AGENTS.md "Commands" for both failure modes.
+      # gate. So assert the published TEXT of the artifact this job just produced. The escaping
+      # rules themselves are single-sourced in AGENTS.md "Commands"; they are not restated here.
+      #
+      # The verdict must depend on the page's CONTENT, never on its layout, so whitespace is
+      # stripped from both the published text and the literal before matching. Collapsing newlines
+      # to spaces is not enough: mandoc fills to whatever width it likes and may break a line
+      # INSIDE a token — a bare roff `-` is a legal break opportunity, so `OUTDIR/.xdu-complete`
+      # can publish as `OUTDIR/.xdu-` + newline + `complete` — and `col -b` indents continuation
+      # lines with a literal TAB, which squeezing spaces never touches.
+      #
+      # Stripping whitespace is lossy: it can fuse two adjacent tokens into a string that never
+      # appeared on the page (`e.g. partial` becomes `e.g.partial`, which contains `.partial`).
+      # For a presence check that can only cause a false green; for an exact-count check it causes
+      # a false red, so a counted needle must be specific enough that fusion cannot synthesize it
+      # — hence `.partial suffix` rather than `.partial`.
+      #
+      # Counts exist because a presence check on a literal that occurs twice fires only when EVERY
+      # occurrence is corrupted. `Nx:LITERAL` asserts exactly N, so corrupting either one is caught.
+      #
+      # Each page is rendered once and that render is judged before any literal is, so a page that
+      # failed to render or rendered to nothing is reported as such instead of as a pile of corrupt
+      # literals. mandoc exits 0 on an empty file and on a garbage file, so the length guard is not
+      # redundant with the exit status.
+      #
+      # `|| got=0` is load-bearing: grep exits 1 on zero matches, so under a shell with `pipefail`
+      # set -e would kill the step before the diagnostic is printed — in exactly the zero-count
+      # case the count was added to catch.
+      #
+      # This normalization is one rule in three places: here, the grep snippet in AGENTS.md's
+      # "Commands" section (what a maintainer runs locally), and .agents/factory/invariants.md §13.
+      # Changing it here means changing both of those in the same commit — otherwise the local check
+      # stops predicting CI's verdict, which is the defect this step was rewritten to fix.
       - name: Assert critical literals survive into the published man-page text
         run: |
           set -eu
-          published() { mandoc -Tutf8 "$1" | col -b | tr '\n' ' ' | tr -s ' '; }
+          published() {
+            raw=$(mandoc -Tutf8 "$1") || return 1
+            printf '%s\n' "$raw" | col -b | tr -d '[:space:]'
+          }
           fail=0
           check() {
             page="$1"; shift
-            text=$(published "$page")
-            for lit in "$@"; do
-              if ! printf '%s' "$text" | grep -qF -- "$lit"; then
+            if ! text=$(published "$page"); then
+              echo "RENDER FAILED: mandoc could not render $page" >&2
+              fail=1
+              return
+            fi
+            if [ "${#text}" -lt 200 ]; then
+              echo "RENDER EMPTY: $page produced only ${#text} characters — nothing to assert" >&2
+              fail=1
+              return
+            fi
+            for spec in "$@"; do
+              # `Nx:LITERAL` opts into a count; anything else is a presence check. The prefix is
+              # accepted whenever every character before `x:` is a digit, so N is not capped at
+              # one digit — a `10x:` that degraded to a presence check would assert a literal
+              # carrying its own prefix, which can never appear on the page. A literal whose own
+              # text starts with digits followed by `x:` would be read as a count, but that fails
+              # loud rather than silently, and no such literal exists here.
+              #
+              # ANY literal published more than once must be counted, not merely present: `grep`
+              # is satisfied by whichever copy survived, so corrupting one of two occurrences is
+              # invisible. That is a property of the page, not of the literal, so it has to be
+              # re-checked BY HAND whenever a page changes; nothing here re-derives it. The same
+              # applies to coverage: this list names four pages while the render step globs
+              # doc/*.scd, so a fifth page is unasserted. Both gaps are recorded in
+              # issues/manpage-gate-coverage-gaps.md.
+              want=""; lit="$spec"
+              case "$spec" in
+                [0-9]*x:*)
+                  n="${spec%%x:*}"
+                  case "$n" in
+                    *[!0-9]*) ;;
+                    *) want="$n"; lit="${spec#*x:}" ;;
+                  esac
+                  ;;
+              esac
+              needle=$(printf '%s' "$lit" | tr -d '[:space:]')
+              if [ -n "$want" ]; then
+                got=$(printf '%s' "$text" | grep -oF -- "$needle" | wc -l | tr -d ' ') || got=0
+                if [ "$got" -ne "$want" ]; then
+                  echo "CORRUPT RENDER: $page has $got occurrence(s) of the literal '$lit', expected $want" >&2
+                  fail=1
+                fi
+              elif ! printf '%s' "$text" | grep -qF -- "$needle"; then
                 echo "CORRUPT RENDER: $page is missing the literal: $lit" >&2
                 fail=1
               fi
@@ -156,11 +228,15 @@ jobs:
             'OUTDIR/*/*.parquet' \
             'OUTDIR/.xdu-complete' \
             '__root__' \
-            '.partial' \
+            '2x:.partial suffix' \
             'st_blocks * 512'
-          check share/man/man1/xdu-find.1 'XDU_INDEX'
-          check share/man/man1/xdu-view.1 'XDU_INDEX'
-          check share/man/man1/xdu-rm.1   'XDU_INDEX' 'XDU_JOBS'
+          # Each of these names its variable twice per page — once as a cross-reference in the
+          # flag description, once as the ENVIRONMENT entry — so presence alone is satisfied by
+          # whichever copy survived, and corrupting the ENVIRONMENT entry publishes a variable
+          # name that does not exist. Counted for the same reason `.partial suffix` is.
+          check share/man/man1/xdu-find.1 '2x:XDU_INDEX'
+          check share/man/man1/xdu-view.1 '2x:XDU_INDEX'
+          check share/man/man1/xdu-rm.1   '2x:XDU_INDEX' '2x:XDU_JOBS'
           # A line starting with `.` or `'` is a roff control request: scdoc drops the period
           # silently, and the intuitive `\.` escape destroys the rest of the line. Rewrap instead.
           if grep -nE "^[[:space:]]*['.]" doc/*.scd; then

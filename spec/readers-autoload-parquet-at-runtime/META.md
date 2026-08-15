@@ -161,3 +161,32 @@ is skipped by the parser):
   that any build-state mutation was reverted and verified"), so the orchestrator does not have to
   reinvent it per run. Pairs with F3/F4 — same root, three skills.
 - **Confidence:** high · **Effort:** small
+
+## F6 — Neither `xdu-review` nor `xdu-publish` ever looks at the CI check rollup
+
+`origin=xdu-publish:step-1 severity=high category=missing-guidance status=open target=.agents/skills/xdu-publish/SKILL.md`
+- **What happened:** `xdu-review` reported "**Man-page gate:** not triggered — `git diff --stat
+  main...HEAD -- doc/ src/` is empty, so no `.scd` render was owed" and treated the gate as satisfied.
+  The gate was **red on `main` at that moment** and went red on the PR's own run. `xdu-publish` then ran
+  its Step 1 pre-flight — branch, verdict, staleness gate, `git fetch` — and none of it reads CI. The
+  red checks surfaced only because the human had asked to squash-merge and I chose to watch
+  `gh pr checks` on my own initiative; nothing in either skill required it. Three failing checks were
+  one `gh pr merge` away from landing unexamined, and `main` has no branch protection to catch it
+  (`gh api repos/glentner/xdu/branches/main/protection` → 404, `…/rulesets` → `[]`), so the skills are
+  the only gate that exists.
+- **Skill cause:** both skills reason about CI from the **diff** rather than from CI. `xdu-review`'s
+  rubric makes "executed evidence" its spine but scopes that to commands the reviewer runs locally — a
+  green local `cargo test` and a red GitHub runner are different facts, and the man-page defect is
+  exactly the class that only appears on the runner. `xdu-publish`'s Safety Principles gate on
+  `review.verdict` and post-review code drift, which encode "has a human-equivalent approved this
+  code", but not "does the project's own automation currently pass". A skill whose one irreversible
+  action is a merge should not be able to reach that action without having looked.
+- **Recommended fix:** add to `xdu-publish` Step 1 pre-flight: "Run `gh pr checks` (or
+  `gh run list --branch {branch} --limit 1`). Record the rollup in the confirmation. If any required
+  check is failing, STOP and report which — proceed only on an explicit human override, and record the
+  override and the failing checks in the PR body." Pair it with a line in `xdu-review` Step 3: gate
+  applicability is decided by the **check rollup**, not by a path-scoped diff — a gate that is red on
+  `base` is a finding about the branch's merge-readiness even when the diff does not touch its inputs.
+  Both defects found this way are now recorded in `issues/manpage-literal-assertion-fails-on-ubuntu.md`
+  and `issues/dockerfile-builder-missing-cxx-toolchain.md`.
+- **Confidence:** high · **Effort:** small
