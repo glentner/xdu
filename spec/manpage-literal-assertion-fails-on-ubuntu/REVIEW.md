@@ -175,3 +175,99 @@ is satisfied.
 ## Optional completeness sub-pass (separate reviewer; may see TECH.md)
 
 Not run (not requested — invoke `/xdu-review completeness` if wanted).
+
+---
+
+## Review cycle 2 — changes-requested (2026-08-15)
+
+- **Reviewed commit:** b4d32d6971d676579278657a2200be65d6c882e4 · **Base:** main · **Prior cycle:** 82a0a4b
+- **Mode:** **scoped to the remediation** (human-chosen). The blind reviewer graded
+  `git diff 82a0a4b..HEAD -- . ':(exclude)spec/'` — the three-file lockstep edit — against the two
+  cycle-1 findings, plus a regression check of R1–R5 and an explicit adversarial probe of the new
+  `Nx:` parser. Not a fresh full-branch pass; cycle 1 already covered that diff.
+- **Contract drift:** none — `GOAL.md` still touched only by `4c1e2d1`.
+- **Blindness:** fresh subagent, no file under `spec/` read. Note the author retuned their own verify
+  harness in this commit; the reviewer was told explicitly **not** to read or run it and to build
+  independent checks, so nothing below rests on the author's own instrumentation.
+
+### Cycle-1 findings: both CLOSED
+
+| Cycle-1 finding | Status | Evidence |
+|---|---|---|
+| **A** (MEDIUM) — documented check can't reproduce CI's verdict for the counted literal | **CLOSED** | `AGENTS.md`'s new count snippet run verbatim on four trees (clean / corrupt `:105` / corrupt `:135` / both) × two toolchains: local and CI agree in every cell. The old presence snippet stays silent on all three corrupt trees — the blind spot, still demonstrable. Robust under `bash -e`, `bash -e -o pipefail`, `zsh -e`, `zsh -e -o pipefail`. Q2 honored: no minimum `scdoc` version named. |
+| **B** (LOW) — `Nx:` parsed a single digit only | **CLOSED** | `10x:` → `has 2 occurrence(s) … expected 10`; `12x:` likewise. Previously both degraded to `missing the literal: 10x:…`. Probes `0x:` (assert-absent), `02x:` (leading zero, parsed decimal), `x:foo`, `max:size`, `2x:` all behave defensibly. |
+
+### Regression matrix R1–R5 (the gate body was edited)
+
+| R | Verified by | Result |
+|---|---|---|
+| R1 | clean tree, ubuntu-24.04 `scdoc 1.11.2`, extracted gate under `bash -e` and `-o pipefail` | `OK:` rc=0 — holds |
+| R2 | same, host `scdoc 1.11.5` (41 `\-` escapes vs 0 — the toolchains genuinely diverge) | `OK:` rc=0 — holds |
+| R3 | `doc/xdu.1.scd:113` un-escaped to `_OUTDIR_/*/*.parquet` (scdoc exit 0) | rc=1, names `OUTDIR/*/*.parquet` — holds, both toolchains |
+| R4 | widths 40, 55, 66, 80, 100, 200 | `OK:` rc=0 at every width, both toolchains — holds |
+| R5 | empty `.1`; deleted `.1` | `RENDER EMPTY` / `RENDER FAILED`, rc=1 — holds |
+
+No regression in any cell.
+
+### Findings
+
+#### [HIGH/CONFIRMED] R7 is unmet for 4 of the 10 asserted specs — single-occurrence corruption ships past a green gate
+- **Where:** `.github/workflows/test.yaml:224-226`; the false rule now at `.agents/factory/invariants.md:207`
+- **Failure scenario:** `XDU_INDEX` occurs **twice** in each of `xdu-find.1`, `xdu-view.1`, `xdu-rm.1`,
+  and `XDU_JOBS` twice in `xdu-rm.1` — once as a cross-reference in the `-i`/`-j` description, once as
+  the `ENVIRONMENT` entry itself. All four are asserted by **presence**, which `grep -q` satisfies from
+  whichever copy survived. Corrupting the `ENVIRONMENT` heading alone publishes the **wrong environment
+  variable name** to operators, and the gate is green.
+- **Evidence (orchestrator-reproduced, independently of the reviewer):**
+  ```
+  # published, normalized occurrence counts — the gate's own view
+  xdu.1        .partial suffix    -> 2      (counted, 2x:)
+  xdu-find.1   XDU_INDEX          -> 2      (presence only)
+  xdu-view.1   XDU_INDEX          -> 2      (presence only)
+  xdu-rm.1     XDU_INDEX          -> 2      (presence only)
+  xdu-rm.1     XDU_JOBS           -> 2      (presence only)
+
+  # corrupt ONE occurrence: doc/xdu-find.1.scd:66  *XDU_INDEX* -> *XDU-INDEX*
+  published: line 21 "See also XDU_INDEX" / line 63 "XDU-INDEX"   <- wrong name shipped
+  gate:      OK: every asserted literal survived …   GATE EXIT=0
+  ```
+  The reviewer additionally reproduced two more, both green: deleting `xdu-find.1.scd`'s entire
+  `# ENVIRONMENT` section (leaving a dangling cross-reference), and the same mutation on
+  `xdu-rm.1.scd:81` — the destructive binary's page.
+- **Touches requirement / invariant:** **R7**, whose normative clause is unconditional — *"IF an
+  asserted literal occurs more than once in its source page, THEN corruption of any single occurrence
+  SHALL be detected — or that literal SHALL be dropped from the set."* `GOAL.md`'s parenthetical
+  *"Today `.partial` is the only such literal"* is **factually wrong**; it is a mistaken premise, not a
+  scope limit, so this is an unmet R-ID rather than scope creep. Also `invariants.md` §13 — this
+  remediation added the rule *"A literal that occurs more than once is asserted by COUNT, not
+  presence"*, which is false of the shipped gate for 4 of 10 specs. Rubric: an unmet R-ID **and**
+  operating-manual drift that degrades a gate.
+- **Remedy (either satisfies R7):** promote the four to `2x:` (four tokens in `test.yaml`, and it makes
+  the new `invariants.md` sentence true), or drop them per R7's second branch. Note
+  `issues/manpage-gate-coverage-gaps.md:32-37` defers this as gap (c) on the rationale that these names
+  *"have no silent-corruption mode: they can only fail if the page is missing or empty"* — the three
+  repros disprove that rationale and it should be corrected wherever the fix lands.
+
+### Observations (recorded, not blocking)
+
+- The new comment at `.github/workflows/test.yaml:189-193` claims *"a literal that happens to contain
+  `x:` is never mistaken for a count spec"*. Overclaimed: `2024x:release notes` **is** parsed as a
+  count. It fails loud (red), never silent, so it is a wording inaccuracy rather than a defect — worth
+  correcting in the same edit that touches the block.
+- An `N` of ≥19 digits makes `[ "$got" -ne "$want" ]` error `integer expression expected` (exit 2),
+  which `if` treats as false, so the gate prints `OK:` and exits 0. A genuine hollow green, but
+  unreachable by any realistic maintainer edit. Not worth a guard on its own.
+
+### Human-gate triggers
+
+**None.** No CONFIRMED finding touches the high-blast-radius core (this branch changes no Rust) or a
+destructive-rm / schema-stability / atomic-write / SQL-injection invariant (`invariants.md`
+§4 / §1 / §2 / §5). The live section is §13, whose violations are HIGH, not auto-CRITICAL.
+
+### Loop status
+
+**Cycle 2 of ≤3.** One cycle of budget remains before `review-rubric.md` requires escalating to the
+human on non-convergence. The remedy is small and mechanical, so convergence in cycle 3 is the
+expectation — but note this finding is the *same class* as cycle-1 Finding A (presence vs. count on a
+duplicated literal), found in a different set of literals, which is the signal that the fix was
+applied to the instance rather than the class.

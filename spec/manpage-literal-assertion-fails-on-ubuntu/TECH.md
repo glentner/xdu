@@ -3,11 +3,11 @@ slug: manpage-literal-assertion-fails-on-ubuntu
 title: The man-page literal gate asserts content, not layout
 kind: fix
 appetite: small
-status: in_review
+status: blocked
 branch: fix/manpage-literal-assertion-fails-on-ubuntu
 base: main
 current_phase: done
-last_updated: '2026-08-14'
+last_updated: '2026-08-15'
 phases:
 - id: P1
   name: 'Rewrite the literal assertion: normalize, guard the render, count occurrences'
@@ -51,11 +51,12 @@ phases:
     -qF 'issues/manpage-gate-coverage-gaps.md' ROADMAP.md && git diff --quiet HEAD
     -- src tests bench Cargo.toml Cargo.lock && echo PHASE-OK
 review:
-  last_reviewed_commit: 82a0a4b1ce12c3357a263fe2947d5b09160245e1
+  last_reviewed_commit: b4d32d6971d676579278657a2200be65d6c882e4
   verdict: changes-requested
-  blocked_reason: 'Documented local check omits CI''s Nx: count form (MEDIUM); Nx:
-    parses single-digit N only (LOW)'
-  cycle: 1
+  blocked_reason: 'R7 unmet for 4 of 10 specs: XDU_INDEX x3 + XDU_JOBS occur twice
+    per page but are presence-asserted; single-occurrence corruption ships green.
+    invariants.md:207''s new COUNT rule is false as written.'
+  cycle: 2
 ---
 # TECH.md — The man-page literal gate asserts content, not layout
 
