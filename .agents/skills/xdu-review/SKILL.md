@@ -110,7 +110,9 @@ Launch a fresh `general-purpose` reviewer via the `Agent` tool. Give it, inline,
   or `META.md`** (`META.md` is the harness self-improvement log — it leaks author intent, same reason
   as PLAN/TECH).
 - the conduct rule: **no edits to tracked files** (revert any instrumentation before returning;
-  `git status --porcelain` must be clean on hand-back), and the rubric's "Verdict & loop" section is
+  `git status --porcelain` must be clean on hand-back) **and, if you mutated build state to build a
+  negative control, confirmation that it was restored and the restore verified — `git status` cannot
+  see `target/`**; and the rubric's "Verdict & loop" section is
   the orchestrator's job — the reviewer must not write `REVIEW.md`, call `ReportFindings`, or run
   `set_phase.py`;
 - required return: a structured findings list (severity, CONFIRMED/PLAUSIBLE, file:line, failure
@@ -133,7 +135,9 @@ reconcile their findings.
 
 ### Step 3 — Collect, sanity-check, and report
 Read the reviewer's returned findings. Confirm the reviewer left the tree clean
-(`git status --porcelain` empty; if not, inspect and revert its leftovers before anything else).
+(`git status --porcelain` empty; if not, inspect and revert its leftovers before anything else) **and
+that any build-state mutation it reports was restored and the restore verified — `git status` does not
+cover `target/`**.
 Do a light second-pass sanity check (drop anything not backed by cited evidence).
 
 **A gate's applicability is not settled by a path-scoped diff.** If you did not observe a gate's

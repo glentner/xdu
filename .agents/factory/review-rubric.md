@@ -38,10 +38,14 @@ valid, valuable result.
 
 ## Reviewer conduct (the subagent)
 
-- **Leave the tree clean.** Make no edits to tracked files; if you must instrument to reproduce a
-  finding (a probe, a print), revert it before returning — `git status --porcelain` must be empty
-  when you hand back. Verify by driving the real thing — `cargo test` and CLI drives in a throwaway
-  index (`.agents/factory/bin/temp_index.sh`), never the developer's real one.
+- **Leave the tree clean — and `git status` is not the whole tree.** Make no edits to tracked files;
+  if you must instrument to reproduce a finding (a probe, a print), revert it before returning —
+  `git status --porcelain` must be empty when you hand back. **`target/` is git-ignored, so that check
+  is blind to build-state poisoning.** If you mutate build state to construct a negative control
+  (`cp /usr/bin/false target/release/xdu`, moving an artifact, editing an untracked fixture),
+  restoring it is part of the control: assert the restore's post-condition and report it. Verify by
+  driving the real thing — `cargo test` and CLI drives in a throwaway index
+  (`.agents/factory/bin/temp_index.sh`), never the developer's real one.
 - The **Verdict & loop** section below is the *orchestrator's* job, executed after you return — do
   not write `REVIEW.md`, call `ReportFindings`, or run `set_phase.py` yourself. Your deliverable is
   the structured findings list + requirement→evidence matrix you were asked for.

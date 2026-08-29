@@ -138,7 +138,7 @@ is skipped by the parser):
 
 ## F5 — The reviewer's "leave the tree clean" rule cannot see build-tree poisoning · seen again (cf. F3)
 
-`origin=xdu-review:step-2 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+`origin=xdu-review:step-2 severity=medium category=missing-guidance status=applied target=.agents/factory/review-rubric.md`
 - **What happened:** the natural negative control for R3 is to make `target/release/{xdu,xdu-rm}`
   hostile (`cp /usr/bin/false …`) and require `rm_tests` to stay green. That mutates build state the
   reviewer must restore. The rubric's *Reviewer conduct* section defines "clean" as **"no edits to
