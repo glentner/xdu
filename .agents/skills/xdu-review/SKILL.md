@@ -134,7 +134,15 @@ reconcile their findings.
 ### Step 3 — Collect, sanity-check, and report
 Read the reviewer's returned findings. Confirm the reviewer left the tree clean
 (`git status --porcelain` empty; if not, inspect and revert its leftovers before anything else).
-Do a light second-pass sanity check (drop anything not backed by cited evidence). Then:
+Do a light second-pass sanity check (drop anything not backed by cited evidence).
+
+**A gate's applicability is not settled by a path-scoped diff.** If you did not observe a gate's
+current state, record it as "**not observed**" — never "not triggered" or "satisfied". A gate that is
+red on `base` is a fact about the branch's merge-readiness even when the diff does not touch its
+inputs, and reasoning about CI from the diff is how a red man-page gate got reported as owed-nothing.
+(`xdu-publish` Step 1 reads the actual rollup; this session has no `gh` and is not expected to.)
+
+Then:
 1. **Cycle 1:** write `spec/{slug}/REVIEW.md` from the template (verification run,
    requirement→evidence matrix, findings most-severe-first, human-gate triggers). **Cycle 2+
    (`review.cycle` ≥ 1): never overwrite** — append a dated `## Review cycle {n} — {verdict}

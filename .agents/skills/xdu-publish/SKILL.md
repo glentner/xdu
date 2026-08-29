@@ -8,7 +8,7 @@ description: >-
   factory.
 disable-model-invocation: true
 argument-hint: "[pr (default) | local] [merge]"
-allowed-tools: Read, Grep, Glob, AskUserQuestion, Bash(uv run --with pyyaml python .agents/factory/bin/*), Bash(git status *), Bash(git branch *), Bash(git log *), Bash(git diff *), Bash(git rev-parse *), Bash(git fetch *), Bash(git pull *), Bash(git push *), Bash(git switch *), Bash(git merge *), Bash(git add *), Bash(git commit *), Bash(gh pr *), Bash(gh repo *), Bash(head *)
+allowed-tools: Read, Grep, Glob, AskUserQuestion, Bash(uv run --with pyyaml python .agents/factory/bin/*), Bash(git status *), Bash(git branch *), Bash(git log *), Bash(git diff *), Bash(git rev-parse *), Bash(git fetch *), Bash(git pull *), Bash(git push *), Bash(git switch *), Bash(git merge *), Bash(git add *), Bash(git commit *), Bash(gh pr *), Bash(gh repo *), Bash(gh run *), Bash(head *)
 ---
 
 # xdu-publish — ship the branch to main
@@ -49,6 +49,9 @@ Additional instructions provided with the invocation: $ARGUMENTS
   `review.last_reviewed_commit`: any later commit touching anything **outside `spec/`** invalidates
   it (the review's own artifact commit and meta-notes do not) — the Step 1 staleness gate checks this
   mechanically.
+- **Never merge without reading CI.** `review.verdict` says a human-equivalent approved the *code*; it
+  says nothing about whether the project's own automation currently passes. Those are two different
+  questions and Step 1 must answer both before Step 4 becomes reachable.
 - **Confirm before irreversible/outward actions.** Always confirm the mode, PR title, and body with
   the human (AskUserQuestion) before `git push` / `gh pr create` / local merge.
 - **Squash-only repo.** Do not create merge commits or rebase-merge. The PR title becomes the squash
@@ -73,6 +76,15 @@ Report the verdict, commits vs `main`, and whether a PR already exists (`gh pr s
    `/xdu-review`; proceed only on an explicit human override, recorded in the PR body.
 3. `git fetch origin`. Confirm `main` is reachable and note if the branch is behind `main`
    (squash-merge tolerates it, but flag a large drift).
+4. **CI gate:** run `gh pr checks` (a PR already exists) or `gh run list --branch {branch} --limit 1`
+   (it does not), and record the rollup in the Step 3 confirmation. **Any failing required check is a
+   STOP** — report which ones; proceed only on an explicit human override, recorded in the PR body
+   alongside the failing checks. A green local `cargo test` and a red GitHub runner are different
+   facts: the man-page and container-toolchain gates fail *only* on the runner, and a red rollup has
+   already sat one `gh pr merge` away from landing unexamined. `main` has **no branch protection**
+   (`repos/glentner/xdu/branches/main/protection` → 404, `…/rulesets` → `[]`), so this step is the only
+   gate that exists. If the branch was never pushed there is nothing to read yet — say so, and re-check
+   after Step 4a's push, before any `merge`.
 
 ### Step 2 — Compose the PR title + body
 - **Title:** `[{kind}] {imperative summary}` synthesized from `GOAL.md` (not a copy of it).

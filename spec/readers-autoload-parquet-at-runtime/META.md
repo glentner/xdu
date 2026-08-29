@@ -164,7 +164,7 @@ is skipped by the parser):
 
 ## F6 — Neither `xdu-review` nor `xdu-publish` ever looks at the CI check rollup
 
-`origin=xdu-publish:step-1 severity=high category=missing-guidance status=open target=.agents/skills/xdu-publish/SKILL.md`
+`origin=xdu-publish:step-1 severity=high category=missing-guidance status=applied target=.agents/skills/xdu-publish/SKILL.md`
 - **What happened:** `xdu-review` reported "**Man-page gate:** not triggered — `git diff --stat
   main...HEAD -- doc/ src/` is empty, so no `.scd` render was owed" and treated the gate as satisfied.
   The gate was **red on `main` at that moment** and went red on the PR's own run. `xdu-publish` then ran
