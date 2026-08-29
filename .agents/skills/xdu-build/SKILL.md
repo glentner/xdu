@@ -81,6 +81,14 @@ Parse `$ARGUMENTS` case-insensitively; if ambiguous, STOP and ask.
   (a CLI change updates the affected `doc/*.scd` man page in the same commit; completions regenerate
   from `src/cli.rs` and the generated `share/` tree is git-ignored), and non-TTY stdout hygiene
   (progress → stderr). Consult `invariants.md` for the footguns the phase touches.
+- **A refusal that names an alternative is policy, not breakage.** When a command is rejected by a
+  shell function, wrapper, or hook — the interactive `rm` here prints `use "del" instead` and exits
+  **0** — adopt what the refusal names. Never re-issue it via `command`, `\cmd`, `env`, `sh -c`, or an
+  absolute path to get past it, and never write such a bypass into a `verify:` gate, where it
+  propagates to every later phase. If the named alternative is unavailable, **STOP and ask**. This is
+  not hypothetical: that exact bypass ran here and left `/usr/bin/false` installed as
+  `target/release/xdu` for two later phases to measure. `AGENTS.md` "Environment & working rules"
+  holds the deletion convention itself, including the cases that legitimately stay `rm`.
 - **Circuit breaker (durable).** Every red verify gate is recorded on file via
   `set_phase.py --phase {id} --record-attempt` — the counter, not session memory, trips the breaker.
   When a phase's `attempts` reaches ~3 (`next_phase.py` warns), or it stays `hill: uphill` across
