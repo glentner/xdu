@@ -129,7 +129,7 @@ is skipped by the parser):
 - **Confidence:** high · **Effort:** small
 
 ## F4 — The mandated mutation test says "revert" without naming a safe revert, and the reflex one destroys the phase's work · seen again
-`origin=xdu-build:step-4 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
+`origin=xdu-build:step-4 severity=medium category=missing-guidance status=applied target=.agents/skills/xdu-build/SKILL.md`
 - **What happened:** Step 4 requires "mutate what it checks, confirm the mutation landed, confirm red,
   revert … Revert before Step 7's `git add -A`". The file I had to mutate to see the gate fail was
   `.github/workflows/test.yaml` — the same file the phase had just rewritten and had **not** committed,

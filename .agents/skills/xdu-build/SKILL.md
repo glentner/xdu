@@ -8,7 +8,7 @@ description: >-
   forces a stop. The /continue-style driver of the software factory (see .agents/factory/methodology.md).
 disable-model-invocation: true
 argument-hint: "[status | dry run | phase P3 | through P5 | next 2 | bundle | no-pause]"
-allowed-tools: Read, Write, Edit, Grep, Glob, Bash(git status *), Bash(git branch *), Bash(git rev-parse *), Bash(git log *), Bash(git diff *), Bash(git add *), Bash(git commit *), Bash(uv run --with pyyaml python .agents/factory/bin/*), Bash(cargo build *), Bash(cargo test *), Bash(cargo clippy *), Bash(cargo fmt *), Bash(cargo run *), Bash(.agents/factory/bin/temp_index.sh *), Bash(seq *), Bash(head *), Bash(tail *), Bash(ls *)
+allowed-tools: Read, Write, Edit, Grep, Glob, Bash(git status *), Bash(git branch *), Bash(git rev-parse *), Bash(git log *), Bash(git diff *), Bash(git add *), Bash(git commit *), Bash(git worktree *), Bash(git archive *), Bash(cp *), Bash(cmp *), Bash(uv run --with pyyaml python .agents/factory/bin/*), Bash(cargo build *), Bash(cargo test *), Bash(cargo clippy *), Bash(cargo fmt *), Bash(cargo run *), Bash(.agents/factory/bin/temp_index.sh *), Bash(seq *), Bash(head *), Bash(tail *), Bash(ls *)
 ---
 
 # xdu-build — execute the roadmap (resume-and-implement)
@@ -171,6 +171,17 @@ against the same reference; report a verdict per change and per-scenario numbers
 mean). The general guard: **see the gate fail once before trusting it** — mutate what it checks,
 confirm the mutation landed, confirm red, revert. Confirming the mutation landed is not optional; a
 botched mutation leaves the gate green and reads as "verified". Revert before Step 7's `git add -A`.
+
+**Revert to *your* state, not to HEAD.** Step 7 commits after Step 4, so between Step 3 and Step 7 the
+working tree is the **only** copy of the phase's work — and the mutation target is very often a file
+this phase just rewrote. `git checkout` / `git restore` / `git stash` all resolve against HEAD, which
+predates the phase: the reflex revert silently discards the deliverable, and no command fails. Two
+shapes, two mechanisms. Mutating the **working tree** → copy the file aside first, restore with `cp`,
+confirm with `cmp -s`. Mutating **committed state** (a gate that reads its inputs through
+`git archive HEAD`, where a working-tree edit is invisible to it) → `git worktree add --detach`, commit
+the mutation *inside* the throwaway worktree, run the gate there, `git worktree remove --force`; the
+branch never moves. This is the one place a phase can lose committed-quality work with no error
+reported anywhere.
 
 **Setup and teardown fail independently of the verdict.** If a gate mutates state it must restore —
 poisoning `target/release/`, moving an artifact, backdating a fixture — the restore *is* part of the
