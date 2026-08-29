@@ -272,7 +272,7 @@ is skipped by the parser):
 - **Confidence:** high · **Effort:** small
 
 ## F10 — Nothing warns that a `spec/*/verify/` harness is temporary when you cite it in the permanent manual
-`origin=xdu-build:step-2.3 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
+`origin=xdu-build:step-2.3 severity=medium category=missing-guidance status=applied target=.agents/skills/xdu-build/SKILL.md`
 - **What happened:** Step 2.3 says a diff that moves the code owns the map, so I updated `AGENTS.md`
   and `invariants.md` §13 to describe the new duplicate-count rule — and cited the harness I had just
   built as the thing that enforces it. That harness lives in `spec/{slug}/verify/`, is invoked only by

@@ -62,7 +62,9 @@ Parse `$ARGUMENTS` case-insensitively; if ambiguous, STOP and ask.
 - **On a feature/fix branch only** — never `main`. Clean tree required (non-empty →
   STOP: commit, stash, or discard first).
 - **A phase is the unit of work.** Execute every `[ ]` item in the target phase, not just the first.
-  A phase is `done` only when all items are satisfied **and** its `verify:` command passes.
+  A phase is `done` only when all items are satisfied **and** its `verify:` command passes. A `verify:`
+  harness proves the *phase*; after merge it is a **record**, not a gate — anything that must keep
+  being enforced belongs in `tests/` or CI.
 - **Verify by driving the CLI, not just tests.** Run the phase's `verify:` command; for behavior,
   exercise the real flow in a throwaway index — e.g. `.agents/factory/bin/temp_index.sh sh -c
   'xdu-find -i "$XDU_INDEX" -u alice --count'` — never against the developer's real filesystem or a
@@ -146,6 +148,14 @@ Steps 1–2, then report the plan that *would* run and stop (no edits/commits).
    counting. Grep found 3 sites; the derived predicate found 4 more that no grep could reach. If the
    predicate needs a build or a render to evaluate, encode **the predicate itself** as the gate — that
    is the strongest form available, because it covers sites nobody enumerated.
+
+   **Cite only what survives the merge.** When the sweep writes into `AGENTS.md` or `invariants.md`,
+   the mechanism you name as the enforcement must outlive this branch — `tests/`, a CI workflow step,
+   or the code itself. A `spec/{slug}/verify/` harness is **not** one: it proves the phase, then
+   becomes a retained *record* the moment the spec merges, so citing it in the permanent manual tells
+   the next agent a hole is closed when nothing enforces it. If the durable gate does not exist yet,
+   say in the manual that the rule is maintained by hand and file the durable version as an
+   `issues/{slug}.md` + `ROADMAP.md` pair.
 
 ### Step 3 — Implement the phase
 Execute every `[ ]` item to AGENTS.md conventions. Sanity-check as you go
