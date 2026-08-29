@@ -92,7 +92,7 @@ is skipped by the parser):
 - **Confidence:** high · **Effort:** small
 
 ## F2 — `xdu-review` teaches the un-normalized man-page pipeline as sufficient render evidence
-`origin=xdu-plan:step-3 severity=medium category=instruction status=open target=.agents/skills/xdu-review/SKILL.md`
+`origin=xdu-plan:step-3 severity=medium category=instruction status=applied target=.agents/skills/xdu-review/SKILL.md`
 - **What happened:** `xdu-review/SKILL.md:62-63` says "A render is evidence only when the published
   text was read — `scdoc < f.scd | mandoc -Tutf8 | col -b`, diffed against the literal you intended".
   That pipeline is exactly the one this fix exists to correct: it is layout-sensitive, so a literal

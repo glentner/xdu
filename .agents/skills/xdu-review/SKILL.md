@@ -59,10 +59,15 @@ Additional instructions provided with the invocation: $ARGUMENTS
 - **External verification is the spine.** Every finding must cite an executed command
   (`cargo test`, real CLI in a throwaway index via `.agents/factory/bin/temp_index.sh`, the man-page
   render via `scdoc` when a `doc/*.scd` is touched). No assertion-only findings.
-  **A render is evidence only when the published text was read** — `scdoc < f.scd | mandoc -Tutf8 |
-  col -b`, diffed against the literal you intended; exit 0 is the same "necessary but not sufficient"
-  the build gate already rejects for code (`AGENTS.md`'s Commands section has both failure modes).
-  Record in `REVIEW.md` which literals you confirmed, not just that it rendered.
+  **A render is evidence only when the published text was read** — and only when the literal is matched
+  the way CI matches it. Exit 0 is the same "necessary but not sufficient" the build gate already
+  rejects for code. Use **`AGENTS.md`'s Commands section verbatim**: the reading form, the
+  whitespace-stripped presence form, and the **counting** form for a literal that appears more than
+  once. Do not hand-roll a `grep` — `mandoc` breaks lines *inside* a token and your `scdoc` is probably
+  not CI's, so an un-normalized check can be green here and red on the runner; a presence check on a
+  duplicated literal cannot predict CI at all. Restating that pipeline here is what drifted last time —
+  point, don't copy. Record in `REVIEW.md` which literals you confirmed **and by which form**, not just
+  that it rendered.
   **When `scdoc` is absent**, do not silently drop the check and do not report an unearned pass. This
   session is read-only and does not install tooling — instead compare each affected binary's `--help`
   flag set against the `.scd` by inspection, **state plainly in `REVIEW.md` that the render was
