@@ -228,7 +228,10 @@ ordering is load-bearing:
   extraction exactly; keep them in lockstep.
 - Non-TTY runs keep **stdout** clean/pipeable (progress and status go to **stderr**).
 - Reuse shared helpers; do not duplicate logic across bins or reimplement production logic in tests.
-- Comments are declarative statements of the invariant / the *why*; **never embed `spec/` `R#`/`P#`
-  ids in source** (they restart per feature and collide across branches).
+- **Never embed `spec/` `R#`/`P#` ids in source** (they restart per feature and collide across
+  branches). Greppable, and reviewers cite the result — keep grading this one.
+- **Prose, comment and commit-message voice** per `AGENTS.md` § *Prose and comments*, which also
+  carries the commit subject cap and the hand-wrap widths. Single-sourced there — do not restate the
+  numbers here. This is **hygiene, not a review finding**: a 105-column line is not a §13 violation.
 - Pre-release gate (mirrored by CI and `/xdu-release`): `cargo fmt --all -- --check`,
   `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` all pass clean.

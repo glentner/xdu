@@ -32,7 +32,8 @@ assertion.
    check. Mechanical on a `kind: refactor` diff: grep both files for every new or moved module,
    every new CLI flag, and every new on-disk artifact.
 
-**Do NOT** report style nits, speculative hardening, or "you could also…" gold-plating. A
+**Do NOT** report style nits (including prose wrapping and commit-message style), speculative
+hardening, or "you could also…" gold-plating. A
 gap-hunting reviewer manufactures gaps, which drives over-engineering. Silence on a clean diff is a
 valid, valuable result.
 

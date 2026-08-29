@@ -56,7 +56,9 @@ Additional instructions provided with the invocation: $ARGUMENTS
   the human (AskUserQuestion) before `git push` / `gh pr create` / local merge.
 - **Squash-only repo.** Do not create merge commits or rebase-merge. The PR title becomes the squash
   commit subject on `main`, so the **PR title is `[category] Imperative summary`** (category =
-  `TECH.md` `kind`: feature|fix|refactor) — **never Conventional Commits (`feat:`/`fix:`)**.
+  `TECH.md` `kind`: feature|fix|refactor) — **never Conventional Commits (`feat:`/`fix:`)**. It is
+  also the one branch title that must fit the subject budget in `AGENTS.md` § *Prose and comments*;
+  GitHub appends ` (#N)` on squash, so leave room for it.
 - **Link, don't quote.** The PR body references artifacts via SHA-pinned blob permalinks, not pasted
   copies.
 - **No `Co-Authored-By` trailer** (attribution lives in the PR body, not the commit). PR **bodies** end

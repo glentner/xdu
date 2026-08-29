@@ -43,6 +43,7 @@ feature) so there is no external DuckDB dependency.
 - **Commit subjects follow `[category] Imperative summary`.** Common categories: `feature`, `fix`,
   `docs`, `ci`, `refactor`, `test`, `release` (version bumps / rebuilt assets), and `harness` (the
   `.agents/` factory). This set is **not closed** — coin a new lowercase category when one fits.
+  Subject length, and the hand-wrapping of the body, are stated once in § *Prose and comments*.
 - **No `Co-Authored-By:` trailer on commits** — it is noise in `git log`. Authorship/AI-assistance
   is tracked in the **PR body** instead, which ends with the Claude Code generation line.
 - **Version is single-sourced from `Cargo.toml`** — never hardcode a version string in `src/`; read it
@@ -85,6 +86,105 @@ feature) so there is no external DuckDB dependency.
   `docker prune`), which maintains metadata a trash move would strand; **published examples**
   (`README.md`, `doc/*.scd`) that teach users `xdu-find … | xargs rm`; and **`xdu-rm` itself**, whose
   entire product purpose is to free blocks.
+
+## Prose and comments
+
+The comments, documentation and commit messages here have a voice. Keep it. The padding, hedging and
+marketing adjectives that generated text tends toward cost a reader's confidence in code that is
+otherwise correct, and this is a tool that unlinks files on shared storage — it has to be taken
+seriously to be trusted with that. `src/lib.rs` and `src/crawl.rs` carry the voice; match them.
+
+**Write:**
+
+- Declarative statements. `// Presence attests that the whole run finished; the body only adds
+  detail.` — not `// This function will check...`.
+- The **why**, not the what. The code says what it does. A comment earns its place by naming a
+  constraint, a failure mode, or a rejected alternative. The `RESERVED_INDEX_NAMES` guard iterates
+  the list so that reserving a new name rejects it by construction; that reason is not recoverable
+  from reading the loop.
+- Concrete failure modes. "`_OUTDIR_/*/*.parquet` published as `OUTDIR//.parquet`, at exit 0" beats
+  "escaping matters here". "All 16 destructive tests drove a stale `target/release/xdu-rm` while
+  `cargo test` stayed green" beats "the fixture was unreliable".
+- Whole sentences with terminal punctuation, in the style already in the file.
+
+**Do not write:**
+
+- Filler and hedging: "simply", "just", "note that", "it's worth noting", "essentially",
+  "basically".
+- Marketing adjectives: "comprehensive", "robust", "seamless", "powerful", "elegant", "blazing",
+  "leverage", "utilize". If a property matters, state the measurement — `bench/` exists so a claim
+  about crawl speed carries a number, a tree shape, and a noise floor.
+- "This ensures that…", "This allows us to…", "In order to…" — usually a sentence that has not yet
+  decided what it is claiming.
+- Restatements of the adjacent line. A comment that paraphrases the code is worse than none.
+- Emoji, decorative Unicode, or exclamation marks in a comment, a `doc/*.scd` page, or a commit
+  message. A Rust macro `!` is not prose. There is none in `src/` or `doc/` today, and the
+  decoration the project keeps is confined to PR bodies (`🔧 Harness feedback`, the Claude Code
+  trailer).
+- Bulleted lists where two sentences would do. Tables are for reference material; prose is for
+  reasoning.
+
+**Never embed feature-scoped spec ids** (`R#`, `P#`) in `src/`, `doc/*.scd` or `README.md`. They
+restart per feature, live in `spec/{slug}/`, and mean nothing in the merged tree; provenance runs
+`git blame → commit → PR → spec/{slug}/`. Nothing lints this, so it survives on review alone. Naming
+stable things is fine: real functions, real constants (`ROOT_PARTITION`, `MARKER_READ_LIMIT`), real
+environment variables (`XDU_INDEX`, `XDU_JOBS`), documented DuckDB or `scdoc` behavior.
+
+### Commit messages
+
+Wrap both by hand. Neither number is a convention borrowed from elsewhere.
+
+- **Subject: 72 characters, hard**, counting the `[category] ` prefix. `git log --oneline` spends 8
+  columns on the short SHA and a space, leaving 72 of an 80-column terminal. This costs
+  human-authored commits nothing: 2 of the 60 non-`[harness]` subjects on `main` exceed it, against
+  a mean of 46.9.
+- **Body: hard-wrap at 80**, after a blank line. That is what this repo already writes — of 453 body
+  lines, 3% exceed 80 where 43% exceed 72, so 72 would impose a new standard rather than record the
+  one in force. `git log` indents the body 4 columns, so an 80-wide body can fold in an exactly-80
+  terminal; that is the accepted cost of matching the corpus.
+- **Exempt from the body wrap:** a URL, a pasted error string, or a path longer than 80. Breaking
+  one makes it uncopyable, so give it its own line and let it overrun.
+
+**When a subject will not fit, reword it — never truncate.** Drop the article, name the thing
+instead of describing it, or split an "and also…" clause into a second commit. What overflows is
+usually *provenance* rather than summary, and provenance belongs in the body:
+
+```
+[harness] Close the class by evaluating a predicate
+
+Finding: manpage-literal-assertion-fails-on-ubuntu F9
+```
+
+That subject is 51 characters. Committed with `(manpage-literal-assertion-fails-on-ubuntu F9)`
+appended it was 117 — the inline form that `.agents/skills/xdu-harness/SKILL.md` templates, where a
+41-character slug spends 57 of the 72 columns before the summary begins. That template is the one
+place the cap was structural rather than a matter of wording, and it is why 15 of the 19 `[harness]`
+subjects on `main` exceed 72. Moving the suffix to a body line brings 18 of the 19 inside. The
+holdout carries no suffix and is simply too long a summary, which is the case the cap exists for.
+
+**Branch commits are out of scope.** The `xdu-feature|plan|build|review` subject templates repeat
+the slug and can exceed 72, but `/xdu-publish` squashes them into the PR title and none reaches
+`main`. The **PR title is in scope** — it becomes the squash subject, and GitHub appends ` (#N)` to
+it, so leave room.
+
+### Markdown prose
+
+Hard-wrap markdown at **100 columns**, by hand. That is this repository's measured width rather than
+an aspiration: `AGENTS.md` runs p50 = 96, p90 = 102. A rule of 80 would put a fifth of the
+constitution in violation of a standard it states about itself.
+
+**Count characters, not bytes.** `awk 'length > 100'` reports 95 long lines in this file where a
+character count finds 69; the difference is em dashes, at three bytes each.
+
+Tables are exempt — a row cannot be wrapped without breaking it, and the two widest lines here (167
+and 141) are both rows. Fenced code, link targets, and any single token wider than the column are
+exempt for the same reason. `doc/*.scd` is exempt as well: its breaks are chosen for roff, not for
+reading, and where the two rules conflict the line-start restrictions in **Commands** win, because
+rewrapping is the fix for a leading `.` and escaping is not.
+
+Rewrapping a paragraph produces a whole-paragraph diff, so reflow only the paragraphs you were
+editing anyway. The ~55 pre-existing prose lines in the 101–104 band are grandfathered, not a
+backlog; do not open a diff to chase them.
 
 ## Commands
 
@@ -165,8 +265,8 @@ literal — so re-count when you edit a `.scd` that carries an asserted literal;
 for you. A new page is not covered at all: the `check` list names four pages while the render step
 globs `doc/*.scd`, so a fifth man page ships entirely unasserted. Both gaps are recorded in
 [`issues/manpage-gate-coverage-gaps.md`](issues/manpage-gate-coverage-gaps.md).
-A local presence check on a duplicated literal therefore *cannot*
-predict CI's verdict no matter how correctly it normalizes; use the counting form above. Counting is what makes stripping whitespace
+A local presence check on a duplicated literal therefore *cannot* predict CI's verdict no matter how
+correctly it normalizes; use the counting form above. Counting is what makes stripping whitespace
 dangerous in the other direction: the strip is lossy and can fuse adjacent tokens into a match that
 never appeared on the page, which is harmless for presence (at worst a false green) but a false
 **red** for a count — so a counted needle must be specific enough that fusion cannot synthesize it.
@@ -336,9 +436,9 @@ kept **in lockstep** with this section (this file wins if they drift). The `xdu-
     bytes are `strip_ansi`-sanitized before rendering.
 13. **Project conventions.** Version single-sourced from `Cargo.toml`; `share/` generated + ignored +
     CI-asserted; tarball layout (`bin/` + `share/{man,bash-completion,zsh}`) matches `install.sh`;
-    non-TTY runs keep stdout clean/pipeable (progress → stderr); reuse shared helpers; declarative
-    comments and **no `spec/` R#/P# ids in source** (they restart per feature and collide across
-    branches).
+    non-TTY runs keep stdout clean/pipeable (progress → stderr); reuse shared helpers; **no `spec/`
+    R#/P# ids in source** (they restart per feature and collide across branches); prose, comment and
+    commit-message voice per § *Prose and comments*, which is hygiene rather than a review finding.
 
 ## High-risk files & footguns (quick reference)
 
@@ -419,8 +519,7 @@ kept **in lockstep** with this section (this file wins if they drift). The `xdu-
   human OK before any irreversible push.
 - **Put logic where it belongs:** shared types/parsing/SQL-building in `lib`; keep bins thin. Don't
   duplicate a helper across bins (the crawl-test reimplementation is the anti-pattern).
-- **Comments are declarative statements of the invariant / the *why*** — never embed feature-scoped
-  spec ids (`R#`, `P#`) in source: they restart per feature and mean nothing in the merged tree.
-  Requirement provenance lives in the commit, the PR, and the retained `spec/{slug}/`.
+- **Prose, comment and commit-message voice** per § *Prose and comments*, including the ban on
+  feature-scoped spec ids in source.
 - **This file is the map, but it drifts.** For a deep change, re-verify the specific invariant against
   the source before relying on it, and update this file when the code moves.

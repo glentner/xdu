@@ -132,8 +132,12 @@ diff-style preview. Confirm. This is where a bad or stale finding gets caught be
 2. Apply **one finding per commit**:
    ```
    git add <edited .agents/… files> spec/{slug}/META.md
-   git commit -m "[harness] {imperative summary of the fix} ({slug} F#)"
+   git commit -m "[harness] {imperative summary of the fix}" -m "Finding: {slug} F#"
    ```
+   Provenance goes on a **body** line, never in the subject: a slug like
+   `manpage-literal-assertion-fails-on-ubuntu` spends 57 of the 72-column subject budget before the
+   summary begins, which is what put 15 of the 19 `[harness]` subjects on `main` over the cap. See
+   `AGENTS.md` § *Prose and comments* for the cap and the body wrap.
    Flip that finding's `status=open` → `applied` in `spec/{slug}/META.md` (edit the metadata line only)
    in the **same commit**. **No `Co-Authored-By` trailer.**
 3. For a rejected/deferred finding, make **no `.agents/` edit** — only flip its `status` to
