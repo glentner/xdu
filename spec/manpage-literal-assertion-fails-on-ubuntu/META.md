@@ -178,7 +178,7 @@ is skipped by the parser):
 - **Confidence:** high · **Effort:** small
 
 ## F6 — Any CONFIRMED finding auto-blocks, so two documentation-level findings loop a contract-complete fix · seen again
-`origin=xdu-review:step-4 severity=medium category=instruction status=open target=.agents/factory/review-rubric.md`
+`origin=xdu-review:step-4 severity=medium category=instruction status=deferred target=.agents/factory/review-rubric.md`
 - **What happened:** all seven R-IDs verified PASS by executed command on both toolchains, no Rust
   touched, no human-gate trigger — and the pass still returns `blocked` / `changes-requested`, because
   Step 4 and the rubric's "Verdict & loop" both key on the *existence* of a CONFIRMED finding with no

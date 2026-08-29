@@ -189,3 +189,121 @@ Read `origin`/`severity`/`category` from the finding in `META.md`; this ledger r
   `VERIFIED (executed: …)` banner in `xdu-plan`, and "research code is a design sketch to re-derive,
   not source to transcribe" in `xdu-build`). Deferred only to respect the ~8-per-run cap; it is the
   lowest-value item in the batch and depends on subagent compliance. Nothing breaks if it waits.
+
+## 2026-08-29 — readers-autoload-parquet-at-runtime F6: `xdu-publish` must read the CI rollup before merging
+`decision=applied commit=9ecfd5c target=.agents/skills/xdu-publish/SKILL.md + skills/xdu-review/SKILL.md`
+- **Rationale:** the skill whose one irreversible action is a merge could reach it having never asked
+  whether the project's own automation passes. `review.verdict` answers "did a human-equivalent approve
+  this code", not "is CI green", and `main` has no branch protection to catch the difference — three
+  red checks were one `gh pr merge` away from landing unexamined. New Step 1 item 4 (`gh pr checks`,
+  STOP on any failing required check, override recorded in the PR body) plus a Safety Principle naming
+  the two questions as distinct. **The finding was corrected twice.** Its recommended `gh run list`
+  matches **no** granted pattern, so the frontmatter gained `Bash(gh run *)` in the same commit — the
+  step/allowed-tools class this ledger records rejecting in F7's first draft and again in F11/F14. And
+  its `xdu-review` half was **not** taken as written: that session has no `gh`, and at review time
+  there is usually no PR and often no pushed branch, so "read the rollup" is unexecutable there. Took
+  the sharper fix instead — Step 3 must record "**not observed**", never "not triggered"/"satisfied",
+  for a gate whose state it did not observe. That closes the actual reported failure (a red man-page
+  gate reported as owed-nothing) at zero tooling cost.
+
+## 2026-08-29 — readers-autoload-parquet-at-runtime F4: a refusal that names an alternative is policy
+`decision=applied commit=5de34c1 target=.agents/skills/xdu-build/SKILL.md`
+- **Rationale:** the `AGENTS.md` half had already landed; what was missing is the **reflex**, and its
+  absence had a measured cost — `command /bin/rm -f` ran here, deliberately defeating a guardrail the
+  maintainer installed on purpose, and left `/usr/bin/false` installed as `target/release/xdu` for two
+  later phases to measure. Generalized past deletion to **any** refusing shell function, wrapper or
+  hook, naming `command` / `\cmd` / `env` / `sh -c` / absolute path as the bypasses, STOP-and-ask when
+  the named alternative is unavailable, and an explicit ban on writing a bypass into a `verify:`, where
+  it would propagate to every later phase. Strengthens a guardrail; weakens nothing.
+
+## 2026-08-29 — readers-autoload-parquet-at-runtime F3: a gate's cleanup is part of the gate
+`decision=applied commit=1aecae6 target=.agents/skills/xdu-build/SKILL.md`
+- **Rationale:** Step 4's hollow-gate guard was entirely about the *assertion* (vacuous, skipped,
+  aggregated); nothing said setup/teardown fails **independently of the verdict**. The P1 incident is
+  the proof: the gate reported exactly the result it was designed to report while its cleanup silently
+  no-opped, so it read as a clean run. Now the cleanup's post-condition must be asserted too, and a
+  gate that verdicts correctly but leaves the build tree poisoned is **red**. Same root as F4 (the
+  shadowing mechanism) and F5 (the same failure through the reviewer's door).
+
+## 2026-08-29 — readers-autoload-parquet-at-runtime F5: reviewer cleanliness past `git status`
+`decision=applied commit=da6d8e8 target=.agents/factory/review-rubric.md + skills/xdu-review/SKILL.md`
+- **Rationale:** the rubric defined "clean" as no tracked-file edits with `git status --porcelain`
+  empty as the hand-back check — and `target/` is git-ignored, so both conditions hold perfectly while
+  `/usr/bin/false` sits installed as `target/release/xdu`. The natural negative control for a
+  "tests must drive the built binary" requirement is exactly that mutation, so the hand-back check is
+  blind to precisely the state the control touches; this run only escaped it because the orchestrator
+  hand-wrote a cleanup instruction the skill never asked for. Three places in lockstep: the rubric's
+  conduct bullet, `xdu-review` Step 2's delegation conduct rule, and Step 3's orchestrator-side
+  confirmation. **+4 lines on `review-rubric.md`**, which is pasted verbatim into every blind-reviewer
+  prompt (the F12 entry above flags that cost) — justified because reviewer conduct is what that
+  section is for.
+
+## 2026-08-29 — manpage-literal-assertion-fails-on-ubuntu F9: close the class by evaluating a predicate
+`decision=applied commit=e900f2a target=.agents/skills/xdu-build/SKILL.md`
+- **Rationale:** Step 2.3 (added by crawl-hardening F15, `d8eae3f`) says to sweep the *class*, but all
+  its worked examples are `Grep`-able identifiers, so the natural reading is a text sweep — and
+  following it literally still shipped a §13 invariant that was **false when written**, because the
+  defining property was *"how many times does this literal appear in the rendered page"*, computable
+  only by rendering and counting. Now: state the property as a predicate, find sites by **evaluating**
+  it, and when evaluating needs a build or a render, encode the predicate itself as the gate. The
+  numbers are kept (grep found 3, the predicate found 4 more) because the concrete cost is what makes
+  the rule stick. **Appends after** the `.agents/**` scope sentence, so the still-open F8 — which
+  rewrites that sentence — stays cleanly appliable.
+
+## 2026-08-29 — manpage-literal-assertion-fails-on-ubuntu F4: name a safe revert for the mutation test
+`decision=applied commit=1ced1b8 target=.agents/skills/xdu-build/SKILL.md`
+- **Rationale:** Step 4 mandates "mutate, confirm red, revert" and Step 7 commits *after* Step 4, so
+  the working tree is the only copy of the phase's work while the mutation is live — and the mutation
+  target is very often the file the phase just rewrote. Every reflex revert (`git checkout` /
+  `git restore` / `git stash`) resolves against HEAD, i.e. the state *before* the phase: the
+  deliverable is discarded and **no command fails**. Both shapes named, per the finding's "seen
+  again": working-tree mutation → copy aside, restore with `cp`, confirm with `cmp -s`;
+  committed-state mutation (a gate reading its inputs through `git archive HEAD`) → detached
+  `git worktree`, commit inside it, `git worktree remove --force`, branch never moves.
+  **Frontmatter widened in the same commit** — `Bash(git worktree *)`, `Bash(git archive *)`,
+  `Bash(cp *)`, `Bash(cmp *)` — because an instruction naming commands the skill cannot run is the
+  mismatch class this ledger has twice rejected. All are non-destructive except
+  `git worktree remove --force`, which `AGENTS.md` already carves out as a tool's own bookkeeping.
+
+## 2026-08-29 — manpage-literal-assertion-fails-on-ubuntu F2: point at the man-page normalization, don't restate it
+`decision=applied commit=e5f205a target=.agents/skills/xdu-review/SKILL.md`
+- **Rationale:** `xdu-review` held the **fourth** restatement of a rule declared to live in three
+  places, and it was the wrong one — it taught `scdoc | mandoc | col -b` "diffed against the literal
+  you intended", the layout-sensitive form this very feature exists to correct, so a reviewer following
+  it on a homebrew box gets the same false green that let the defect reach CI. Replaced with a pointer
+  to `AGENTS.md`'s Commands section naming all three forms (reading, whitespace-stripped presence, and
+  **counting** for a duplicated literal), copying no command — the F7/F8 by-pointer-not-by-copy
+  precedent above. `REVIEW.md` must now record *which form* confirmed each literal. **Known residual,
+  deliberately not fixed:** the pipeline's `mandoc`/`col`/`tr`/`grep`/`wc` are absent from
+  `xdu-review`'s `allowed-tools` (only `Bash(scdoc *)` is granted) and whether that prefix covers the
+  whole pipeline is untested. Widening to `Bash(grep *)` is what F15 explicitly declined for
+  `xdu-build`, so this is recorded rather than taken. Pre-existing — line 62 already named `mandoc`.
+
+## 2026-08-29 — manpage-literal-assertion-fails-on-ubuntu F10: cite only enforcement that survives the merge
+`decision=applied commit=5ce1c67 target=.agents/skills/xdu-build/SKILL.md`
+- **Rationale:** `verify:` harnesses are authored and run exactly like durable tests — same shell, same
+  red/green, same mutation discipline — and Step 2.3 pushes toward updating the permanent manual in the
+  same breath as building the temporary harness, which is precisely when the two get conflated. It
+  happened: a §13 invariant cited a `spec/{slug}/verify/` harness as its enforcement, telling the next
+  agent a hole was closed when that harness becomes a retained *record* the moment the spec merges. Two
+  halves — the lifetime stated where `verify:` is introduced (Safety Principles), and the sweep rule in
+  Step 2.3 (cite `tests/` / CI / code only; otherwise say the rule is hand-maintained and file the
+  durable gate as an `issues/{slug}.md` + `ROADMAP.md` pair). Confirmed live before editing:
+  `spec/manpage-literal-assertion-fails-on-ubuntu/verify/` exists and `invariants.md:214` cites it.
+
+## 2026-08-29 — manpage-literal-assertion-fails-on-ubuntu F6: severity-routed verdict deferred a second time
+`decision=deferred commit=— target=.agents/factory/review-rubric.md`
+- **Rationale:** the **third instance** of one proposal. crawl-hardening F11+F14 were deferred on
+  2026-08-06 with a working abuse case; this is the same ask ("MEDIUM/LOW return
+  `approved-with-findings` instead of blocking") arriving from a different feature, with a sharpened
+  second half about **cycle accounting** as well as the verdict. The recurrence is real signal and the
+  observed cost is real: R1–R7 passed in all three cycles here, every finding was prose in the
+  operating manual, and cycle 3 still consumed the last of the bounded budget and forced a STOP whose
+  "non-convergence" wording implies the fix was failing. It remains a Safety §3 change to the
+  review↔build loop and does not belong in a batch of eight — it needs its own run, taking the rework
+  constraints already drafted in the F11/F14 entry above (the record must exist in `base` or in a prior
+  `REVIEW.md` cycle's recorded human acceptance; provenance conditional, default `introduced`; routing
+  table in `xdu-review/SKILL.md` Step 4, **never** in the rubric handed to the blind reviewer). Add
+  from this instance: route the **cycle counter** as well as the verdict, and keep product regression
+  and any unmet R-ID unconditionally blocking. **A fourth instance is not new evidence** — what is
+  missing is the design under those constraints, not more reports of the symptom.
