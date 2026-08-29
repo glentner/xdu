@@ -249,7 +249,7 @@ is skipped by the parser):
 - **Confidence:** high · **Effort:** small
 
 ## F9 — Nothing tells a remediation to close the class when the finding names one instance
-`origin=xdu-build:step-2.3 severity=high category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
+`origin=xdu-build:step-2.3 severity=high category=missing-guidance status=applied target=.agents/skills/xdu-build/SKILL.md`
 - **What happened:** cycle 1's finding named one duplicated literal. Step 2.3's class sweep is keyed on
   *textual* patterns ("the deleted symbol, the false claim's distinguishing phrase, the renamed
   identifier"), so I grepped for restatements of the rule and fixed those — and shipped a §13 invariant

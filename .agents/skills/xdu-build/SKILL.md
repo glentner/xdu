@@ -138,6 +138,15 @@ Steps 1–2, then report the plan that *would* run and stop (no edits/commits).
    nobody has found yet. If the sweep widens scope past what a human gate authorized, name the added
    sites in the phase body.
 
+   **Text is one predicate, not the only one.** State the defect's *defining property* as a predicate
+   first, then find every site by **evaluating** it; grep only when the property really is textual. The
+   examples above are all `Grep`-able, and reading this step as "text sweep" is how a remediation
+   shipped an invariant that was already false when written: the property there was *"how many times
+   does this literal appear in the rendered page"*, computable only by rendering every page and
+   counting. Grep found 3 sites; the derived predicate found 4 more that no grep could reach. If the
+   predicate needs a build or a render to evaluate, encode **the predicate itself** as the gate — that
+   is the strongest form available, because it covers sites nobody enumerated.
+
 ### Step 3 — Implement the phase
 Execute every `[ ]` item to AGENTS.md conventions. Sanity-check as you go
 (`cargo build` to typecheck, `cargo run --bin xdu-find -- …`, or a `.agents/factory/bin/temp_index.sh`
