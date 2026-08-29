@@ -163,6 +163,13 @@ mean). The general guard: **see the gate fail once before trusting it** — muta
 confirm the mutation landed, confirm red, revert. Confirming the mutation landed is not optional; a
 botched mutation leaves the gate green and reads as "verified". Revert before Step 7's `git add -A`.
 
+**Setup and teardown fail independently of the verdict.** If a gate mutates state it must restore —
+poisoning `target/release/`, moving an artifact, backdating a fixture — the restore *is* part of the
+gate: assert the **cleanup's** post-condition (`ls`, `cmp`, a re-drive), not just the test result. The
+agent shell is initialized from the user's profile, so a bare `rm`/`mv`/`cp` inside a `verify:` is
+shadowable by a function or alias, and the failure is silent by construction when the shadow exits 0.
+A gate that reported the right verdict and left the build tree poisoned is a **red** gate.
+
 ### Step 5 — Update `TECH.md` (the resume contract)
 1. Check off the phase's `[ ]` items in the body.
 2. Advance state with the script (regenerate — never hand-edit YAML):

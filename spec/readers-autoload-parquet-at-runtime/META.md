@@ -96,7 +96,7 @@ is skipped by the parser):
 
 ## F3 — A gate that mutates build state can have its cleanup silently shadowed by the user's shell
 
-`origin=xdu-build:step-4 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
+`origin=xdu-build:step-4 severity=medium category=missing-guidance status=applied target=.agents/skills/xdu-build/SKILL.md`
 - **What happened:** P1's gate copies `/usr/bin/false` over `target/release/{xdu,xdu-rm}` and removes
   them afterwards. The agent shell is initialized from the user's profile, where `rm` is a shell
   function that prints `"rm" not supported - use "del" instead.` and exits without deleting. The gate
