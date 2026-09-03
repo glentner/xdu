@@ -292,7 +292,7 @@ src/
 tests/           # crawl_tests.rs, rm_tests.rs, offline_tests.rs (integration); common/ = shared helpers
 doc/*.scd        # scdoc man page SOURCES (authored); render to share/man/man1/*.1
 share/           # GENERATED (man + completions); git-ignored; built in CI / by /xdu-release
-build.sh install.sh cruft.sh Dockerfile   # packaging / ops scripts
+build.sh install.sh Dockerfile   # packaging / ops scripts
 .agents/         # the spec-driven "software factory" (see below)
 spec/{slug}/     # committed, dated per-feature design records the factory produces (retained on merge)
 issues/{slug}.md # deferred code work, pre-shaped (status: unshaped); /xdu-feature promotes one to a GOAL
