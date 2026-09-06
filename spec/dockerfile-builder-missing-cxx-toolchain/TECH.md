@@ -1,57 +1,77 @@
 ---
 slug: dockerfile-builder-missing-cxx-toolchain
-title: "Restore the container build with an explicit C++ toolchain"
+title: Restore the container build with an explicit C++ toolchain
 kind: fix
 appetite: small
 status: in_progress
 branch: fix/dockerfile-builder-missing-cxx-toolchain
 base: main
-current_phase: P1
-last_updated: "2026-09-06"
+current_phase: P2
+last_updated: '2026-09-06'
 phases:
-  - id: P1
-    name: "Builder g++ layer with the c++ requirement stated"
-    status: pending
-    satisfies: [R1, R3]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "docker build -t xdu:cxx-verify . && docker run --rm --entrypoint sh xdu:cxx-verify -c 'for b in xdu xdu-find xdu-view xdu-rm; do command -v /usr/local/bin/$b; done' && grep -q 'literally named' Dockerfile"
-  - id: P2
-    name: "Runtime comment correction and CI timeout headroom"
-    status: pending
-    satisfies: [R4, R5]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "uv run --with pyyaml python -c 'import yaml; yaml.safe_load(open(\".github/workflows/docker.yaml\"))' && test $(grep -c 'timeout-minutes: 30' .github/workflows/docker.yaml) = 2 && grep -q 'effectively installs only' Dockerfile"
-  - id: P3
-    name: "Offline functional drive of the built image"
-    status: pending
-    satisfies: [R2]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "FIXT=$(mktemp -d) && mkdir -p $FIXT/proj && echo hi > $FIXT/proj/a.txt && echo lo > $FIXT/top.txt && chmod -R a+rX $FIXT && docker run --rm --network none -v $FIXT:/data:ro --entrypoint sh xdu:cxx-verify -c 'set -e; [ $(whoami) = xdu ]; /usr/local/bin/xdu /data -o /tmp/idx; test -d /tmp/idx/__root__; test -f /tmp/idx/.xdu-complete; [ $(/usr/local/bin/xdu-find -i /tmp/idx --count) = 2 ]; test ! -e /home/xdu/.duckdb'; rc=$?; rm -rf $FIXT; exit $rc"
-  - id: P4
-    name: "Post-merge republish verification (human-gated)"
-    status: pending
-    satisfies: [R6]
-    depends_on: [P2, P3]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "docker run --rm --platform linux/amd64 --entrypoint sh ghcr.io/glentner/xdu:latest -c 'command -v /usr/local/bin/xdu-rm' && docker run --rm --platform linux/arm64 --entrypoint sh ghcr.io/glentner/xdu:latest -c 'command -v /usr/local/bin/xdu-rm'"
+- id: P1
+  name: Builder g++ layer with the c++ requirement stated
+  status: done
+  satisfies:
+  - R1
+  - R3
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: docker build -t xdu:cxx-verify . && docker run --rm --entrypoint sh xdu:cxx-verify
+    -c 'for b in xdu xdu-find xdu-view xdu-rm; do command -v /usr/local/bin/$b; done'
+    && grep -q 'literally named' Dockerfile
+- id: P2
+  name: Runtime comment correction and CI timeout headroom
+  status: pending
+  satisfies:
+  - R4
+  - R5
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: 'uv run --with pyyaml python -c ''import yaml; yaml.safe_load(open(".github/workflows/docker.yaml"))''
+    && test $(grep -c ''timeout-minutes: 30'' .github/workflows/docker.yaml) = 2 &&
+    grep -q ''effectively installs only'' Dockerfile'
+- id: P3
+  name: Offline functional drive of the built image
+  status: pending
+  satisfies:
+  - R2
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: FIXT=$(mktemp -d) && mkdir -p $FIXT/proj && echo hi > $FIXT/proj/a.txt &&
+    echo lo > $FIXT/top.txt && chmod -R a+rX $FIXT && docker run --rm --network none
+    -v $FIXT:/data:ro --entrypoint sh xdu:cxx-verify -c 'set -e; [ $(whoami) = xdu
+    ]; /usr/local/bin/xdu /data -o /tmp/idx; test -d /tmp/idx/__root__; test -f /tmp/idx/.xdu-complete;
+    [ $(/usr/local/bin/xdu-find -i /tmp/idx --count) = 2 ]; test ! -e /home/xdu/.duckdb';
+    rc=$?; rm -rf $FIXT; exit $rc
+- id: P4
+  name: Post-merge republish verification (human-gated)
+  status: pending
+  satisfies:
+  - R6
+  depends_on:
+  - P2
+  - P3
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: docker run --rm --platform linux/amd64 --entrypoint sh ghcr.io/glentner/xdu:latest
+    -c 'command -v /usr/local/bin/xdu-rm' && docker run --rm --platform linux/arm64
+    --entrypoint sh ghcr.io/glentner/xdu:latest -c 'command -v /usr/local/bin/xdu-rm'
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Restore the container build with an explicit C++ toolchain
 
 The **context engine and finite-state machine** for building this feature. The YAML
@@ -119,14 +139,14 @@ checklists below are the work. `xdu-build` executes the next actionable phase, r
 **Goal:** The Dockerfile builder stage installs `g++` with a comment that states the literal-`c++`
 requirement at the point of the install, and the image builds green with all four binaries.
 
-- [ ] Insert the `RUN` layer immediately after `FROM rust:1-slim-bookworm AS builder`
+- [x] Insert the `RUN` layer immediately after `FROM rust:1-slim-bookworm AS builder`
   (`Dockerfile:21`), before the `COPY`s so it caches independently of source churn. Exact text:
   `# The duckdb crate's \`bundled\` feature compiles DuckDB from C++ source; cc-rs invokes a tool`
   / `# literally named \`c++\`, which rust:1-slim-bookworm does not ship (it has cc/gcc only).`
   followed by the `apt-get update && apt-get install -y --no-install-recommends g++ && rm -rf
   /var/lib/apt/lists/*` layer. `rm` stays `rm` — `AGENTS.md` exempts container builds. No R-IDs
   in the comment (§13).
-- [ ] Run the phase `verify:` — a full local `docker build` (~5 min on Apple Silicon; expect
+- [x] Run the phase `verify:` — a full local `docker build` (~5 min on Apple Silicon; expect
   `Finished release profile` then the four `command -v` paths). Record the wall-clock build
   duration in the commit body; it is the local half of R5's evidence.
 - **Verify:** `docker build -t xdu:cxx-verify . && docker run --rm --entrypoint sh xdu:cxx-verify
