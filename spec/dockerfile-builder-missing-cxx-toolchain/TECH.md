@@ -6,7 +6,7 @@ appetite: small
 status: in_progress
 branch: fix/dockerfile-builder-missing-cxx-toolchain
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-09-06'
 phases:
 - id: P1
@@ -24,7 +24,7 @@ phases:
     && grep -q 'literally named' Dockerfile
 - id: P2
   name: Runtime comment correction and CI timeout headroom
-  status: pending
+  status: done
   satisfies:
   - R4
   - R5
@@ -33,6 +33,7 @@ phases:
   parallel: false
   hammerable: false
   hill: uphill
+  attempts: 1
   verify: 'uv run --with pyyaml python -c ''import yaml; yaml.safe_load(open(".github/workflows/docker.yaml"))''
     && test $(grep -c ''timeout-minutes: 30'' .github/workflows/docker.yaml) = 2 &&
     grep -q ''effectively installs only'' Dockerfile'
@@ -159,17 +160,17 @@ requirement at the point of the install, and the image builds green with all fou
 **Goal:** The runtime-stage comment describes what bookworm-slim actually provides, and both
 build jobs get timeout headroom for the unmeasured cold DuckDB compile.
 
-- [ ] Rewrite the `Dockerfile:52-53` comment to state that bookworm-slim already ships
+- [x] Rewrite the `Dockerfile:52-53` comment to state that bookworm-slim already ships
   `libstdc++6` and `libgcc-s1`, so the `RUN` effectively installs only `ca-certificates`, while
   keeping `libstdc++6` in the install list to pin the runtime contract the DuckDB-linked
   binaries need. The comment MUST contain the phrase `effectively installs only` (the verify
   greps for it).
-- [ ] Raise `timeout-minutes: 20` to `30` on the `validate` job (`docker.yaml:54`) and the
+- [x] Raise `timeout-minutes: 20` to `30` on the `validate` job (`docker.yaml:54`) and the
   `build` job (`docker.yaml:86`), each with a one-line comment citing the cold bundled-DuckDB
   compile. Leave `merge` at 15 — it assembles a manifest list, it compiles nothing. Do not
   assert headroom comfort in the comment; the estimate is ~14–16 min and the first real
   duration comes from the PR's `validate` runs.
-- [ ] R5's CI half cannot close on the branch: note in the commit body that the GitHub-runner
+- [x] R5's CI half cannot close on the branch: note in the commit body that the GitHub-runner
   durations are read from the PR's `validate` legs and quoted into the PR body at publish.
 - **Verify:** `uv run --with pyyaml python -c 'import yaml;
   yaml.safe_load(open(".github/workflows/docker.yaml"))' && test $(grep -c 'timeout-minutes:

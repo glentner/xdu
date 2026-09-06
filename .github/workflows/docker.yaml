@@ -51,7 +51,8 @@ jobs:
     name: Validate build (${{ matrix.platform }})
     if: github.event_name == 'pull_request'
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    # Cold bundled-DuckDB C++ compile; the job bills only what it uses.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -83,7 +84,8 @@ jobs:
     name: Build & push by digest (${{ matrix.platform }})
     if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    # Cold bundled-DuckDB C++ compile; the job bills only what it uses.
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write             # push image blobs to ghcr via GITHUB_TOKEN
