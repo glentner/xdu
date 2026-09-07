@@ -207,7 +207,7 @@ is skipped by the parser):
   route both the verdict *and* the cycle accounting.
 
 ## F7 — Per-phase commits collide with a same-commit obligation when a remediation spans two phases
-`origin=xdu-build:step-1.3 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-build/SKILL.md`
+`origin=xdu-build:step-1.3 severity=medium category=missing-guidance status=applied target=.agents/skills/xdu-build/SKILL.md`
 - **What happened:** the review returned two findings — one mapping to P1 (`R7`, the workflow parser)
   and one to P2 (`R6`, `AGENTS.md` + `invariants.md` §13). Step 1.3 says to "prefer reopening the
   existing phase(s)", which I did, but Step 7 then commits **one phase per commit**. The fix those two

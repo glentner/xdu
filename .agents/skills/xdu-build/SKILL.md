@@ -115,7 +115,9 @@ Steps 1–2, then report the plan that *would* run and stop (no edits/commits).
    changes-requested`, a prior `/xdu-review` requested changes: read `spec/{slug}/REVIEW.md`, then make
    the fixes actionable by amending `TECH.md` — **prefer reopening** the existing phase(s) whose
    `satisfies` covers the failing R-IDs (`set_phase.py --phase P<n> --phase-status in_progress`,
-   script-safe). A reopened phase's body is retuned the same script-safe way — tighten a too-weak
+   script-safe). If the reopened phases share a same-commit obligation (a documented lockstep, a
+   CLI↔man-page pair), commit them together as if `bundle` had been passed, and record why in a
+   `TECH.md` amendment. A reopened phase's body is retuned the same script-safe way — tighten a too-weak
    gate with `set_phase.py --phase P<n> --verify "…"` (or `--name`/`--satisfies`/`--depends-on`),
    never by hand-editing the YAML `verify:` field. Only if a fix maps to no existing phase, add one
    **through the script**: `set_phase.py --add-phase P<next> --name "F# remediation: …" --satisfies
@@ -252,7 +254,8 @@ commit is squashed into the single PR-title commit at `xdu-publish`, so subjects
 in the PR's commits tab. For a remediation commit (a phase reopened by `xdu-review`), keep the `{id}`
 and describe the fix, e.g. `[feature] Build {slug} P1: F1 — full covering index (R17)`. Body only for
 non-obvious decisions or to record a `TECH.md` amendment. **No `Co-Authored-By` trailer**
-(attribution lives in the PR body, not the commit). Do not push. `bundle` → one commit for the whole run.
+(attribution lives in the PR body, not the commit). Do not push. `bundle` → one commit for the whole run;
+coupled reopened phases from Step 1.3 bundle the same way.
 
 ### Step 8 — Continue or stop
 Default / at a phase boundary: stop and report. `through`/`next`/multi: loop to Step 2 with the next
