@@ -62,7 +62,8 @@ Additional instructions provided with the invocation: $ARGUMENTS
 - **Link, don't quote.** The PR body references artifacts via SHA-pinned blob permalinks, not pasted
   copies.
 - **No `Co-Authored-By` trailer** (attribution lives in the PR body, not the commit). PR **bodies** end
-  with the Claude Code generation line.
+  with an attribution trailer naming the actual harness, model, and variant (see the trailing-line
+  rule below — never a hardcoded product name).
 
 ## Procedure
 
@@ -104,7 +105,9 @@ Report the verdict, commits vs `main`, and whether a PR already exists (`gh pr s
   - **🔧 Harness feedback** — surface the self-improvement loop *only when substantial* (see the
     surfacing rule below); omit the section entirely otherwise.
   - Issue: `Closes #NN` when the PR fully resolves an issue (see the auto-close note below).
-  - Trailing line: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+  - Trailing line: `🤖 Generated with {harness} using {model} ({variant})`, filled with the
+    actual session values — e.g. `🤖 Generated with [OpenCode](https://opencode.ai) using Muse
+    Spark 1.3 (xhigh)` — never a hardcoded product name.
 
 **Harness-feedback surfacing rule.** Before finalizing the body, read this feature's harness notes:
 ```

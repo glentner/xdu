@@ -168,7 +168,7 @@ commits.
 
 ### Step 8 — Report (and PR, in `pr` mode)
 In `pr` mode, open a squash PR to `main`: title `[harness] {summary}`, body listing each finding →
-decision → commit, ending with the Claude Code generation line. In direct mode there is nothing to
+decision → commit, ending with the attribution trailer (actual harness, model, variant). In direct mode there is nothing to
 open — and do **not** push `main` unless the human explicitly asks. Report: applied / rejected /
 deferred counts, the commits, verification results, and any ledger collisions surfaced.
 
