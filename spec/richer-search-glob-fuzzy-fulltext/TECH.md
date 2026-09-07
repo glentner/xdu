@@ -1,57 +1,77 @@
 ---
 slug: richer-search-glob-fuzzy-fulltext
-title: "Glob as the default path-match dialect (pilot)"
+title: Glob as the default path-match dialect (pilot)
 kind: feature
 appetite: small
 status: in_progress
 branch: feature/richer-search-glob-fuzzy-fulltext
 base: main
-current_phase: P1
-last_updated: "2026-09-07"
+current_phase: P2
+last_updated: '2026-09-07'
 phases:
-  - id: P1
-    name: "Glob translator in lib, wired through xdu-find"
-    status: pending
-    satisfies: [R1, R2, R3]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 't=$(xdu-find -i \"$XDU_INDEX\" --count); a=$(xdu-find -i \"$XDU_INDEX\" -p \"*\" --count); b=$(xdu-find -i \"$XDU_INDEX\" --regex -p \".*\" --count); [ \"$t\" = \"$a\" ] && [ \"$a\" = \"$b\" ] && ! xdu-find -i \"$XDU_INDEX\" -p \"[\" --count'"
-  - id: P2
-    name: "xdu-rm on the glob dialect"
-    status: pending
-    satisfies: [R1, R2, R3]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test --test rm_tests && .agents/factory/bin/temp_index.sh sh -c '! xdu-rm -i \"$XDU_INDEX\" -p \"[\" --dry-run --force'"
-  - id: P3
-    name: "xdu-view startup and interactive pattern on the glob dialect"
-    status: pending
-    satisfies: [R1, R2, R3]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo build --bins && .agents/factory/bin/temp_index.sh sh -c '! xdu-view -i \"$XDU_INDEX\" -p \"[\"'"
-  - id: P4
-    name: "Full gate and deferral ledger"
-    status: pending
-    satisfies: []
-    depends_on: [P1, P2, P3]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test && test -f issues/fuzzy-filename-matching.md && test -f issues/duckdb-fts-evaluation.md"
+- id: P1
+  name: Glob translator in lib, wired through xdu-find
+  status: done
+  satisfies:
+  - R1
+  - R2
+  - R3
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 't=$(xdu-find
+    -i "$XDU_INDEX" --count); a=$(xdu-find -i "$XDU_INDEX" -p "*" --count); b=$(xdu-find
+    -i "$XDU_INDEX" --regex -p ".*" --count); [ "$t" = "$a" ] && [ "$a" = "$b" ] &&
+    ! xdu-find -i "$XDU_INDEX" -p "[" --count'
+- id: P2
+  name: xdu-rm on the glob dialect
+  status: pending
+  satisfies:
+  - R1
+  - R2
+  - R3
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test --test rm_tests && .agents/factory/bin/temp_index.sh sh -c '!
+    xdu-rm -i "$XDU_INDEX" -p "[" --dry-run --force'
+- id: P3
+  name: xdu-view startup and interactive pattern on the glob dialect
+  status: pending
+  satisfies:
+  - R1
+  - R2
+  - R3
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo build --bins && .agents/factory/bin/temp_index.sh sh -c '! xdu-view
+    -i "$XDU_INDEX" -p "["'
+- id: P4
+  name: Full gate and deferral ledger
+  status: pending
+  satisfies: []
+  depends_on:
+  - P1
+  - P2
+  - P3
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
+    -- -D warnings && cargo test && test -f issues/fuzzy-filename-matching.md && test
+    -f issues/duckdb-fts-evaluation.md
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Glob as the default path-match dialect (pilot)
 
 The **context engine and finite-state machine** for building this feature. The YAML
@@ -112,15 +132,15 @@ checklists below are the work. `xdu-build` executes the next actionable phase, r
 **Goal:** The translation core exists, is unit-tested, and is observable end to end through
 `xdu-find`: glob by default, regex behind `--regex`, invalid globs rejected.
 
-- [ ] `src/lib.rs`: add `glob_to_regex` per PLAN §2.1 plus `QueryFilters::with_path_pattern`
+- [x] `src/lib.rs`: add `glob_to_regex` per PLAN §2.1 plus `QueryFilters::with_path_pattern`
   and `pattern_display` per §2.2, with unit tests for each metacharacter, escaping rule,
   and rejection.
-- [ ] `src/cli.rs`: add long-only `--regex` to all three query arg structs now (one
+- [x] `src/cli.rs`: add long-only `--regex` to all three query arg structs now (one
   coherent CLI change, not three), rewrite `-p/--pattern` help (`REGEX` → `PATTERN`).
   Wiring the rm/view call sites is P2/P3; the flag simply exists there until then.
-- [ ] `src/bin/xdu-find.rs`: build filters via `with_path_pattern`; `after_help` examples
+- [x] `src/bin/xdu-find.rs`: build filters via `with_path_pattern`; `after_help` examples
   to glob-first plus one `--regex` example.
-- [ ] `doc/xdu-find.1.scd`: synopsis, flag text, `--regex` entry, glob examples (`\*`
+- [x] `doc/xdu-find.1.scd`: synopsis, flag text, `--regex` entry, glob examples (`\*`
   escaped); render and literal-check per PLAN §2.5.
 - **Verify:** `cargo test --lib && .agents/factory/bin/temp_index.sh sh -c '…'` — the drive
   asserts `-p '*'` count equals the unfiltered count, equals the `--regex -p '.*'` count,

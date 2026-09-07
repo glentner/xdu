@@ -320,11 +320,109 @@ impl FromStr for SortMode {
     }
 }
 
+/// Translate a glob pattern into an anchored regular expression for `regexp_matches`.
+///
+/// The query builder speaks one dialect — regex — so a glob is converted at ingestion and
+/// the database never learns a second one. `*` crosses `/`: a glob names the whole path,
+/// and `*.py` must match at any depth rather than only directly below the indexed root.
+/// `?` matches a single character, `[...]` is a character class (`[!...]` negates it),
+/// and `\` quotes the next character literally. Every other regex metacharacter in a
+/// literal position is escaped, so the translation cannot smuggle in regex syntax the user
+/// did not write. Output is wrapped `^(?:…)$` because `regexp_matches` is an unanchored
+/// substring search while a glob matches the entire path.
+pub fn glob_to_regex(glob: &str) -> Result<String, String> {
+    if glob.is_empty() {
+        return Err("Empty glob pattern matches no path".to_string());
+    }
+    let mut out = String::from("^(?:");
+    let mut chars = glob.char_indices().peekable();
+    while let Some((pos, c)) = chars.next() {
+        match c {
+            '*' => out.push_str(".*"),
+            '?' => out.push('.'),
+            '\\' => match chars.next() {
+                Some((_, quoted)) => push_regex_literal(&mut out, quoted),
+                None => {
+                    return Err(format!(
+                        "Trailing backslash at byte {pos} in glob pattern: {glob}"
+                    ));
+                }
+            },
+            '[' => {
+                let mut class = String::new();
+                if matches!(chars.peek(), Some((_, '!'))) {
+                    chars.next();
+                    class.push('^');
+                }
+                let mut closed = false;
+                while let Some((_, inner)) = chars.next() {
+                    match inner {
+                        // A `]` in first position is literal, so `[]]` is the class
+                        // holding `]`; a class with no closing bracket fails below.
+                        ']' if class_has_content(&class) => {
+                            closed = true;
+                            break;
+                        }
+                        '\\' => match chars.next() {
+                            Some((_, quoted)) => push_class_literal(&mut class, quoted),
+                            None => {
+                                return Err(format!(
+                                    "Trailing backslash in character class of glob pattern: {glob}"
+                                ));
+                            }
+                        },
+                        _ => push_class_literal(&mut class, inner),
+                    }
+                }
+                if !closed {
+                    return Err(format!(
+                        "Unterminated character class at byte {pos} in glob pattern: {glob}"
+                    ));
+                }
+                out.push('[');
+                out.push_str(&class);
+                out.push(']');
+            }
+            _ => push_regex_literal(&mut out, c),
+        }
+    }
+    out.push_str(")$");
+    Ok(out)
+}
+
+/// Whether a partially built class body already holds content (`^` alone is negation).
+fn class_has_content(class: &str) -> bool {
+    !(class.is_empty() || class == "^")
+}
+
+/// Push a literal character into a regex, escaping every metacharacter.
+fn push_regex_literal(out: &mut String, c: char) {
+    if matches!(
+        c,
+        '.' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '\\'
+    ) {
+        out.push('\\');
+    }
+    out.push(c);
+}
+
+/// Push a literal character into a regex character class, escaping what is special there.
+fn push_class_literal(class: &mut String, c: char) {
+    if matches!(c, ']' | '\\' | '^' | '-') {
+        class.push('\\');
+    }
+    class.push(c);
+}
+
 /// Query filters for file metadata searches.
 #[derive(Clone, Debug, Default)]
 pub struct QueryFilters {
     /// Regex pattern to match file paths.
     pub pattern: Option<String>,
+    /// Original user text of the pattern filter when given as a glob. The query always
+    /// runs on `pattern`; this exists so displays show what the user typed instead of the
+    /// translation. Unset when the pattern was given as a regex.
+    pub pattern_display: Option<String>,
     /// Minimum file size in bytes.
     pub min_size: Option<i64>,
     /// Maximum file size in bytes.
@@ -345,6 +443,31 @@ impl QueryFilters {
     pub fn with_pattern(mut self, pattern: Option<String>) -> Self {
         self.pattern = pattern;
         self
+    }
+
+    /// Set the path pattern filter, interpreting it as a glob unless `regex` holds.
+    ///
+    /// A glob is translated to an anchored regular expression before storage, so the
+    /// query builder never learns a second dialect. An invalid glob fails here — before
+    /// any query is built — rather than at the database.
+    pub fn with_path_pattern(
+        mut self,
+        pattern: Option<String>,
+        regex: bool,
+    ) -> Result<Self, String> {
+        match pattern {
+            None => Ok(self),
+            Some(raw) if regex => {
+                self.pattern = Some(raw);
+                Ok(self)
+            }
+            Some(glob) => {
+                let translated = glob_to_regex(&glob)?;
+                self.pattern = Some(translated);
+                self.pattern_display = Some(glob);
+                Ok(self)
+            }
+        }
     }
 
     /// Set minimum size filter from human-readable string (e.g., "1M").
@@ -445,6 +568,7 @@ impl QueryFilters {
     /// Clear all filters.
     pub fn clear(&mut self) {
         self.pattern = None;
+        self.pattern_display = None;
         self.min_size = None;
         self.max_size = None;
         self.older_than = None;
@@ -455,8 +579,8 @@ impl QueryFilters {
     pub fn format_display(&self) -> String {
         let mut parts = Vec::new();
 
-        if let Some(ref pattern) = self.pattern {
-            parts.push(format!("[/{}]", pattern));
+        if let Some(ref display) = self.pattern_display.as_ref().or(self.pattern.as_ref()) {
+            parts.push(format!("[/{}]", display));
         }
 
         if let Some(min_size) = self.min_size {
@@ -857,6 +981,65 @@ mod tests {
         assert!(filters.is_active());
         assert!(filters.to_where_clause().contains("regexp_matches"));
         assert!(filters.to_where_clause().contains(".py$"));
+    }
+
+    #[test]
+    fn test_glob_to_regex_star_crosses_directories() {
+        assert_eq!(glob_to_regex("*.py"), Ok("^(?:.*\\.py)$".to_string()));
+    }
+
+    #[test]
+    fn test_glob_to_regex_literals_are_escaped() {
+        assert_eq!(
+            glob_to_regex("data(2024).log"),
+            Ok("^(?:data\\(2024\\)\\.log)$".to_string())
+        );
+    }
+
+    #[test]
+    fn test_glob_to_regex_question_and_class() {
+        assert_eq!(
+            glob_to_regex("file?.[ch]"),
+            Ok("^(?:file.\\.[ch])$".to_string())
+        );
+        assert_eq!(glob_to_regex("[!a]*"), Ok("^(?:[^a].*)$".to_string()));
+    }
+
+    #[test]
+    fn test_glob_to_regex_backslash_quotes() {
+        assert_eq!(glob_to_regex("a\\*b"), Ok("^(?:a\\*b)$".to_string()));
+    }
+
+    #[test]
+    fn test_glob_to_regex_rejections() {
+        assert!(glob_to_regex("").is_err());
+        assert!(glob_to_regex("[abc").is_err());
+        assert!(glob_to_regex("[]").is_err());
+        assert!(glob_to_regex("abc\\").is_err());
+        assert!(glob_to_regex("a[b\\").is_err());
+    }
+
+    #[test]
+    fn test_with_path_pattern_glob_and_regex() {
+        let globbed = QueryFilters::new()
+            .with_path_pattern(Some("*.py".to_string()), false)
+            .unwrap();
+        assert_eq!(globbed.pattern, Some("^(?:.*\\.py)$".to_string()));
+        assert_eq!(globbed.pattern_display, Some("*.py".to_string()));
+        assert!(globbed.to_where_clause().contains("regexp_matches"));
+        assert!(globbed.format_display().contains("[/*.py]"));
+
+        let raw = QueryFilters::new()
+            .with_path_pattern(Some("\\.py$".to_string()), true)
+            .unwrap();
+        assert_eq!(raw.pattern, Some("\\.py$".to_string()));
+        assert_eq!(raw.pattern_display, None);
+
+        assert!(
+            QueryFilters::new()
+                .with_path_pattern(Some("[abc".to_string()), false)
+                .is_err()
+        );
     }
 
     #[test]

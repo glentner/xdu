@@ -66,9 +66,10 @@ pub struct XduArgs {
     name = "xdu-find",
     about = "Query a file metadata index for matching paths",
     after_help = "Examples:
-  xdu-find -i /index/scratch -p '\\.py$' --min-size 1M
+  xdu-find -i /index/scratch -p '*.py' --min-size 1M
   xdu-find -i /index/scratch --older-than 90 -f size
   xdu-find -i /index/scratch -u alice --count
+  xdu-find -i /index/scratch --regex -p '\\.tmp$' --older-than 30 --count
   xdu-find -i /index/scratch --top 10"
 )]
 pub struct XduFindArgs {
@@ -76,9 +77,13 @@ pub struct XduFindArgs {
     #[arg(short, long, value_name = "DIR", env = "XDU_INDEX")]
     pub index: PathBuf,
 
-    /// Regular expression pattern to match paths
-    #[arg(short, long, value_name = "REGEX")]
+    /// Glob pattern to match paths (e.g., '*.py'); see --regex for regular expressions
+    #[arg(short, long, value_name = "PATTERN")]
     pub pattern: Option<String>,
+
+    /// Interpret --pattern as a regular expression instead of a glob
+    #[arg(long)]
+    pub regex: bool,
 
     /// Filter by partition (user directory name)
     #[arg(short = 'u', long, value_name = "NAME")]
@@ -137,9 +142,13 @@ pub struct XduViewArgs {
     #[arg(short = 'u', long, value_name = "NAME")]
     pub partition: Option<String>,
 
-    /// Regular expression pattern to match paths
-    #[arg(short, long, value_name = "REGEX")]
+    /// Glob pattern to match paths (e.g., '*.py'); see --regex for regular expressions
+    #[arg(short, long, value_name = "PATTERN")]
     pub pattern: Option<String>,
+
+    /// Interpret --pattern as a regular expression instead of a glob
+    #[arg(long)]
+    pub regex: bool,
 
     /// Minimum file size (e.g., 1K, 10M, 1G)
     #[arg(long, value_name = "SIZE")]
@@ -177,9 +186,13 @@ pub struct XduRmArgs {
     #[arg(short, long, value_name = "DIR", env = "XDU_INDEX")]
     pub index: PathBuf,
 
-    /// Regular expression pattern to match paths
-    #[arg(short, long, value_name = "REGEX")]
+    /// Glob pattern to match paths (e.g., '*.py'); see --regex for regular expressions
+    #[arg(short, long, value_name = "PATTERN")]
     pub pattern: Option<String>,
+
+    /// Interpret --pattern as a regular expression instead of a glob
+    #[arg(long)]
+    pub regex: bool,
 
     /// Filter by partition (user directory name)
     #[arg(short = 'u', long, value_name = "NAME")]
