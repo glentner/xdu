@@ -15,16 +15,21 @@ BuildRequires:       gcc-c++
 Extreme-scale parallel "du" command with search and TUI viewer.
 
 %prep
+%autosetup -n %{name}-%{version}
+
+%build
+cargo build --release --locked \
+    --bin xdu --bin xdu-find --bin xdu-view --bin xdu-rm
 
 %install
-cargo install --root %{buildroot}/%{_prefix} --git https://github.com/glentner/xdu.git --tag v%{version}
-# Clean up unwanted cargo artifacts
-rm -f %{buildroot}/%{_prefix}/.crates.toml
-rm -f %{buildroot}/%{_prefix}/.crates2.json
-rm -f %{buildroot}/%{_bindir}/gen-completions
+install -D -m 0755 target/release/xdu %{buildroot}%{_bindir}/xdu
+install -D -m 0755 target/release/xdu-find %{buildroot}%{_bindir}/xdu-find
+install -D -m 0755 target/release/xdu-view %{buildroot}%{_bindir}/xdu-view
+install -D -m 0755 target/release/xdu-rm %{buildroot}%{_bindir}/xdu-rm
 
-%clean
-rm -rf $RPM_BUILD_ROOT
+# Man pages and shell completions are generated in CI from doc/*.scd and
+# src/cli.rs; they are not part of the tag archive yet, so this package ships
+# the four binaries only until the release tarball becomes the source.
 
 %files
 %{_bindir}/%{name}
