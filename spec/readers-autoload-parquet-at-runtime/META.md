@@ -190,3 +190,19 @@ is skipped by the parser):
   Both defects found this way are now recorded in `issues/manpage-literal-assertion-fails-on-ubuntu.md`
   and `issues/dockerfile-builder-missing-cxx-toolchain.md`.
 - **Confidence:** high · **Effort:** small
+
+## F7 — A fix commit can half-retire a seed, and nothing flags the pair until a sweep
+`origin=xdu-roadmap:step-4 severity=low category=missing-guidance status=open target=.agents/skills/xdu-publish/SKILL.md`
+- **What happened:** the readers fix removed its ROADMAP entry in the fix commit but left the seed file
+  behind with `status: resolved`, where it sat for a month until the first `/xdu-roadmap` sweep. In
+  between, `AGENTS.md`'s "one entry per issue" sentence was literally false (7 files, 6 entries), and
+  the `resolved` state the seed carried existed nowhere in `templates/ISSUE.md`'s vocabulary.
+- **Skill cause:** no lifecycle step owns the seed/ROADMAP pair at land time. `/xdu-publish`
+  deliberately leaves retirement alone — touching `issues/` or `ROADMAP.md` after the approved review
+  would burn the staleness gate — and `/xdu-roadmap` runs between cycles on no schedule. A branch that
+  touches one half of the pair gets no nudge about the other half.
+- **Recommended fix:** a warning, never a gate. In `xdu-publish` pre-flight (or a scheduled
+  `xdu-roadmap status` read-out), flag a branch that removes a ROADMAP `Seed:` line while its seed
+  file survives, or a `resolved` seed with no ROADMAP entry, and point at `/xdu-roadmap`. The pair is
+  housekeeping, not correctness — it must not block a merge.
+- **Confidence:** med · **Effort:** small
