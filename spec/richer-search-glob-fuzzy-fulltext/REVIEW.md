@@ -153,3 +153,98 @@ authoritative path list; this copy may only ever **widen** to match it.)
 ## Optional completeness sub-pass (separate reviewer; may see TECH.md)
 
 - Not run — plain `/xdu-review` invocation, no `completeness` argument.
+
+## Review cycle 2 — approved (2026-09-07)
+
+- **Reviewed commit:** `704ca76aa1cacfb9659ae3c2add01ca1ed0b9669` · **Base:** `main`
+- **Mode:** fresh blind pass over the full spec-excluded diff
+  (`git diff main...HEAD -- . ':(exclude)spec/'`), not a scoped remediation check.
+- **Verdict:** approved — zero CONFIRMED, zero PLAUSIBLE. Recommend `/xdu-publish`.
+- **Cycle:** 2 of ≤3.
+
+Contract-drift check: `git log --oneline main..HEAD --
+spec/richer-search-glob-fuzzy-fulltext/GOAL.md` shows only the original shaping commit
+`c1e51eb` — the locked contract did not move mid-build.
+
+### Verification run
+
+All dynamic evidence below was executed by the blind correctness subagent in the runnable
+repo; the orchestrator sanity-checked the cited code locations and tree state but did not
+re-run the full gate. Tree state was observed directly by the orchestrator.
+
+- `cargo test` (blind reviewer) → all green: 72 lib + 5 view + 23 crawl + 1 offline + 18 rm.
+- `cargo fmt --all -- --check` (blind reviewer) → clean.
+- `cargo clippy --all-targets --all-features -- -D warnings` (blind reviewer) → clean.
+- `.agents/factory/bin/temp_index.sh` drives (blind reviewer, throwaway indexes):
+  - R1: `xdu-find --count -p "*.log"` → `1`; `xdu-rm --dry-run -p "*.log" --force`
+    lists the target; `xdu-view -p "*.log" </dev/null` proceeds past pattern ingestion to
+    the expected no-TTY terminal failure (glob accepted pre-terminal).
+  - R2: `xdu-find --count --regex -p "\.log$"` → `1` vs bare `-p "\.log$"` → `0`;
+    `xdu-rm --dry-run --regex -p "\.log$" --force` lists the target; `--help` on all three
+    tools advertises `--regex`.
+  - R3: `xdu-find -p "["` → exit `1` with `Unterminated character class`;
+    `xdu-rm -p "[" --force` → same, exit `1` (covered on-disk by
+    `test_invalid_glob_deletes_nothing`); `xdu-view -p "[" </dev/null` → exit `1` before
+    terminal ownership (`with_path_pattern` at `src/bin/xdu-view.rs:1898` precedes
+    `enable_raw_mode` at `:1915`, confirmed by reading). Adjacent rejections (`abc\`,
+    empty) also exit `1` with named diagnostics.
+  - Range-fix regression hunt: discriminating `end_a/end_m/end_z` fixture — `*[a-m]` vs
+    `*[a-c]` discriminate correctly; `*[-a]` / `*[a-]` match exactly the literal-dash set;
+    `*[a-z]` count exact; descending `*.[z-a]` rejected non-zero. Reviewer's initial
+    "3 vs 2" reading was its own fixture's fault (`z.log` ends in `g`, in `[a-m]`),
+    corrected with the discriminating fixture.
+  - Injection probes: `*'*"`, `')"`, `' OR '1'='1` (glob and `--regex`), `a\*b` → exit 0
+    with `0` rows each — translated output still flows through the untouched single-quote
+    doubling in `to_conditions` (`src/lib.rs:571`).
+- Man-page renders (blind reviewer, `scdoc` present): all touched pages render exit 0; the
+  reading form confirms the glob paragraphs, `*.py` / `*.tmp` / `\.tmp$` examples, and the
+  view `/ → Set path pattern filter (glob).` line with no silent-`*` corruption.
+  Counting form (whitespace-stripped): find `'*.py'`=1, `'*.tmp'`=2, `'\.tmp$'`=1,
+  `--regex`=3; rm `'*.tmp'`=1; view `'*.py'`=1, `Setpathpatternfilter(glob).`=1 — each
+  matches the hand-counted `.scd` occurrences.
+- `git status --porcelain` (orchestrator, post-handoff) → empty; reviewer added no
+  instrumentation and performed no `target/` negative-control mutation, so no build-state
+  restore was owed. Its `/tmp` scratch fixture was self-removed (self-cleaning-scratch
+  exception) and confirmed gone.
+- Orchestrator spot-checks: `src/lib.rs:376-402` handles `-` positionally with descending
+  rejection and `push_class_literal` (`:458-463`) no longer escapes `-`;
+  `src/bin/xdu-view.rs:372` reads `"Pattern (glob): "`;
+  `AGENTS.md:385,388,390` document `PATTERN` plus `--regex` on all three tools.
+- Gate applicability: the CI rollup state on `base` was not observed in this session (no
+  `gh` here); nothing below claims a gate is satisfied that was not executed above. The
+  published pages still list `-V, --version`, which `AGENTS.md` records as the standing
+  `issues/version-flag-missing.md` defect — untouched by this diff, out of scope.
+- Prior-cycle fixes re-verified by execution, not trust: ranges discriminate correctly,
+  `AGENTS.md`/`README.md` document the glob default plus `--regex`, and the `/` prompt
+  names the dialect it speaks.
+
+### Requirement → evidence matrix
+
+Bidirectional traceability. All three R-IDs were verified by the blind reviewer
+(spec-excluded diff + executed drives); the orchestrator owns none (no R-ID is satisfied
+by a committed document under `spec/`).
+
+| R-ID | Implemented by (file) | Verified how | Status |
+|------|-----------------------|--------------|--------|
+| R1 — bare `-p` means glob in find, view, rm | `src/lib.rs` `glob_to_regex` + `with_path_pattern`; `src/cli.rs` `PATTERN` help; `src/bin/xdu-find.rs`, `src/bin/xdu-rm.rs`, `src/bin/xdu-view.rs` call sites; `doc/*.scd` | `cargo test` green; find/rm/view drives above incl. range, edge-dash, and negation cases | ✅ |
+| R2 — `--regex` restores full regex in all three | `src/cli.rs` long-only `--regex` ×3; regex bypass in `with_path_pattern` | dialect-switch drives (`\.log$` → `1` behind switch, `0` as glob); `--help` on all three | ✅ |
+| R3 — invalid glob fails non-zero with diagnostic; rm deletes nothing | `with_path_pattern` `Err` propagation before query/unlink; view startup before `enable_raw_mode`; view `/` prompt `Err` → status-bar message | `[`, trailing-backslash, and empty-pattern rejections; rm invalid-glob integration test | ✅ |
+
+Unmapped changes (possible scope creep): none. `ROADMAP.md` plus
+`issues/fuzzy-filename-matching.md` / `issues/duckdb-fts-evaluation.md` and the seed status
+flip are the mandatory deferral record for the GOAL non-goals (fuzzy/FTS), benign and
+procedurally required. All other hunks map to R1–R3 or the §10 same-commit man-page rule.
+No `spec/` R#/P# ids in `src/` or `doc/*.scd` (reviewer grep clean).
+
+### Findings
+
+None — zero CONFIRMED, zero PLAUSIBLE. Every candidate the reviewer constructed (range
+regressions, literal-dash handling, `!` vs `^`, descending-range over-rejection, injection
+through the translated regex) dissolved under execution; see the verification run.
+
+### Human-gate triggers
+
+- **NOT TRIGGERED** — no CONFIRMED finding touches the high-blast-radius core or a
+  destructive-rm / schema-stability / atomic-write / SQL-injection invariant. Cycle 1's
+  gate (glob range defect in `src/lib.rs`) is closed by the re-verified fix above; no new
+  sign-off is owed on this cycle's evidence.
