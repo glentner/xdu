@@ -1,5 +1,5 @@
 Name:           xdu
-Version:        0.4.1
+Version:        0.4.2
 Release:        1%{?dist}
 Summary:        High-performance file system indexer for large-scale storage administration
 License:        MIT
@@ -38,6 +38,8 @@ install -D -m 0755 target/release/xdu-rm %{buildroot}%{_bindir}/xdu-rm
 %{_bindir}/%{name}-view
 
 %changelog
-* Wed Sep  02 2026 Geoffrey Lentner <glentner@purdue.edu> - 0.4.1
+* Mon Sep 07 2026 Geoffrey Lentner <glentner@purdue.edu> - 0.4.2-1
+- Build from packaged sources; require gcc-c++; correct the license
+* Wed Sep  02 2026 Geoffrey Lentner <glentner@purdue.edu> - 0.4.1-1
 - First version being packaged
 
