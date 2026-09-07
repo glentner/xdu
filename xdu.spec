@@ -2,7 +2,9 @@ Name:           xdu
 Version:        0.4.1
 Release:        1%{?dist}
 Summary:        High-performance file system indexer for large-scale storage administration
-License:        GPL
+License:        MIT
+URL:            https://github.com/glentner/xdu
+Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz
 BuildRequires:       cargo
 BuildRequires:       rust
 BuildRequires:       gcc
