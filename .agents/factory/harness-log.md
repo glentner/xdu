@@ -361,3 +361,11 @@ Read `origin`/`severity`/`category` from the finding in `META.md`; this ledger r
   is now product-fact vs. agent-instruction with the one-line test. Applied over the F9 entry's
   explicit reservation (it appended after the scope sentence for exactly this), F9/F10 paragraphs
   verified intact after the edit.
+
+## 2026-09-07 — readers-autoload-parquet-at-runtime F7: nudge the seed pair at publish time
+`decision=applied commit=d3bdb87 target=.agents/skills/xdu-publish/SKILL.md`
+- **Rationale:** filed one step earlier by the first `/xdu-roadmap` sweep (a fix commit half-retired
+  its seed and nothing owned the pair), remediated the next step. Step 1 item 5 warns — never STOPs —
+  when the branch splits the pair, pointing at `/xdu-roadmap`; acting there would trip the item-2
+  staleness gate, which the wording says plainly. Uses only `git diff` + `Grep`, both already granted,
+  so no frontmatter widening. Closes the loop the same sweep opened.
