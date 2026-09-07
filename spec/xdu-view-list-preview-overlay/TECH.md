@@ -3,7 +3,7 @@ slug: xdu-view-list-preview-overlay
 title: In-list file preview overlay for xdu-view
 kind: feature
 appetite: small
-status: in_review
+status: done
 branch: feature/xdu-view-list-preview-overlay
 base: main
 current_phase: done
