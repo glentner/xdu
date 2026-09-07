@@ -369,3 +369,17 @@ Read `origin`/`severity`/`category` from the finding in `META.md`; this ledger r
   when the branch splits the pair, pointing at `/xdu-roadmap`; acting there would trip the item-2
   staleness gate, which the wording says plainly. Uses only `git diff` + `Grep`, both already granted,
   so no frontmatter widening. Closes the loop the same sweep opened.
+
+## 2026-09-07 — richer-search-glob-fuzzy-fulltext F1: name the `issues/` promotion path in Argument Parsing
+`decision=applied commit=fc7e87d target=.agents/skills/xdu-feature/SKILL.md`
+- **Rationale:** Step 4 documented promoting an `issues/{slug}.md` but Argument Parsing only named the
+  `spec/<slug>/GOAL.md` shape, so the promotion flow's slug/kind/appetite/branch mapping was inferred
+  from prose. One bullet pointing at Step 4 (slug from filename, kind/appetite from frontmatter);
+  the What-worked-well promotion paragraph untouched. Generalizes to every issues-promoted feature.
+
+## 2026-09-07 — richer-search-glob-fuzzy-fulltext F2: scope TECH validation to the frontmatter document
+`decision=applied commit=5b55d71 target=.agents/skills/xdu-plan/SKILL.md`
+- **Rationale:** Step 6 told the planner to round-trip `verify:` through `yaml.safe_load` without
+  saying the file is not one YAML document — verified here that a whole-file load fails
+  (`ComposerError`) on a real TECH while frontmatter-only extraction parses. Adjacent to the applied
+  readers-F2 quoting rule in the same paragraph, which stays intact. Generalizes to every plan.
