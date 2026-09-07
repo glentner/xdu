@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: shaped on feature/xdu-view-list-preview-overlay (2026-09-07) — see spec/xdu-view-list-preview-overlay/GOAL.md
 kind: feature
 appetite: small
 ---
