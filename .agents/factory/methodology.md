@@ -100,6 +100,7 @@ failure modes cannot defer correctness. The `hammerable: false` phase flag opera
   skills/xdu-{feature,plan,build,review,publish}/SKILL.md   # the five lifecycle skills
   skills/xdu-harness/SKILL.md                               # meta/maintenance: apply the self-improvement loop
   skills/xdu-release/SKILL.md                               # operational: cut a version (patch/pre-release/full-release)
+  skills/xdu-roadmap/SKILL.md                               # operational: retire shipped seeds, keep ROADMAP.md true
   factory/
     methodology.md        # this file
     invariants.md         # curated AGENTS.md footgun checklist (plan gate + review rubric)

@@ -308,7 +308,7 @@ ROADMAP.md       # forward-looking feature roadmap — prose intentions that see
 
 Two repo-level trees sit outside `src/`: **`.agents/`** — the software factory (the
 `xdu-feature|plan|build|review|publish` lifecycle skills plus operational siblings `xdu-harness`
-(meta/maintenance) and `xdu-release` (version cuts); `factory/` methodology, invariants, EARS,
+(meta/maintenance), `xdu-release` (version cuts), and `xdu-roadmap` (seed retirement); `factory/` methodology, invariants, EARS,
 templates, the non-Claude `portability.md` contract, and the `bin/` FSM scripts + `meta_status.py`);
 and **`spec/{slug}/`** — the `GOAL/PLAN/TECH/REVIEW.md` + `META.md` records the factory produces and
 **retains on merge**. `AGENTS.md` stays ground truth; `spec/{slug}/` is a point-in-time record of
