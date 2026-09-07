@@ -291,26 +291,6 @@ regression" means. A `usage()` warning exists; the loaded default does not.
 *Horizon: near-term · Depends on: — · Refs: —*
 **Seed:** [`issues/bench-baseline-overwrite-guard.md`](issues/bench-baseline-overwrite-guard.md)
 
-## The container image has not built since January, and what is published is missing `xdu-rm`
-
-The Dockerfile's builder stage installs no packages, and `rust:1-slim-bookworm` ships a C compiler but
-no `c++` — which is the tool name cc-rs looks for when the `bundled` DuckDB feature compiles DuckDB
-from C++ source. Every `docker build` since 2026-01-20 has died at `ToolNotFound: failed to find tool
-"c++"`. The cause is one deleted line: the musl→glibc revert swapped `FROM rust:alpine` for
-`FROM rust:slim` and dropped the `apk add … g++` that went with it. Nothing caught it because the PR
-guardrail did not exist until July, `release.yaml` has no dependency on a green image build, and there
-is no scheduled canary — so three tagged releases shipped with the image build red.
-
-The user-facing half is worse than a stale tag. Because `ghcr.io/glentner/xdu:latest` predates that
-same commit, it is still the January `FROM scratch` musl image built from v0.2.1: it has no shell and
-contains only `xdu`, `xdu-find` and `xdu-view` — **`xdu-rm` has never been in any published image**.
-Fixing the Dockerfile is one apt layer and is proven to work end to end, offline and non-root; the
-harder part is deciding what happens to the live tags, and putting some signal in place so a red image
-is noticed in days rather than months.
-
-*Horizon: near-term, low priority · Depends on: — · Refs: the man-page gate defect from the same CI run; base-image digest pinning is a deliberate follow-up, not part of this*
-**Seed:** [`issues/dockerfile-builder-missing-cxx-toolchain.md`](issues/dockerfile-builder-missing-cxx-toolchain.md)
-
 ## CI gates are advisory: nothing enforces a red check
 
 The repository has good gates — format, clippy, the test matrix, the man-page literal assertion, a

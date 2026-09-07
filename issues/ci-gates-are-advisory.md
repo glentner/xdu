@@ -64,8 +64,8 @@ point of view, from one that has never been run.
 **4. A release does not require a working container image.** `Publish Image` was `failure` for
 `v0.3.0`, `v0.4.0` and `v0.4.1`; all three releases shipped anyway. `release.yaml` has no `needs:` on
 the image build (its two `needs:` are internal), and `docker.yaml` has no `schedule:`, so the only
-thing that ever runs it is a release or a PR touching one of its five `paths:` entries. The result is
-recorded in [`issues/dockerfile-builder-missing-cxx-toolchain.md`](dockerfile-builder-missing-cxx-toolchain.md):
+thing that ever runs it is a release or a PR touching one of its five `paths:` entries. The result was
+recorded in `spec/dockerfile-builder-missing-cxx-toolchain/` (fix landed, seed retired):
 seven months of rot, and a published `:latest` that is still v0.2.1 and has never contained `xdu-rm`.
 
 **5. The factory's own skills reason about CI from the diff, not from CI.** `/xdu-review` declared the
@@ -116,8 +116,8 @@ Draft R-IDs, to be firmed up at promotion.
 - **Mandatory sequencing — this is the load-bearing part.** Enforcement must go last:
   1. Land the man-page gate fix so `Packaging` is green on `main` — **done**
      (`spec/manpage-literal-assertion-fails-on-ubuntu/` landed, seed retired).
-  2. Land [`issues/dockerfile-builder-missing-cxx-toolchain.md`](dockerfile-builder-missing-cxx-toolchain.md)
-     so `Validate build` is green.
+  2. Land the container-image fix so `Validate build` is green — **done**
+     (`spec/dockerfile-builder-missing-cxx-toolchain/` landed, seed retired).
   3. *Then* enable the ruleset. Doing it in any other order bricks the repository against its own
      remediation, which R5 exists to prevent.
 - **Cheapest shape — one repository ruleset**, not classic branch protection: a ruleset targeting
@@ -132,14 +132,15 @@ Draft R-IDs, to be firmed up at promotion.
   fixed. It runs on `docker.yaml`'s `paths:` filter, so it is absent from most PRs, and a required
   check that does not run blocks the merge. R4 wants a `schedule:` canary (or a `needs:` from
   `release.yaml`) instead — different mechanism, same goal.
-- **Declared overlap with the Docker issue.** That file's **R6** ("IF the container image fails to
+- **Declared overlap with the Docker cycle.** That cycle's **R6**
+  (`spec/dockerfile-builder-missing-cxx-toolchain/GOAL.md` R6: "IF the container image fails to
   build, THEN that failure SHALL become visible without waiting for a PR…") is the same requirement as
-  R4 here. At promotion, one of them must own it — probably R4, since the canary is CI topology rather
-  than Dockerfile content — and the other should reference it. `/xdu-feature` should not shape the same
-  requirement twice.
+  R4 here. R4 owns it — the canary is CI topology rather than Dockerfile content, which the Docker GOAL
+  already defers to this seed — so promotion shapes it once, here.
 - **Not in scope: making the gates themselves stricter.** The two red gates are tracked in their own
-  records — the man-page gate in `spec/manpage-literal-assertion-fails-on-ubuntu/` (fix landed, seed
-  retired), the container gate in its own issues file — and this issue deliberately takes no position
+  records — the man-page gate in `spec/manpage-literal-assertion-fails-on-ubuntu/` and the container
+  gate in `spec/dockerfile-builder-missing-cxx-toolchain/` (both fixes landed, seeds retired) — and
+  this issue deliberately takes no position
   on what they should assert. It is only about
   whether their verdict binds anything.
 - **Not in scope: the factory-skill half.** `/xdu-review` and `/xdu-publish` reading the check rollup
@@ -150,8 +151,8 @@ Draft R-IDs, to be firmed up at promotion.
 - **Worth checking at promotion, not established here:** whether `/xdu-release` verifies CI state before
   cutting a tag. The three releases that shipped with a red image build suggest not, but the release
   path was not audited during this triage.
-- Related: `spec/manpage-literal-assertion-fails-on-ubuntu/` (fix landed, seed retired)
-  and [`issues/dockerfile-builder-missing-cxx-toolchain.md`](dockerfile-builder-missing-cxx-toolchain.md)
+- Related: `spec/manpage-literal-assertion-fails-on-ubuntu/` and
+  `spec/dockerfile-builder-missing-cxx-toolchain/` (both fixes landed, seeds retired)
   (the two gates this one explains), `spec/readers-autoload-parquet-at-runtime/META.md` F6 (the factory
   half), PR #10 (merged over three red checks).
 - Found by: post-merge triage of PR #10 — a completeness pass asking why two long-red gates had never
