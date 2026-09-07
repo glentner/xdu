@@ -108,8 +108,12 @@ deferred, draft R-IDs) and its body mirrors this template, so promotion is a mov
 a *candidate*: **do not copy it into `GOAL.md` verbatim.** `status: unshaped` means nobody has agreed an
 appetite, non-goals, or a final contract — that negotiation is this step's job, and skipping it hands
 `xdu-review` a contract no human ever accepted. Carry the evidence (`file:line`, mechanism, whether the
-defect is pre-existing) into **Problem**, and treat the draft R-IDs as input, not as the contract. When
-the GOAL lands, leave the `issues/` file in place with `status:` set to
+defect is pre-existing) into **Problem**, and treat the draft R-IDs as input, not as the contract. Verifying
+a cited `file:line` still says what the issue claims, and resolving a question the issue itself flags
+for shaping, are *confirmation*, not research: bounded `grep`/`Read` on the cited anchors is expected
+(Step 4's job is a contract, and a GOAL that inherits a stale anchor hands `xdu-plan` a bad map).
+Broadening past those anchors is `xdu-plan`'s job. When the GOAL lands, leave the `issues/` file in
+place with `status:` set to
 `shaped on <branch> (<date>) — see spec/<slug>/GOAL.md`, so the ROADMAP index does not dangle.
 The full three-state vocabulary lives in [`templates/ISSUE.md`](../../factory/templates/ISSUE.md).
 

@@ -58,7 +58,7 @@ is skipped by the parser):
 
 ## F1 — Promoting an issue demands carrying its evidence forward, while the same skill forbids looking at code
 
-`origin=xdu-feature:step-4 severity=low category=instruction status=open target=.agents/skills/xdu-feature/SKILL.md`
+`origin=xdu-feature:step-4 severity=low category=instruction status=applied target=.agents/skills/xdu-feature/SKILL.md`
 - **What happened:** Step 4 says to "carry the evidence (`file:line`, mechanism, whether the defect is
   pre-existing) into **Problem**", but Safety Principles say "no broad code exploration" and the intro
   says "do **not** research or read a lot of code here". An `issues/` file can be arbitrarily old, so
