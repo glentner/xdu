@@ -1,10 +1,10 @@
 ---
 status: unshaped
 kind: feature
-appetite: small
+appetite: big
 ---
 
-# Native OS packages (DEB / RPM)
+# Native OS packages (DEB / RPM), aimed at the official repos
 
 > **Pre-shaped candidate, not a contract.** `/xdu-feature` promotes this into `spec/{slug}/GOAL.md`,
 > where appetite, non-goals and the R-IDs get negotiated. Do not copy it verbatim.
@@ -12,26 +12,45 @@ appetite: small
 ## Problem
 
 Installation is a release tarball plus `install.sh`. HPC and enterprise Linux users cannot install
-or upgrade `xdu` through their system package manager — a small but real adoption friction. Low
-priority, but the groundwork is done: the tarball layout and `install.sh` contract already define
-the exact file map the packages would ship.
+or upgrade `xdu` through their system package manager — a small but real adoption friction. The
+shipped `packaging/rpm/xdu.spec` (PR #12) covers ad-hoc and COPR-style EL builds only: it fetches
+crates.io at build time, ships no man pages or completions, and hardcodes the version. None of
+that survives review for the official repositories, where builders have no network and every
+dependency must be accounted for.
 
 ## Why it was deferred
 
-Not deferred from a factory pass — a forward-looking intention from the original roadmap, recorded
-before the `issues/` back-reference convention was enforced. This file retrofits the
-back-reference; no new scoping was done.
+The original roadmap entry predates the `issues/` back-reference convention, and the RPM first
+pass landed after it. This revision re-aims the seed at official-repo acceptance (Fedora/EPEL and
+Debian), which is a materially bigger job than the COPR-style spec — hence the appetite change.
+No new scoping was done beyond naming the gates; `/xdu-feature` negotiates the mechanism.
 
 ## Outcome / vision
 
-Native `.deb` and `.rpm` packages shipping the established release-tarball file layout.
+`xdu` installable and upgradeable from the official Fedora/EPEL and Debian repositories, with the
+in-repo `packaging/` tree as the maintained source of the distro tooling: `packaging/rpm/` for the
+spec and its companions, and a tooling-mandated top-level `debian/` when the DEB side starts
+(`deb/` is not a name Debian tooling accepts).
 
 ## Sketch of the acceptance criteria
 
-- **R1** — `.deb` and `.rpm` packages SHALL install and upgrade `xdu` via the system package
-  manager, shipping the exact file map the release tarball defines.
+- **R1** — The RPM build SHALL succeed with no network access (vendored crates or
+  `rust2rpm`-generated spec against packaged crates), as koji/Mock builders require.
+- **R2** — The RPM spec SHALL track the release version without a manual edit per release
+  (wired into the release step alongside `Cargo.toml`).
+- **R3** — The shipped packages SHALL include the man pages and shell completions, built from
+  `doc/*.scd` and `src/cli.rs` — which likely means building distro packages from the release
+  tarball rather than the tag archive.
+- **R4** — The `debian/` tree SHALL build with `dpkg-buildpackage` offline (Debian Rust-team
+  practice: `dh-cargo` with vendored sources), and pass `lintian` as the spec passes `rpmlint`.
+- **R5** — The bundled-DuckDB C++ source SHALL be evaluated against each repo's bundling policy
+  (system `libduckdb` where the distro carries one); a bundling exception or an unbundling
+  feature is a shaping decision, not an afterthought.
+- **R6** — CI SHALL validate both package builds (`mock`/`rpmbuild -ba` and the Debian build)
+  so the tooling cannot rot between releases.
 
 ## Notes
 
-- Related: GitHub issue #5.
-- Found by: original roadmap; back-reference retrofitted 2026-09-07.
+- Related: GitHub issue #5; PR #12 (COPR-style first pass); `packaging/rpm/xdu.spec`.
+- License posture helps: MIT with no bundled-exception baggage beyond DuckDB.
+- Found by: original roadmap; re-aimed at official repos 2026-09-07.
