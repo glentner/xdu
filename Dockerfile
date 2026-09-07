@@ -20,6 +20,12 @@
 # =============================================================================
 FROM rust:1-slim-bookworm AS builder
 
+# The duckdb crate's `bundled` feature compiles DuckDB from C++ source; cc-rs invokes a tool
+# literally named `c++`, which rust:1-slim-bookworm does not ship (it has cc/gcc only).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends g++ && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
 
 # Pin the toolchain first: rust-toolchain.toml is the single source of truth, so it must be
@@ -50,7 +56,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim AS runtime
 
 # The bundled DuckDB (C++) dynamically links libstdc++/libgcc; ca-certificates is general
-# hygiene. bookworm-slim ships neither libstdc++6 by default, so install them explicitly.
+# hygiene. bookworm-slim already ships libstdc++6 and libgcc-s1, so this RUN
+# effectively installs only ca-certificates; libstdc++6 stays listed to pin the
+# runtime contract the DuckDB-linked binaries need against a future slim that drops it.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libstdc++6 ca-certificates && \
     rm -rf /var/lib/apt/lists/*

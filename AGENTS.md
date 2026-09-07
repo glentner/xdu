@@ -45,7 +45,8 @@ feature) so there is no external DuckDB dependency.
   `.agents/` factory). This set is **not closed** — coin a new lowercase category when one fits.
   Subject length, and the hand-wrapping of the body, are stated once in § *Prose and comments*.
 - **No `Co-Authored-By:` trailer on commits** — it is noise in `git log`. Authorship/AI-assistance
-  is tracked in the **PR body** instead, which ends with the Claude Code generation line.
+  is tracked in the **PR body** instead, which ends with an attribution trailer naming the
+  actual harness, model, and variant.
 - **Version is single-sourced from `Cargo.toml`** — never hardcode a version string in `src/`; read it
   from `CARGO_PKG_VERSION` (the completion marker does, `crawl.rs`). **The `--version` flag itself does
   not exist:** no `#[command(...)]` in `src/cli.rs` sets `version`, so all four binaries reject `-V`
@@ -119,7 +120,7 @@ seriously to be trusted with that. `src/lib.rs` and `src/crawl.rs` carry the voi
 - Restatements of the adjacent line. A comment that paraphrases the code is worse than none.
 - Emoji, decorative Unicode, or exclamation marks in a comment, a `doc/*.scd` page, or a commit
   message. A Rust macro `!` is not prose. There is none in `src/` or `doc/` today, and the
-  decoration the project keeps is confined to PR bodies (`🔧 Harness feedback`, the Claude Code
+  decoration the project keeps is confined to PR bodies (`🔧 Harness feedback`, the attribution
   trailer).
 - Bulleted lists where two sentences would do. Tables are for reference material; prose is for
   reasoning.

@@ -88,7 +88,7 @@ checklists below are the work. `xdu-build` executes the next actionable phase, r
   the `TECH.md` state change. Branch commit subjects follow the house style `[{category}] Build {slug}
   P<n>: …` (no `WIP:` prefix) — squashed into the single PR-title commit at `xdu-publish`.
 - **No `Co-Authored-By` trailer** (attribution lives in the PR body, not the commit); PR **bodies** end
-  with the Claude Code generation line.
+  with an attribution trailer naming the actual harness, model, and variant.
 - A CLI/feature change updates the affected `doc/*.scd` man page **in the same commit** (shell
   completions regenerate from `src/cli.rs`; the generated `share/` tree is git-ignored, not committed).
 

@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: shaped as spec/dockerfile-builder-missing-cxx-toolchain
 kind: fix
 appetite: small
 ---
