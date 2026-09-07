@@ -28,10 +28,10 @@ phases:
     && printf %s "$page" | grep -qF 'Space(listmode)' && ! printf %s "$page" | grep
     -qF Enter/Space
 review:
-  last_reviewed_commit: ''
-  verdict: none
+  last_reviewed_commit: 013adf9c63bd00899194e4c33a263c44be26e6bf
+  verdict: approved
   blocked_reason: ''
-  cycle: 0
+  cycle: 1
 ---
 # TECH.md — In-list file preview overlay for xdu-view
 
