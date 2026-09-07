@@ -38,6 +38,6 @@ filename returns the near misses ranked, without giving up the exact glob/regex 
 
 ## Notes
 
-- Related: [`issues/richer-search-glob-fuzzy-fulltext.md`](richer-search-glob-fuzzy-fulltext.md)
-  (parent seed), `spec/richer-search-glob-fuzzy-fulltext/` (glob pilot record).
+- Related: the retired parent seed `issues/richer-search-glob-fuzzy-fulltext.md` (glob pilot
+  delivered; record in `spec/richer-search-glob-fuzzy-fulltext/`).
 - Found by: `richer-search-glob-fuzzy-fulltext` P4 deferral ledger.

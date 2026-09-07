@@ -26,21 +26,19 @@ Everything below builds on that baseline.
 
 ---
 
-## Richer search: glob pilot in flight; fuzzy, full-text, content-type to go
+## Richer search: glob delivered; fuzzy, full-text, content-type to go
 
 Regex path matching is powerful but not friendly — most users think in globs (`*.py`), not anchored
-regex (`\.py$`). The glob half of this entry is in flight on
-`feature/richer-search-glob-fuzzy-fulltext`: `-p/--pattern` takes a glob by default
-across `xdu-find`, `xdu-view`, and `xdu-rm`, with `--regex` opting back into regular expressions.
-What remains is fuzzy matching for approximate filename search and DuckDB's full-text search
-extension for richer queries — each now its own seed — alongside the longer-term content-type
+regex (`\.py$`). The glob half of this entry is delivered on `main`: `-p/--pattern` takes a glob by
+default across `xdu-find`, `xdu-view`, and `xdu-rm`, with `--regex` opting back into regular
+expressions. What remains is fuzzy matching for approximate filename search and DuckDB's full-text
+search extension for richer queries — each now its own seed — alongside the longer-term content-type
 filtering ("all video files over 1 GB"), which depends on MIME metadata living in the index and
 ties back to the schema-evolution work below.
 
 *Horizon: mid-term · Depends on: content-type filtering needs the richer schema · Refs: —*
 **Seeds:** [`issues/fuzzy-filename-matching.md`](issues/fuzzy-filename-matching.md),
-[`issues/duckdb-fts-evaluation.md`](issues/duckdb-fts-evaluation.md), and the in-flight glob-pilot
-seed [`issues/richer-search-glob-fuzzy-fulltext.md`](issues/richer-search-glob-fuzzy-fulltext.md)
+[`issues/duckdb-fts-evaluation.md`](issues/duckdb-fts-evaluation.md)
 
 ## On-disk index schema versioning
 
