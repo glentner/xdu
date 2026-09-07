@@ -21,8 +21,8 @@ use ratatui::{
 };
 
 use xdu::{
-    QueryFilters, ROOT_PARTITION, SortMode, format_bytes, index_completion_warning, index_glob,
-    parse_size,
+    QueryFilters, ROOT_PARTITION, SortMode, format_bytes, glob_to_regex, index_completion_warning,
+    index_glob, parse_size,
 };
 
 /// Detect file type from magic bytes, shebangs, text content, and extension.
@@ -967,8 +967,22 @@ impl App {
             InputMode::Pattern => {
                 if value.is_empty() {
                     self.filters.pattern = None;
+                    self.filters.pattern_display = None;
                 } else {
-                    self.filters.pattern = Some(value);
+                    // The prompt speaks the same glob dialect as the flag; the stored
+                    // field stays regex whichever entry point set it.
+                    match glob_to_regex(&value) {
+                        Ok(translated) => {
+                            self.filters.pattern = Some(translated);
+                            self.filters.pattern_display = Some(value);
+                        }
+                        Err(e) => {
+                            self.status = format!("Invalid pattern: {}", e);
+                            self.input_mode = InputMode::Normal;
+                            self.input_buffer.clear();
+                            return Ok(());
+                        }
+                    }
                 }
             }
             InputMode::OlderThan => {
@@ -1879,9 +1893,11 @@ fn main() -> Result<()> {
     // Parse sort mode
     let sort_mode: SortMode = args.sort.parse().map_err(|e: String| anyhow::anyhow!(e))?;
 
-    // Build filters from CLI args
+    // Build filters from CLI args. This runs before the terminal is touched, so an
+    // invalid pattern exits without ever owning raw mode or the alternate screen.
     let filters = QueryFilters::new()
-        .with_pattern(args.pattern)
+        .with_path_pattern(args.pattern, args.regex)
+        .map_err(|e| anyhow::anyhow!(e))?
         .with_older_than(args.older_than)
         .with_newer_than(args.newer_than)
         .with_min_size(args.min_size.as_deref())

@@ -65,7 +65,7 @@ fn test_readers_query_cold_cache_without_writing_to_it() {
             "-i",
             index.to_str().unwrap(),
             "--pattern",
-            "\\.log$",
+            "*.log",
             "--dry-run",
         ],
     );

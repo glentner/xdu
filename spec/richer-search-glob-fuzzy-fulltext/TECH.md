@@ -6,7 +6,7 @@ appetite: small
 status: in_progress
 branch: feature/richer-search-glob-fuzzy-fulltext
 base: main
-current_phase: P3
+current_phase: P4
 last_updated: '2026-09-07'
 phases:
 - id: P1
@@ -40,7 +40,7 @@ phases:
     xdu-rm -i "$XDU_INDEX" -p "[" --dry-run --force'
 - id: P3
   name: xdu-view startup and interactive pattern on the glob dialect
-  status: pending
+  status: done
   satisfies:
   - R1
   - R2
@@ -170,14 +170,14 @@ deletion set is selected; its tests prove both dialects and the fail-closed path
 **Goal:** The TUI takes glob on startup and in its interactive `/` prompt, with validation
 ordered before the terminal is touched.
 
-- [ ] `src/bin/xdu-view.rs` startup: build filters via `with_path_pattern` before
+- [x] `src/bin/xdu-view.rs` startup: build filters via `with_path_pattern` before
   `enable_raw_mode`, so an invalid glob exits non-zero without ever owning the terminal.
-- [ ] `confirm_input` (`InputMode::Pattern`): route new input through `glob_to_regex`;
+- [x] `confirm_input` (`InputMode::Pattern`): route new input through `glob_to_regex`;
   report the `Err` as a status-bar message, matching the existing bad-number path. The
   stored field stays one dialect (regex) regardless of who set it.
-- [ ] `doc/xdu-view.1.scd`: same man-page treatment, including the `/`-prompt line that
+- [x] `doc/xdu-view.1.scd`: same man-page treatment, including the `/`-prompt line that
   today says regex.
-- [ ] `tests/offline_tests.rs`: convert the `\.log$` dry-run assertion to glob (it drives
+- [x] `tests/offline_tests.rs`: convert the `\.log$` dry-run assertion to glob (it drives
   `xdu-rm`, but the conversion belongs with the last behavior phase; P2 must stay green
   with either spelling since translation is exact).
 - **Verify:** build plus a `temp_index.sh` drive proving an invalid startup glob exits
