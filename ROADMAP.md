@@ -26,20 +26,6 @@ Everything below builds on that baseline.
 
 ---
 
-## Richer search: glob delivered; fuzzy, full-text, content-type to go
-
-Regex path matching is powerful but not friendly — most users think in globs (`*.py`), not anchored
-regex (`\.py$`). The glob half of this entry is delivered on `main`: `-p/--pattern` takes a glob by
-default across `xdu-find`, `xdu-view`, and `xdu-rm`, with `--regex` opting back into regular
-expressions. What remains is fuzzy matching for approximate filename search and DuckDB's full-text
-search extension for richer queries — each now its own seed — alongside the longer-term content-type
-filtering ("all video files over 1 GB"), which depends on MIME metadata living in the index and
-ties back to the schema-evolution work below.
-
-*Horizon: mid-term · Depends on: content-type filtering needs the richer schema · Refs: —*
-**Seeds:** [`issues/fuzzy-filename-matching.md`](issues/fuzzy-filename-matching.md),
-[`issues/duckdb-fts-evaluation.md`](issues/duckdb-fts-evaluation.md)
-
 ## On-disk index schema versioning
 
 Today the Parquet schema is three fixed, non-null columns with no version marker on disk, so any
@@ -78,7 +64,7 @@ and "copy this user's stale logs to a staging prefix" into single safe commands 
 copy is the primitive the archive entry builds on. Sequenced after richer search and the schema
 work so both tools are born with the final filter surface and columns rather than retrofitted.
 
-*Horizon: mid-term · Depends on: search + schema entries above (sequencing) · Refs: #1*
+*Horizon: mid-term · Depends on: search + schema entries (sequencing) · Refs: #1*
 **Seed:** [`issues/bulk-copy-move-xdu-cp-mv.md`](issues/bulk-copy-move-xdu-cp-mv.md)
 
 ## Bulk operations: `xdu-tar` slice archives for backup
@@ -362,3 +348,17 @@ goes beyond basic usage.
 
 *Horizon: long-term · Depends on: — (a release checkpoint, not a feature) · Refs: —*
 **Seed:** [`issues/toward-v1-0-release.md`](issues/toward-v1-0-release.md)
+
+## Richer search: glob delivered; fuzzy, full-text, content-type to go
+
+Regex path matching is powerful but not friendly — most users think in globs (`*.py`), not anchored
+regex (`\.py$`). The glob half of this entry is delivered on `main`: `-p/--pattern` takes a glob by
+default across `xdu-find`, `xdu-view`, and `xdu-rm`, with `--regex` opting back into regular
+expressions. What remains is fuzzy matching for approximate filename search and DuckDB's full-text
+search extension for richer queries — each now its own seed — alongside the longer-term content-type
+filtering ("all video files over 1 GB"), which depends on MIME metadata living in the index and
+ties back to the schema-evolution work above.
+
+*Horizon: mid-term · Depends on: content-type filtering needs the richer schema · Refs: —*
+**Seeds:** [`issues/fuzzy-filename-matching.md`](issues/fuzzy-filename-matching.md),
+[`issues/duckdb-fts-evaluation.md`](issues/duckdb-fts-evaluation.md)
