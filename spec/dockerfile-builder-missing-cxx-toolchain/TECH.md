@@ -68,10 +68,10 @@ phases:
     -c 'command -v /usr/local/bin/xdu-rm' && docker run --rm --platform linux/arm64
     --entrypoint sh ghcr.io/glentner/xdu:latest -c 'command -v /usr/local/bin/xdu-rm'
 review:
-  last_reviewed_commit: ''
-  verdict: none
+  last_reviewed_commit: 7737fc8a4a2a87341d747342b0104b1cdccc8930
+  verdict: approved
   blocked_reason: ''
-  cycle: 0
+  cycle: 1
 ---
 # TECH.md — Restore the container build with an explicit C++ toolchain
 
