@@ -75,7 +75,7 @@ is skipped by the parser):
 <!-- Real findings are appended below this line by the lifecycle skills. -->
 
 ## F1 — No defined vocabulary for an `issues/{slug}.md` `status:` after promotion
-`origin=xdu-feature:step-4 severity=low category=template status=open target=.agents/factory/templates/ISSUE.md`
+`origin=xdu-feature:step-4 severity=low category=template status=applied target=.agents/factory/templates/ISSUE.md`
 - **What happened:** Step 4 says to leave the issue in place "with `status:` updated to name the slug
   that adopted it", but neither the step nor `templates/ISSUE.md` defines the value to write —
   the template documents only `status: unshaped`. I had to grep a sibling issue for precedent and found

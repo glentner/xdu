@@ -109,8 +109,9 @@ a *candidate*: **do not copy it into `GOAL.md` verbatim.** `status: unshaped` me
 appetite, non-goals, or a final contract — that negotiation is this step's job, and skipping it hands
 `xdu-review` a contract no human ever accepted. Carry the evidence (`file:line`, mechanism, whether the
 defect is pre-existing) into **Problem**, and treat the draft R-IDs as input, not as the contract. When
-the GOAL lands, leave the `issues/` file in place with `status:` updated to name the slug that adopted
-it, so the ROADMAP index does not dangle.
+the GOAL lands, leave the `issues/` file in place with `status:` set to
+`shaped on <branch> (<date>) — see spec/<slug>/GOAL.md`, so the ROADMAP index does not dangle.
+The full three-state vocabulary lives in [`templates/ISSUE.md`](../../factory/templates/ISSUE.md).
 
 ### Step 5 — Coherence self-check
 Re-read the GOAL: is it solved, bounded to the appetite, and free of unresolved markers? Every

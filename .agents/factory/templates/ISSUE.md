@@ -9,8 +9,11 @@ appetite: small | big
 > **Pre-shaped candidate, not a contract.** This file records deferred work in enough detail that a
 > future session does not have to re-derive it. It is **not** graded by `xdu-review` and must never be
 > copied into `spec/{slug}/GOAL.md` verbatim — `/xdu-feature` promotes it, and that is where appetite,
-> non-goals and the R-IDs get negotiated with a human. The `status: unshaped` field above is the guard:
-> while it says `unshaped`, this is a proposal.
+> non-goals and the R-IDs get negotiated with a human. The `status:` field above is the guard, with
+> three states: `unshaped` means proposal; `shaped on <branch> (<date>) — see spec/<slug>/GOAL.md`
+> means a cycle adopted it and is still in flight; `resolved on <branch> (<date>) — see
+> spec/<slug>/` means the cycle landed on `main`. Only `/xdu-feature` writes `shaped`, only the
+> landing cycle writes `resolved`, and `/xdu-roadmap` deletes the file once the landing is confirmed.
 >
 > Deliberately **not** named `GOAL-{slug}.md`: every other GOAL in the factory is a locked contract, so
 > a file carrying that name eventually gets treated as one.
