@@ -6,7 +6,7 @@ appetite: small
 status: in_progress
 branch: fix/dockerfile-builder-missing-cxx-toolchain
 base: main
-current_phase: P3
+current_phase: P4
 last_updated: '2026-09-06'
 phases:
 - id: P1
@@ -39,7 +39,7 @@ phases:
     grep -q ''effectively installs only'' Dockerfile'
 - id: P3
   name: Offline functional drive of the built image
-  status: pending
+  status: done
   satisfies:
   - R2
   depends_on:
@@ -182,14 +182,14 @@ build jobs get timeout headroom for the unmeasured cold DuckDB compile.
 **Goal:** Prove the built image is functionally an xdu distribution with no network, as the
 non-root user, and with no DuckDB extension autoinstall.
 
-- [ ] Run the phase `verify:` against the `xdu:cxx-verify` image from P1 (rebuild first if the
+- [x] Run the phase `verify:` against the `xdu:cxx-verify` image from P1 (rebuild first if the
   image is absent — the tag is local-only and never pushed). It mounts a two-file fixture tree
   read-only, crawls it, and asserts `whoami = xdu`, the `__root__` partition and
   `.xdu-complete` exist, `xdu-find --count` prints exactly `2` (bare integer per
   `src/bin/xdu-find.rs:86`), and `/home/xdu/.duckdb` was not created. `chmod -R a+rX` on the
   fixture precedes the run because `mktemp -d` is `700` and the container `xdu` user is a
   different uid; `rm -rf` on the self-created scratch dir is allowed per `AGENTS.md`.
-- [ ] If the amd64-identity of the local image matters to the reader, note the host arch in the
+- [x] If the amd64-identity of the local image matters to the reader, note the host arch in the
   commit body — the second arch is proven by the PR's `validate` legs, not here.
 - **Verify:** the `mktemp` + `docker run --network none` one-liner in the frontmatter (exit code
   is the verdict; the ` trap`-less `rm -rf` cleanup runs on both paths via `rc=$?`).
