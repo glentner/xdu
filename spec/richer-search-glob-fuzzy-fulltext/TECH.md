@@ -3,7 +3,7 @@ slug: richer-search-glob-fuzzy-fulltext
 title: Glob as the default path-match dialect (pilot)
 kind: feature
 appetite: small
-status: in_review
+status: done
 branch: feature/richer-search-glob-fuzzy-fulltext
 base: main
 current_phase: done
