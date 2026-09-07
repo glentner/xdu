@@ -43,7 +43,7 @@ feature) so there is no external DuckDB dependency.
 - **Commit subjects follow `[category] Imperative summary`.** Common categories: `feature`, `fix`,
   `docs`, `ci`, `refactor`, `test`, `release` (version bumps / rebuilt assets), and `harness` (the
   `.agents/` factory). This set is **not closed** — coin a new lowercase category when one fits.
-  Subject length, and the hand-wrapping of the body, are stated once in § *Prose and comments*.
+  Subject length, and the wrapping of the body, are stated once in § *Prose and comments*.
 - **No `Co-Authored-By:` trailer on commits** — it is noise in `git log`. Authorship/AI-assistance
   is tracked in the **PR body** instead, which ends with an attribution trailer naming the
   actual harness, model, and variant.
@@ -55,6 +55,10 @@ feature) so there is no external DuckDB dependency.
 - **A CLI change updates its `doc/*.scd` man page source in the same commit.** Shell completions
   regenerate automatically from `src/cli.rs` (`gen-completions`), so they are not committed; the
   generated `share/` tree is git-ignored (built in CI and by `/xdu-release`).
+- **Commit-message hook** — `.githooks/commit-msg` reflows the body to ≤80 columns (subject,
+  comments, and indented literal lines pass through untouched; a subject past 72 earns a warning,
+  not a failure). Enable per clone with `git config core.hooksPath .githooks`. Write the body as
+  flowing paragraphs; the hook wraps them.
 - **Delete with `del`, never `rm`** — and read the exceptions in the next bullet before applying this
   to committed code. `del` ([`delete-cli`](https://pypi.org/project/delete-cli/), the maintainer's)
   moves a path to the `$HOME` trash instead of unlinking it, so a mistake is recoverable: `del PATH…`
@@ -133,13 +137,15 @@ environment variables (`XDU_INDEX`, `XDU_JOBS`), documented DuckDB or `scdoc` be
 
 ### Commit messages
 
-Wrap both by hand. Neither number is a convention borrowed from elsewhere.
+The subject is wrapped by hand; the body is reflowed by the `commit-msg` hook. Neither number
+is a convention borrowed from elsewhere.
 
 - **Subject: 72 characters, hard**, counting the `[category] ` prefix. `git log --oneline` spends 8
   columns on the short SHA and a space, leaving 72 of an 80-column terminal. This costs
   human-authored commits nothing: 2 of the 60 non-`[harness]` subjects on `main` exceed it, against
   a mean of 46.9.
-- **Body: hard-wrap at 80**, after a blank line. That is what this repo already writes — of 453 body
+- **Body: wrapped at 80 by the hook**, after a blank line. Write flowing paragraphs and let the
+  hook reflow them. That is what this repo already writes — of 453 body
   lines, 3% exceed 80 where 43% exceed 72, so 72 would impose a new standard rather than record the
   one in force. `git log` indents the body 4 columns, so an 80-wide body can fold in an exactly-80
   terminal; that is the accepted cost of matching the corpus.

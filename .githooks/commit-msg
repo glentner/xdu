@@ -1,0 +1,35 @@
+#!/bin/sh
+# commit-msg hook: reflow the commit body to 80 columns.
+#
+# The subject (first line) is never touched. Blank lines, comment lines, and
+# indented (literal) lines pass through verbatim; every other paragraph is
+# reflowed with fmt(1), which preserves word boundaries and paragraph breaks.
+# A subject past 72 columns earns a stderr warning, not a failure.
+#
+# Enable with (per-clone; core.hooksPath is not tracked):
+#   git config core.hooksPath .githooks
+
+set -u
+
+f=${1:?usage: commit-msg <file>}
+[ -f "$f" ] || exit 0
+command -v fmt >/dev/null 2>&1 || exit 0
+
+tmp=$(mktemp) || exit 0
+trap 'rm -f "$tmp"' EXIT INT TERM
+
+awk '
+NR == 1 { print; subjlen = length($0); next }
+function flush() {
+    if (buf != "") { printf "%s\n", buf | "fmt -w 80"; close("fmt -w 80"); buf = "" }
+}
+/^#/ { flush(); print; next }
+/^[[:space:]]*$/ { flush(); print ""; next }
+/^[[:space:]]/ { flush(); print; next }
+{ buf = (buf == "" ? $0 : buf " " $0) }
+END {
+    flush()
+    if (subjlen > 72)
+        print "commit-msg hook: subject is " subjlen " columns (>72)" > "/dev/stderr"
+}
+' "$f" > "$tmp" && cat "$tmp" > "$f"
