@@ -26,18 +26,6 @@ Everything below builds on that baseline.
 
 ---
 
-## In-list file preview overlay (`xdu-view`)
-
-The tree view can preview a file inline, but the list view cannot — to see what a file actually *is*
-you have to switch modes or leave the list, which breaks the flow of scanning a large directory. An
-overlay that pops file-type info and a short text preview over the current list, then dismisses back
-to it, would make the list view as inspectable as the tree view and close the last unfinished piece
-of the original tree-view work. (The natural `<space>` binding is already taken by list-mode
-drill-in, so the trigger key is something `/xdu-plan` will need to reconcile.)
-
-*Horizon: near-term · Depends on: — · Refs: —*
-**Seed:** [`issues/xdu-view-list-preview-overlay.md`](issues/xdu-view-list-preview-overlay.md)
-
 ## Bulk-op sibling tools: `xdu-mv` and `xdu-tar`
 
 `xdu-rm` proved a powerful pattern: select a set of files with an index query, then act on exactly
