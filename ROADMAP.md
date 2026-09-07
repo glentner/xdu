@@ -36,7 +36,7 @@ of the original tree-view work. (The natural `<space>` binding is already taken 
 drill-in, so the trigger key is something `/xdu-plan` will need to reconcile.)
 
 *Horizon: near-term · Depends on: — · Refs: —*
-**Seed:** `/xdu-feature In xdu-view list mode, let the user pop an overlay with the selected file's type and a short text preview without leaving the list.`
+**Seed:** [`issues/xdu-view-list-preview-overlay.md`](issues/xdu-view-list-preview-overlay.md)
 
 ## Bulk-op sibling tools: `xdu-mv` and `xdu-tar`
 
@@ -49,7 +49,7 @@ into single, safe, index-driven commands. Both tools should reuse `xdu-rm`'s des
 model rather than reinvent it.
 
 *Horizon: near-term · Depends on: — (reuses xdu-rm's safety model) · Refs: #1*
-**Seed:** `/xdu-feature Add xdu-mv and xdu-tar that relocate or archive the exact set of files matched by an index query, reusing xdu-rm's dry-run/confirm/safe-mode safety.`
+**Seed:** [`issues/xdu-mv-and-xdu-tar.md`](issues/xdu-mv-and-xdu-tar.md)
 
 ## Richer search: glob, fuzzy, full-text, content-type
 
@@ -62,7 +62,7 @@ step, but it depends on MIME metadata living in the index, which ties back to th
 work below.
 
 *Horizon: mid-term · Depends on: content-type filtering needs the richer schema · Refs: —*
-**Seed:** `/xdu-feature Add glob and fuzzy path matching (and evaluate DuckDB full-text search) as friendlier alternatives to regex across xdu-find, xdu-view, and xdu-rm.`
+**Seed:** [`issues/richer-search-glob-fuzzy-fulltext.md`](issues/richer-search-glob-fuzzy-fulltext.md)
 
 ## On-disk index schema versioning
 
@@ -74,7 +74,7 @@ this is the hard prerequisite for enriching the schema at all — it must land b
 added.
 
 *Horizon: near-term · Depends on: — · Refs: — (enabler for the two features below)*
-**Seed:** `/xdu-feature Add an on-disk schema-version marker to the index so readers can detect the format version and safely reject or migrate indices written by other versions.`
+**Seed:** [`issues/index-schema-versioning.md`](issues/index-schema-versioning.md)
 
 ## Richer index schema: owner, group, permissions
 
@@ -85,7 +85,7 @@ per-permission questions at all; today that means falling back to a slow `find`.
 group, and mode in the index unlocks a whole class of storage-accounting queries.
 
 *Horizon: mid-term · Depends on: on-disk schema versioning (breaking, cross-cutting index-format change) · Refs: #2, #3*
-**Seed:** `/xdu-feature Record file owner, group, and permission bits in the index so queries can attribute size and age to individual users and groups within a shared tree.`
+**Seed:** [`issues/index-schema-owner-group-permissions.md`](issues/index-schema-owner-group-permissions.md)
 
 ## Permission-aware, access-scoped queries
 
@@ -96,7 +96,7 @@ normally access — applied by default (or by an explicit flag) when `xdu` build
 root. This is what makes a shared, centrally built index safe to expose to the tenants it describes.
 
 *Horizon: long-term · Depends on: richer index schema (owner/group/perms) · Refs: #3*
-**Seed:** `/xdu-feature Add access-scoped querying so a non-root user only sees index rows for files they could normally access, using the indexed owner/group/permission data.`
+**Seed:** [`issues/access-scoped-queries.md`](issues/access-scoped-queries.md)
 
 ## S3 as an index target
 
@@ -107,7 +107,7 @@ build-once/read-anywhere indices that any tool (or a future web client) can poin
 files around.
 
 *Horizon: mid-term · Depends on: — (write path only; layout carries over) · Refs: —*
-**Seed:** `/xdu-feature Let xdu write its Hive-partitioned Parquet index to an S3-compatible bucket/prefix instead of a local directory, so indices can be stored and queried centrally.`
+**Seed:** [`issues/s3-index-target.md`](issues/s3-index-target.md)
 
 ## S3 as a crawl source
 
@@ -120,7 +120,7 @@ interchangeable behind one CLI, and expressing per-source capability differences
 no atime — the Unix-only/no-atime assumption no longer holds for every backend).
 
 *Horizon: long-term · Depends on: crawler-source abstraction; expect dedicated research + sub-phases · Refs: —*
-**Seed:** `/xdu-feature Let xdu audit files stored in an S3-compatible bucket the same way it audits a local tree, so object-store datasets get the same size/age/pattern reporting.`
+**Seed:** [`issues/s3-crawl-source.md`](issues/s3-crawl-source.md)
 
 ## Streaming index updates & Lustre changelog
 
@@ -134,7 +134,34 @@ and community reference. A related open question is whether native Lustre LFS/ll
 make the full crawl itself faster or gentler on metadata servers than going through the VFS.
 
 *Horizon: long-term · Depends on: — (largest effort on the roadmap; expect several sub-phases) · Refs: —*
-**Seed:** `/xdu-feature Keep the index of a constantly-changing, billion-file filesystem queryable without full re-crawls, driven first by the Lustre changelog.`
+**Seed:** [`issues/streaming-index-updates-lustre-changelog.md`](issues/streaming-index-updates-lustre-changelog.md)
+
+## Crawl progress that stays trustworthy on skewed trees
+
+On very large filesystems the interactive crawl display settles into a state that reads as hung:
+one partition shows file counts while every other line sits at `scanning...` indefinitely. Each
+driver owns one display bar for life while the shared rayon pool work-steals across all walkers,
+so the `[Tn]` label names the bar owner rather than the threads doing the work — the display
+reports the inverse of a healthy skewed crawl. Throughput is likely correct, but an operator
+cannot tell a skewed crawl from a stuck one, and on shared scratch that distinction decides
+whether a job lives or dies. The intent is per-line evidence of life and labels that match the
+threading model, with the single-pool work-stealing design unchanged.
+
+*Horizon: near-term · Depends on: — (display only; `src/bin/xdu.rs` progress block) · Refs: —*
+**Seed:** [`issues/crawl-progress-misleads-on-huge-trees.md`](issues/crawl-progress-misleads-on-huge-trees.md)
+
+## Machine-readable log output for cron-driven crawls
+
+`xdu` has one output posture: rich spinners on a TTY, plain lines otherwise. The non-TTY path
+already keeps stdout clean and prints records to stderr, but they carry no timestamp, no severity,
+and no stable parseable shape — a 3 AM cron failure leaves a log that says what finished without
+saying when or how severely. The intent is a log mode (format still open: timestamped tagged
+lines, JSON lines, or a syslog transport) from which a script or a human can reconstruct the run:
+start with arguments, per-partition completions, warnings, the completion-marker verdict, and a
+final summary. The interactive display is untouched.
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** [`issues/indexer-machine-readable-log-output.md`](issues/indexer-machine-readable-log-output.md)
 
 ## Web client (`xdu-web`)
 
@@ -144,7 +171,7 @@ equivalent of `xdu-view`, with the same list and tree views and the same search 
 making a centrally stored index explorable by anyone with a link, no shell account required.
 
 *Horizon: long-term · Depends on: S3 as an index target · Refs: —*
-**Seed:** `/xdu-feature Build xdu-web, a Wasm progressive web app that browses an S3-backed index in the browser with list/tree views and search, mirroring xdu-view.`
+**Seed:** [`issues/xdu-web-client.md`](issues/xdu-web-client.md)
 
 ## The man-page gate false-alarms on distro `scdoc`, and `main` is red because of it
 
@@ -229,7 +256,7 @@ record, including the performance levers the benchmark work evaluated and reject
 [`spec/crawl-hardening/ASSESSMENT.md`](spec/crawl-hardening/ASSESSMENT.md).
 
 *Horizon: near-term · Depends on: — · Refs: —*
-**Seed:** `/xdu-feature Work through the deferred cleanups recorded in spec/crawl-hardening/ASSESSMENT.md: escape the DuckDB injection surface behind lib::index_glob, reconcile the duplicated count formatters, and lift the pure xdu-view helpers into lib with tests — coordinating with the xdu-view terminal-safety fix, which touches the same file.`
+**Seed:** [`issues/crawl-hardening-internal-cleanups.md`](issues/crawl-hardening-internal-cleanups.md)
 
 ## `xdu-view` terminal safety: panic-safe restore and multibyte truncation
 
@@ -347,7 +374,7 @@ removing a small but real adoption friction. The existing tarball layout and `in
 already define the exact file map these packages would ship.
 
 *Horizon: near-term, low priority · Depends on: — (builds on the established release layout) · Refs: #5*
-**Seed:** `/xdu-feature Produce native DEB and RPM packages for xdu using the existing release tarball file layout so users can install and upgrade via their system package manager.`
+**Seed:** [`issues/native-os-packages-deb-rpm.md`](issues/native-os-packages-deb-rpm.md)
 
 ## Toward v1.0: narrative, branding, and community
 
@@ -358,4 +385,4 @@ architecture piece, a project identity, a contribution guide and maintenance pla
 goes beyond basic usage.
 
 *Horizon: long-term · Depends on: — (a release checkpoint, not a feature) · Refs: —*
-**Seed:** `/xdu-feature Prepare xdu for a v1.0 release with a motivation-and-architecture writeup, project branding, a contribution/maintenance guide, and an expanded README.`
+**Seed:** [`issues/toward-v1-0-release.md`](issues/toward-v1-0-release.md)
