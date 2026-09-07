@@ -60,7 +60,8 @@ Additional instructions provided with the invocation: $ARGUMENTS
   also the one branch title that must fit the subject budget in `AGENTS.md` § *Prose and comments*;
   GitHub appends ` (#N)` on squash, so leave room for it.
 - **Link, don't quote.** The PR body references artifacts via SHA-pinned blob permalinks, not pasted
-  copies.
+  copies — and each renders as a clean markdown link with the base file name as its text
+  (`[GOAL.md](https://…/spec/{slug}/GOAL.md)`), never a bare URL.
 - **No `Co-Authored-By` trailer** (attribution lives in the PR body, not the commit). PR **bodies** end
   with an attribution trailer naming the actual harness, model, and variant (see the trailing-line
   rule below — never a hardcoded product name).
