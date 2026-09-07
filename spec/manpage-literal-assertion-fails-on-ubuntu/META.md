@@ -156,7 +156,7 @@ is skipped by the parser):
 - **Confidence:** high · **Effort:** small
 
 ## F5 — Artifact-deliverable R-IDs are sourced from the wrong file, so the one on this branch was nearly missed
-`origin=xdu-review:step-2 severity=medium category=instruction status=open target=.agents/skills/xdu-review/SKILL.md`
+`origin=xdu-review:step-2 severity=medium category=instruction status=applied target=.agents/skills/xdu-review/SKILL.md`
 - **What happened:** Step 2 says to "identify them from `TECH.md`'s `satisfies` notes before
   delegating". I did, and `TECH.md` gave no signal: `satisfies:` lists R4 under P1 alongside R1/R2/R3/
   R5/R7, all of which are ordinary behavioral requirements verifiable from the workflow file. Nothing

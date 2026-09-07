@@ -128,8 +128,12 @@ Launch a fresh `general-purpose` reviewer via the `Agent` tool. Give it, inline,
 by a committed document (a research audit, a protocol doc, an assessment) that lives under `spec/` —
 which the reviewer is blinded to, and which the `':(exclude)spec/'` pathspec strips from its diff. The
 reviewer therefore *structurally cannot* verify them, and left unsaid it will either report them as
-unverifiable or guess. So: identify them from `TECH.md`'s `satisfies` notes before delegating, **name
-them explicitly in the delegation prompt as out of scope** ("R1 and R8 are satisfied by committed
+unverifiable or guess. So: identify them from **`GOAL.md`'s Clarifications and non-goals first** — a
+requirement whose acceptance is phrased as "recorded", "documented", "assessed", or "evidenced in the
+spec" is one — with `TECH.md`'s `satisfies` notes as a secondary cross-check (`satisfies` maps R-IDs to
+phases, not to deliverable kind, so it cannot carry this signal alone). Apply the one-line test:
+*would the reviewer, seeing only the spec-excluded diff, have anything to run?* If no, the
+orchestrator owns it. **Name them explicitly in the delegation prompt as out of scope** ("R1 and R8 are satisfied by committed
 artifacts under `spec/`; do not attempt them — the orchestrator grades those"), verify them yourself by
 reading the artifact, and have `REVIEW.md`'s requirement→evidence matrix **record who verified each**.
 This does not weaken blindness: the reviewer still never reads `spec/`. It stops the evidence spine
