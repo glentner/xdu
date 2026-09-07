@@ -68,7 +68,7 @@ phases:
     -c 'command -v /usr/local/bin/xdu-rm' && docker run --rm --platform linux/arm64
     --entrypoint sh ghcr.io/glentner/xdu:latest -c 'command -v /usr/local/bin/xdu-rm'
 review:
-  last_reviewed_commit: 7737fc8a4a2a87341d747342b0104b1cdccc8930
+  last_reviewed_commit: c571dd93d1be322e27cb70b9849c8f3d38b104f6
   verdict: approved
   blocked_reason: ''
   cycle: 1

@@ -5,13 +5,18 @@
 > `PLAN.md`/`TECH.md` (avoids grading-its-own-homework / plan-sycophancy). Every finding cites an
 > **executed** command, not an assertion.
 
-- **Reviewed commit:** 7737fc8a4a2a87341d747342b0104b1cdccc8930  ·  **Base:** main  ·  **Date:** 2026-09-07
+- **Reviewed commit:** c571dd93d1be322e27cb70b9849c8f3d38b104f6
+- **Base:** main
+- **Date:** 2026-09-07
 - **Verdict:** approved
-- **Cycle:** 1 of ≤3 — mirrors `review.cycle` in `TECH.md` (escalate to human on non-convergence)
+- **Cycle:** 1 of ≤3 (mirrors review.cycle in TECH.md; escalate on non-convergence)
 
 Mode: full blind pass over the spec-excluded diff (not a scoped remediation re-check).
-Contract-drift check: `git log --oneline main..HEAD -- spec/dockerfile-builder-missing-cxx-toolchain/GOAL.md`
-shows only the shaping commit — the locked contract did not move mid-build.
+Contract-drift check — only the shaping commit touches the locked contract:
+
+    git log --oneline main..HEAD -- spec/dockerfile-builder-missing-cxx-toolchain/GOAL.md
+
+so the locked contract did not move mid-build.
 Branch status note: `TECH.md` was `in_progress` (P1–P3 done, P4 pending by design as post-merge
 human-gated), not `in_review`; the human approved proceeding with the review on that basis.
 
@@ -59,10 +64,10 @@ on the branch); R1–R4 and the R5 timeout half were graded by the blind reviewe
 
 | R-ID | Implemented by (file/commit) | Verified how | Status |
 |------|------------------------------|--------------|--------|
-| R1 | `Dockerfile` builder `g++` layer (P1, `cbfb2c9`) | Reviewer: premise + fix probes above, build→COPY→`[[bin]]` name match; full-image compile left to PR `validate` legs | ✅ (mechanism proven; both-arch green owed by CI) |
-| R2 | Unchanged image posture + `bundled,parquet` offline mechanism (P3, `7737fc8`, verification-only) | Reviewer (static): `USER xdu` + real `$HOME`, `Cargo.toml` `parquet` feature comment; no live run required absent a defect candidate | ✅ on the branch |
+| R1 | `Dockerfile` builder `g++` layer (P1, `8ab5556`) | Reviewer: premise + fix probes above, build→COPY→`[[bin]]` name match; full-image compile left to PR `validate` legs | ✅ (mechanism proven; both-arch green owed by CI) |
+| R2 | Unchanged image posture + `bundled,parquet` offline mechanism (P3, `c571dd9`, verification-only) | Reviewer (static): `USER xdu` + real `$HOME`, `Cargo.toml` `parquet` feature comment; no live run required absent a defect candidate | ✅ on the branch |
 | R3 | `Dockerfile:23-24` builder comment (P1) | `grep -n "c++" Dockerfile` → lines 23–24, immediately above the install, naming `bundled`, `cc-rs`, literal `c++`, `rust:1-slim-bookworm` | ✅ |
-| R4 | `Dockerfile:58-61` runtime comment (P2, `c6e2ee8`) | Phrase grep OK + `dpkg -l` factuality probe (`ii`/`ii`/`un`); old false claim removed in the same hunk | ✅ |
+| R4 | `Dockerfile:58-61` runtime comment (P2, `65c6819`) | Phrase grep OK + `dpkg -l` factuality probe (`ii`/`ii`/`un`); old false claim removed in the same hunk | ✅ |
 | R5 | `.github/workflows/docker.yaml` timeouts 20→30 (P2) + durations | Reviewer+orchestrator: ruby parse `30/30/15`, diff-hunk check, cold-compile comments; local 3m6s in P1 commit body; GitHub-runner durations owed by the PR `validate` legs and quoted into the PR body at publish (orchestrator) | ✅ half on branch / half owed by CI |
 | R6 | Post-merge republish (P4, pending by design) | Orchestrator: not executable on the branch; handoff is the P4 runbook (patch release → `build`+`merge` → dual-arch `command -v xdu-rm` verify) | ⏳ pending post-merge, not a branch gap |
 
