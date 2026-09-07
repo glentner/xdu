@@ -7,7 +7,9 @@ URL:            https://github.com/glentner/xdu
 Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz
 BuildRequires:       cargo
 BuildRequires:       rust
-BuildRequires:       gcc
+# The duckdb crate's `bundled` feature compiles DuckDB from C++ source; cc-rs
+# invokes a tool literally named `c++`, so plain gcc is not enough.
+BuildRequires:       gcc-c++
 
 %description
 Extreme-scale parallel "du" command with search and TUI viewer.
