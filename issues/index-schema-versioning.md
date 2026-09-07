@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: shaped on feature/index-schema-versioning (2026-09-07) — see spec/index-schema-versioning/GOAL.md
 kind: feature
 appetite: small
 ---
