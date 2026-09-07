@@ -77,6 +77,12 @@ fundamentally at odds with an invariant, STOP and escalate.
   skipping it yields a test-only guess. `kind`/`appetite` are proxies for "is the root cause known?";
   when they disagree with the GOAL, the GOAL wins. (An explicit `skip research` argument stays a human
   override and still skips.)
+- **Exception — gate-shaped deliverables:** when the deliverable is itself a gate, assertion, or
+  verification harness (a CI step, a `verify:` script, test infrastructure), the fan-out is **not**
+  skippable on the lean path — a design error there fails in the *green* direction, so the phase's own
+  `verify:` passes and nothing downstream disagrees. Run at least one adversarial reviewer against the
+  drafted design, tasked with finding inputs it passes while broken or fails while good, before `PLAN.md`
+  is committed.
 - **`appetite: big`:** identify the *rabbit holes* — the scary unknowns that could blow the appetite
   (unfamiliar code paths, algorithmic choices, external tech, perf at scale, dialect differences).
   Launch **read-only research subagents in parallel** (Agent tool), one per topic, breadth-first:

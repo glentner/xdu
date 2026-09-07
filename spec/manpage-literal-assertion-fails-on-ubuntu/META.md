@@ -109,7 +109,7 @@ is skipped by the parser):
 - **Confidence:** high · **Effort:** small
 
 ## F3 — The lean path has no design-correctness check, and for a gate-shaped deliverable that is invisible
-`origin=xdu-plan:step-3 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-plan/SKILL.md`
+`origin=xdu-plan:step-3 severity=medium category=missing-guidance status=applied target=.agents/skills/xdu-plan/SKILL.md`
 - **What happened:** Step 3 directs `appetite: small` + `kind: fix` to skip the research fan-out, and
   Step 5's second invariant gate re-walks `invariants.md` only. Following both faithfully produced a
   design carrying two defects that were later reproduced on the CI toolchain: whitespace-stripping
