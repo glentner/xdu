@@ -76,7 +76,7 @@ is skipped by the parser):
 
 ## F2 — `verify:` must be authored as embedded shell-in-YAML, with no guidance on the quoting traps
 
-`origin=xdu-plan:step-6 severity=medium category=missing-guidance status=open target=.agents/skills/xdu-plan/SKILL.md`
+`origin=xdu-plan:step-6 severity=medium category=missing-guidance status=applied target=.agents/skills/xdu-plan/SKILL.md`
 - **What happened:** Step 6 requires a real `verify:` command per phase, and Step 7 lists "unquoted
   `verify:` YAML" as a qualifying friction class — so the hazard is known to the skill — but no step
   says how to author one safely. Two traps in one sitting: `templates/TECH.md`'s example wraps the

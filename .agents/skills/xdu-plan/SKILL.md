@@ -125,6 +125,12 @@ dependent reader/crawler phases. Set top `status: in_progress`, `current_phase` 
 `uv run --with pyyaml python .agents/factory/bin/next_phase.py spec/{slug}/TECH.md` must exit 0 and
 report the first phase.
 
+**Author `verify:` as a plain shell command with at most one quoting level.** The runner is already a
+shell, so `sh -c '…'` is only for handing a command to a helper such as `temp_index.sh` (the template's
+P1 example is that case). Backslash escapes are live inside double-quoted YAML — a `\n` meant for
+`printf` arrives as a newline before the shell sees it — so prefer a single `\"` level and round-trip
+the parsed string (e.g. through `yaml.safe_load`) before committing.
+
 **The unit of measurement is the unit of change.** A phase bundling two independent performance levers
 behind one benchmark gets one verdict, so a regression on one can be paid for by the other's win and
 ship credited as an improvement. Split them into separate phases, or give the phase a `verify:` that
