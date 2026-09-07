@@ -3,10 +3,10 @@ slug: richer-search-glob-fuzzy-fulltext
 title: Glob as the default path-match dialect (pilot)
 kind: feature
 appetite: small
-status: in_progress
+status: in_review
 branch: feature/richer-search-glob-fuzzy-fulltext
 base: main
-current_phase: P4
+current_phase: done
 last_updated: '2026-09-07'
 phases:
 - id: P1
@@ -54,7 +54,7 @@ phases:
     -i "$XDU_INDEX" -p "["'
 - id: P4
   name: Full gate and deferral ledger
-  status: pending
+  status: done
   satisfies: []
   depends_on:
   - P1
@@ -192,20 +192,20 @@ P1, P2, P3
 **Goal:** The tree is gate-clean and every scope deferred along the way is recorded where
 the next cycle will find it.
 
-- [ ] Run the pre-release gate exactly as CI mirrors it: `cargo fmt --all -- --check`,
+- [x] Run the pre-release gate exactly as CI mirrors it: `cargo fmt --all -- --check`,
   `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`. Requires
   `scdoc` for the render checks below (`brew install scdoc`); do not weaken the gate if
   it is missing — install it.
-- [ ] Re-render all three touched man pages; literal-check the glob examples and the
+- [x] Re-render all three touched man pages; literal-check the glob examples and the
   `--regex` entries with the whitespace-stripped match from `AGENTS.md` Commands.
-- [ ] Deferral ledger: walk P1–P3 for "do not fix here" / "known limitation" /
+- [x] Deferral ledger: walk P1–P3 for "do not fix here" / "known limitation" /
   "follow-up" language. Each item gets an `issues/{slug}.md` pre-shaped from
   `.agents/factory/templates/ISSUE.md` (`status: unshaped`) plus a `ROADMAP.md` entry.
   Known at plan time: `issues/fuzzy-filename-matching.md` and
   `issues/duckdb-fts-evaluation.md`, and the `ROADMAP.md` "Richer search" entry splits —
-  glob pilot landed here, fuzzy and FTS point at the new seeds. Never `META.md`: that
+  glob pilot ships in this cycle, fuzzy and FTS point at the new seeds. Never `META.md`: that
   file is harness feedback, not a code-follow-up record.
-- [ ] Confirm each ledger item or record its absence; an unrecorded deferral fails the
+- [x] Confirm each ledger item or record its absence; an unrecorded deferral fails the
   phase.
 - **Verify:** gate commands plus `test -f` on the two known follow-up seeds (further
   seeds discovered in the walk join both the ledger and this command).

@@ -858,7 +858,7 @@ fn test_reader_warns_on_marker_recording_tolerated_errors() {
         "-i",
         index.to_str().unwrap(),
         "-p",
-        r"\.log$",
+        "*.log",
         "--dry-run",
         "--force",
     ]);
