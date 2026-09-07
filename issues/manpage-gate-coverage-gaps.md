@@ -102,8 +102,8 @@ caller's locale.
 
 - (b) is the one worth doing first and is nearly free: derive the page list from `doc/*.scd` and fail
   on any page with no `check` entry, rather than maintaining a parallel list. That converts a silent
-  gap into a build error the next time a binary is added — and `ROADMAP.md` has `xdu-mv`/`xdu-tar`
-  queued, so it will be exercised.
+  gap into a build error the next time a binary is added — and `ROADMAP.md` has the
+  bulk-operations theme queued, so it will be exercised.
 - (c)'s residue suggests the fix is choosing better literals, not more of them. One well-chosen path
   per page beats four env-var names — the counts now added stop single-occurrence corruption, but they
   do not make a thin literal thick.

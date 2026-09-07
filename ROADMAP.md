@@ -26,19 +26,6 @@ Everything below builds on that baseline.
 
 ---
 
-## Bulk-op sibling tools: `xdu-mv` and `xdu-tar`
-
-`xdu-rm` proved a powerful pattern: select a set of files with an index query, then act on exactly
-that set — no `xdu-find | xargs` plumbing, and with real destructive safety (dry-run, confirmation,
-`--safe` re-stat, deterministic ordering under `--limit`). The same leverage is wanted for
-*relocating* matched files (`xdu-mv`) and *archiving/packing* them (`xdu-tar`), turning common admin
-chores — "move everything untouched in two years to cold storage," "tar up this user's stale logs" —
-into single, safe, index-driven commands. Both tools should reuse `xdu-rm`'s destructive-safety
-model rather than reinvent it.
-
-*Horizon: near-term · Depends on: — (reuses xdu-rm's safety model) · Refs: #1*
-**Seed:** [`issues/xdu-mv-and-xdu-tar.md`](issues/xdu-mv-and-xdu-tar.md)
-
 ## Richer search: glob, fuzzy, full-text, content-type
 
 Regex path matching is powerful but not friendly — most users think in globs (`*.py`), not anchored
@@ -64,16 +51,59 @@ added.
 *Horizon: near-term · Depends on: — · Refs: — (enabler for the two features below)*
 **Seed:** [`issues/index-schema-versioning.md`](issues/index-schema-versioning.md)
 
-## Richer index schema: owner, group, permissions
+## Richer index schema: owner, group, permissions, mtime, ctime
 
 On large shared filesystems (`/projects/{lab1,lab2,…}`) administrators need more than "which project
 is biggest?" — they need "which *user within* a project is biggest?", plus octal permissions to
 reason about exposure and cleanup. The current `path/size/atime` schema cannot answer per-owner or
-per-permission questions at all; today that means falling back to a slow `find`. Recording owner,
-group, and mode in the index unlocks a whole class of storage-accounting queries.
+per-permission questions at all; today that means falling back to a slow `find`. It cannot answer
+what-changed either: "modified since the last backup" is an mtime question, and atime moves on read
+while size misses same-size rewrites — so mtime and ctime join the new columns as the comparator set
+index diffing and the bulk tools' `--safe` re-stat will read. Recording all five unlocks per-user
+accounting, exposure reasoning, and reliable incremental selection in one breaking change, behind
+the schema version above.
 
 *Horizon: mid-term · Depends on: on-disk schema versioning (breaking, cross-cutting index-format change) · Refs: #2, #3*
-**Seed:** [`issues/index-schema-owner-group-permissions.md`](issues/index-schema-owner-group-permissions.md)
+**Seed:** [`issues/richer-index-schema.md`](issues/richer-index-schema.md)
+
+## Bulk operations: `xdu-cp` and `xdu-mv` over a shared select-act engine
+
+First of the bulk-operations theme, whose entries land in file order: copy/move, then archives,
+then diffing. `xdu-rm` proved the pattern: select a set with an index query, act on exactly that
+set, with dry-run, confirmation, `--safe` re-stat, and deterministic ordering under `--limit`.
+This entry lifts that path into one `lib` implementation behind `rm`, `cp`, and `mv` instead of a
+fourth copy of `rm`'s `main`, turning "move everything untouched in two years to cold storage"
+and "copy this user's stale logs to a staging prefix" into single safe commands — and the staging
+copy is the primitive the archive entry builds on. Sequenced after richer search and the schema
+work so both tools are born with the final filter surface and columns rather than retrofitted.
+
+*Horizon: mid-term · Depends on: search + schema entries above (sequencing) · Refs: #1*
+**Seed:** [`issues/bulk-copy-move-xdu-cp-mv.md`](issues/bulk-copy-move-xdu-cp-mv.md)
+
+## Bulk operations: `xdu-tar` slice archives for backup
+
+Second in the theme, on the engine above. There is no way to archive a slice of a tree — "all
+files older than X", "everything changed since the last backup" — with the structure preserved.
+`xdu-find | xargs tar` inherits every `xargs` failure and assembles ten thousand appends where
+tape wants one ordered stream. `xdu-tar` archives exactly the matched set as one reproducible
+stream to file or stdout: a full slice today, an incremental slice once the diff entry below
+supplies the selection. Staging through the copy entry's semantics versus streaming the archive
+directly is the planning decision, weighed on scratch cost against tape behavior.
+
+*Horizon: mid-term · Depends on: copy/move engine above · Refs: #1*
+**Seed:** [`issues/xdu-tar-slice-archive.md`](issues/xdu-tar-slice-archive.md)
+
+## Bulk operations: index diffing for incremental selection
+
+Third in the theme, the selection its archive consumer reads. "Changed since the last backup" has
+no primitive today: `--newer-than` is a wall-clock atime filter, the wrong clock for a modification
+question, and no A-to-B index comparison exists. Diffing two indices of the same root into
+added/changed/removed/unchanged on the path key turns incremental backup from a time guess into a
+measured difference — and the theme ordering is what makes it reliable, with the mtime/ctime columns
+guaranteed present by the schema entry above.
+
+*Horizon: mid-term · Depends on: schema entry above (mtime/ctime); after tar above · Refs: —*
+**Seed:** [`issues/index-diff-incremental-select.md`](issues/index-diff-incremental-select.md)
 
 ## Permission-aware, access-scoped queries
 
@@ -184,9 +214,9 @@ layout-insensitive; the fourth turned out to be an unmet requirement of that pas
 literal names the binary it belongs to, so copying one rendered page over another is green. The page
 list is hard-coded while the render step globs `doc/*.scd`, so a fifth man page is entirely unasserted
 — measured shipping the exact historical `OUTDIR//.parquet` corruption past a green gate, which matters
-because `xdu-mv`/`xdu-tar` are queued above. The four env-var assertions are thin literals — a
-well-chosen path per page would catch more than a variable name does (their *duplicate-occurrence*
-blind spot was an unmet R7 and is already fixed). And
+because the bulk-operations theme queues new binaries above. The four env-var assertions are thin
+literals — a well-chosen path per page would catch more than a variable name does (their
+*duplicate-occurrence* blind spot was an unmet R7 and is already fixed). And
 `col -b` rewrites multibyte characters as literal `\xNN` text outside a UTF-8 locale, which bounds what
 can ever be asserted and already mis-measured the `groff` work above. Deriving the page list from
 `doc/*.scd` is nearly free and converts the widest gap into a build error.
