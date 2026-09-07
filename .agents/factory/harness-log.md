@@ -307,3 +307,57 @@ Read `origin`/`severity`/`category` from the finding in `META.md`; this ledger r
   from this instance: route the **cycle counter** as well as the verdict, and keep product regression
   and any unmet R-ID unconditionally blocking. **A fourth instance is not new evidence** — what is
   missing is the design under those constraints, not more reports of the symptom.
+
+## 2026-09-07 — manpage-literal-assertion-fails-on-ubuntu F1: name the `issues/` status vocabulary
+`decision=applied commit=a7afe42 target=.agents/factory/templates/ISSUE.md + skills/xdu-feature/SKILL.md`
+- **Rationale:** Step 4 named the intent but not the value, so every promotion re-invented the string —
+  and the two observed forms (`shaped on …`, `resolved on …`) are exactly what `xdu-roadmap` greps for,
+  so per-promotion drift would eventually break the retirement sweep. Enum in the template (the file
+  every deferral starts from), exact string at the promotion site. No collision with the readers-REVIEW
+  nit about the missing `resolved` state — this closes it.
+
+## 2026-09-07 — readers-autoload-parquet-at-runtime F1: confirmation is not research
+`decision=applied commit=7fa81b6 target=.agents/skills/xdu-feature/SKILL.md`
+- **Rationale:** the two instructions were individually clear and jointly ambiguous at exactly the point
+  where the GOAL becomes a contract — a stale `file:line` anchor inherited silently is a bad map for
+  `xdu-plan`, while unbounded exploration defeats shaping-only. Named the exception (bounded
+  `grep`/`Read` on cited anchors) rather than relaxing either rule. Low, general, no gate touched.
+
+## 2026-09-07 — manpage-literal-assertion-fails-on-ubuntu F3: adversarial review for gate deliverables
+`decision=applied commit=72658e0 target=.agents/skills/xdu-plan/SKILL.md`
+- **Rationale:** the lean path's proxy (`kind`/`appetite` ≈ "is the root cause known?") says nothing
+  about whether the artifact can grade itself, and a verifier that is wrong in the green direction
+  passes its own `verify:` — the measured cost here is two design defects reproduced only on the CI
+  toolchain. Mirrors the existing diagnostic-fix exception one bullet up, so the step keeps one
+  decision shape. Adds scrutiny; weakens nothing (Safety §3 clean).
+
+## 2026-09-07 — readers-autoload-parquet-at-runtime F2: a quoting rule for `verify:` authoring
+`decision=applied commit=1fc47d1 target=.agents/skills/xdu-plan/SKILL.md`
+- **Rationale:** the skill mandated embedded-shell-in-YAML and named the failure mode only in the retro
+  step. One authoring line at the point of authoring (plain command, one quoting level, `sh -c` only
+  for helper hand-off, round-trip through `yaml.safe_load`). The template P1 example deliberately
+  untouched — it is the legitimate `sh -c`-for-`temp_index.sh` case the new line's exception covers.
+  Validated: `next_phase.py` still exits 0 on a real TECH.
+
+## 2026-09-07 — manpage-literal-assertion-fails-on-ubuntu F5: GOAL-first artifact sourcing
+`decision=applied commit=afa914b target=.agents/skills/xdu-review/SKILL.md`
+- **Rationale:** `satisfies` maps R-IDs to phases, not to deliverable kind, so the orchestrator followed
+  the step literally and nearly delegated an R-ID the blind reviewer could not grade. GOAL
+  Clarifications/non-goals first ("recorded/documented/assessed/evidenced in the spec"), `satisfies`
+  as cross-check, plus the would-the-reviewer-have-anything-to-run test. Complements — not reverts —
+  applied crawl-hardening F2 (orchestrator grades, REVIEW records who); blindness unchanged.
+
+## 2026-09-07 — manpage-literal-assertion-fails-on-ubuntu F7: bundle coupled reopened phases
+`decision=applied commit=588d94d target=.agents/skills/xdu-build/SKILL.md`
+- **Rationale:** Step 1.3 contemplates multi-phase reopening while Step 7 commits per phase, and a
+  same-commit obligation spanning both (the three-place lockstep here) made literal compliance ship a
+  self-violating branch. The skill now selects `bundle` itself in that case, with the reason recorded
+  as a TECH amendment, cross-referenced from Step 7. `bundle` stays a user argument everywhere else.
+
+## 2026-09-07 — manpage-literal-assertion-fails-on-ubuntu F8: sweep artifacts, not directories
+`decision=applied commit=d2da5de target=.agents/skills/xdu-build/SKILL.md`
+- **Rationale:** the directory-keyed scope (`.agents/**`) and the four-homes table (kind-keyed) gave
+  opposite answers on a live skill instruction, forcing an ad-hoc adjudication mid-remediation. Scope
+  is now product-fact vs. agent-instruction with the one-line test. Applied over the F9 entry's
+  explicit reservation (it appended after the scope sentence for exactly this), F9/F10 paragraphs
+  verified intact after the edit.
