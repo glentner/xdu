@@ -34,3 +34,16 @@
   means promote that file (slug from the filename, kind/appetite seeded from its frontmatter,
   branch per the usual mapping).
 - **Confidence:** high · **Effort:** small
+
+## F2 — TECH validation guidance ignores the template's own multi-document shape
+`origin=xdu-plan:step-6 severity=low category=instruction status=open target=.agents/skills/xdu-plan/SKILL.md`
+- **What happened:** The skill suggests round-tripping `verify:` through `yaml.safe_load`,
+  but the `TECH.md` template body contains `---` rules and `: ` prose, so a naive
+  `safe_load` of the file fails on the template's own shape before any project content is
+  reached.
+- **Skill cause:** The validation hint names the parser but not the frontmatter-only
+  extraction it requires; the template and the hint disagree about what the file is.
+- **Recommended fix:** Say explicitly: extract lines between the first two `---` markers
+  and parse only that document (frontmatter), then round-trip each `verify:` via
+  dump/load.
+- **Confidence:** med · **Effort:** small
