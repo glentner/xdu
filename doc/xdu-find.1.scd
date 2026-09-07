@@ -6,7 +6,7 @@ xdu-find - query a file metadata index for matching paths
 
 # SYNOPSIS
 
-*xdu-find* *-i* _DIR_ \[*-p* _REGEX_] \[*-u* _NAME_] \[*--min-size* _SIZE_] \[*--max-size* _SIZE_]
+*xdu-find* *-i* _DIR_ \[*-p* _PATTERN_] \[*--regex*] \[*-u* _NAME_] \[*--min-size* _SIZE_] \[*--max-size* _SIZE_]
 	\[*--older-than* _DAYS_] \[*--newer-than* _DAYS_] \[*-f* _FORMAT_] \[*-l* _N_]
 	\[*-c*] \[*--top* _N_]
 
@@ -24,8 +24,13 @@ Uses DuckDB for efficient Parquet queries with partition pruning.
 	Path to the Parquet index directory. Required. See also *XDU_INDEX* in
 	_ENVIRONMENT_.
 
-*-p*, *--pattern* _REGEX_
-	Regular expression pattern to match file paths.
+*-p*, *--pattern* _PATTERN_
+	Glob pattern to match file paths. Supports \*, ?, and [...] classes;
+	\* crosses directories, so \*.py matches Python files at any depth. A bare
+	word matches only that exact name — write \*py\* for a substring search.
+
+*--regex*
+	Interpret *-p* as a full regular expression instead of a glob.
 
 *-u*, *--partition* _NAME_
 	Filter by partition (top-level subdirectory name, typically a username).
@@ -70,7 +75,7 @@ Uses DuckDB for efficient Parquet queries with partition pruning.
 
 Find all Python files:
 
-	xdu-find -i /index/scratch -p '\\.py$'
+	xdu-find -i /index/scratch -p '\*.py'
 
 Find large files not accessed in 90 days:
 
@@ -82,11 +87,15 @@ Query a specific user's partition, sorted by size:
 
 Count matching files:
 
-	xdu-find -i /index/scratch -p '\\.tmp$' --older-than 30 --count
+	xdu-find -i /index/scratch -p '\*.tmp' --older-than 30 --count
 
 Pipe results to xargs for bulk operations:
 
-	xdu-find -i /index/scratch -p '\\.tmp$' --older-than 30 | xargs rm
+	xdu-find -i /index/scratch -p '\*.tmp' --older-than 30 | xargs rm
+
+The same search with a regular expression:
+
+	xdu-find -i /index/scratch --regex -p '\\.tmp$' --older-than 30 --count
 
 Show top 10 partitions by file count:
 

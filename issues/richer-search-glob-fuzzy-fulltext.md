@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: shaped on feature/richer-search-glob-fuzzy-fulltext (2026-09-07) — see spec/richer-search-glob-fuzzy-fulltext/GOAL.md
 kind: feature
 appetite: big
 ---

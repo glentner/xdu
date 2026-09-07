@@ -6,7 +6,7 @@ xdu-view - interactive TUI for exploring a file metadata index
 
 # SYNOPSIS
 
-*xdu-view* *-i* _DIR_ \[*-u* _NAME_] \[*-p* _REGEX_] \[*--min-size* _SIZE_]
+*xdu-view* *-i* _DIR_ \[*-u* _NAME_] \[*-p* _PATTERN_] \[*--regex*] \[*--min-size* _SIZE_]
 	\[*--max-size* _SIZE_] \[*--older-than* _DAYS_] \[*--newer-than* _DAYS_]
 	\[*-s* _MODE_]
 
@@ -30,8 +30,13 @@ All command-line filters can also be modified interactively.
 *-u*, *--partition* _NAME_
 	Start in a specific partition instead of the partition list.
 
-*-p*, *--pattern* _REGEX_
-	Regular expression pattern to filter file paths.
+*-p*, *--pattern* _PATTERN_
+	Glob pattern to filter file paths. Supports \*, ?, and [...] classes;
+	\* crosses directories, so \*.py matches Python files at any depth. A bare
+	word matches only that exact name — write \*py\* for a substring search.
+
+*--regex*
+	Interpret *-p* as a full regular expression instead of a glob.
 
 *--min-size* _SIZE_
 	Minimum file size. Supports suffixes: K, M, G, T.
@@ -102,7 +107,7 @@ All command-line filters can also be modified interactively.
 ## Filtering (interactive)
 
 */*
-	Set path pattern filter (regex).
+	Set path pattern filter (glob).
 
 *o*
 	Set older-than filter (days).
@@ -151,7 +156,7 @@ View only stale files, sorted by size:
 
 View large Python files:
 
-	xdu-view -i /index/scratch -p '\\.py$' --min-size 1M
+	xdu-view -i /index/scratch -p '\*.py' --min-size 1M
 
 # SEE ALSO
 
