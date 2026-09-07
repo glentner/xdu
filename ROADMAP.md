@@ -161,29 +161,6 @@ making a centrally stored index explorable by anyone with a link, no shell accou
 *Horizon: long-term · Depends on: S3 as an index target · Refs: —*
 **Seed:** [`issues/xdu-web-client.md`](issues/xdu-web-client.md)
 
-## The man-page gate false-alarms on distro `scdoc`, and `main` is red because of it
-
-CI's packaging job fails on `ubuntu-24.04` with `CORRUPT RENDER: share/man/man1/xdu.1 is missing the
-literal: OUTDIR/.xdu-complete` — but the man page is fine. No character is lost; `mandoc` simply fills
-the paragraph and breaks the line inside `xdu-complete`, and the gate's newline-to-space flatten cannot
-survive a break *inside* a token. The variable turns out to be `scdoc`, not `mandoc`: 1.11.5 (homebrew,
-what a maintainer runs locally) escapes hyphen-minus so the token cannot break, and 1.11.2 (what noble
-ships, what CI installs) does not. So the gate passes for the author and fails for everyone else, and
-the local check `AGENTS.md` documents cannot predict CI's verdict.
-
-The gate is worth keeping — it exists because a mis-escaped literal renders at `scdoc` exit 0 and once
-published a wrong glob to an operator past a green build. What it needs is to assert *content* rather
-than *layout*, so its verdict no longer depends on which `scdoc` built the roff, what width `mandoc`
-filled to, or where the next paragraph edit pushes a line break. A second brittleness class is already
-latent in the same line (mandoc indents with tabs, the flatten squeezes only spaces), and one
-normalization closes both. This is **pre-existing** — it arrived with the gate itself, in the
-post-merge harness commit `9c579cf`, and `main` was already red before PR #10 — and the fix is two
-lines, but settling *which* two required an adversarial reproduction: the obvious widen-the-render fix
-is measurably defeated by a routine documentation edit.
-
-*Horizon: near-term · Depends on: — · Refs: `.agents/factory/harness-log.md` (why the flatten exists); the Docker builder defect from the same CI run*
-**Seed:** [`issues/manpage-literal-assertion-fails-on-ubuntu.md`](issues/manpage-literal-assertion-fails-on-ubuntu.md)
-
 ## `man xdu` hyphenates the completion-marker path, so the page operators read is wrong
 
 Fixing the CI gate made `main` green; it did not make the page correct. `man-db` renders with `groff`,

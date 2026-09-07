@@ -85,9 +85,10 @@ never been protected.
 Deferred rather than fixed in that triage for two reasons. First, it is a different *kind* of work
 from the two defects it explains — repository configuration and workflow topology, not a code fix — and
 folding it into either would have made that file multi-cause and unreviewable as a fix. Second, and
-more practically, **enabling required checks today would block every PR immediately**, because
-`Packaging` is red on `main` right now. There is a mandatory ordering here, and it is the main thing
-this issue has to get right.
+more practically, enforcement has to land after the gates it would bind: enabling required checks
+while `Packaging` was red on `main` would have blocked the very pull request that fixed it. That
+ordering is the main thing this issue has to get right, and its first step has since landed — the
+man-page gate fix is on `main` and `Packaging` is green (see the sequencing note in Notes).
 
 ## Outcome / vision
 
@@ -113,8 +114,8 @@ Draft R-IDs, to be firmed up at promotion.
 ## Notes
 
 - **Mandatory sequencing — this is the load-bearing part.** Enforcement must go last:
-  1. Land [`issues/manpage-literal-assertion-fails-on-ubuntu.md`](manpage-literal-assertion-fails-on-ubuntu.md)
-     so `Packaging` is green on `main`.
+  1. Land the man-page gate fix so `Packaging` is green on `main` — **done**
+     (`spec/manpage-literal-assertion-fails-on-ubuntu/` landed, seed retired).
   2. Land [`issues/dockerfile-builder-missing-cxx-toolchain.md`](dockerfile-builder-missing-cxx-toolchain.md)
      so `Validate build` is green.
   3. *Then* enable the ruleset. Doing it in any other order bricks the repository against its own
@@ -137,7 +138,9 @@ Draft R-IDs, to be firmed up at promotion.
   than Dockerfile content — and the other should reference it. `/xdu-feature` should not shape the same
   requirement twice.
 - **Not in scope: making the gates themselves stricter.** The two red gates are tracked in their own
-  files, and this issue deliberately takes no position on what they should assert. It is only about
+  records — the man-page gate in `spec/manpage-literal-assertion-fails-on-ubuntu/` (fix landed, seed
+  retired), the container gate in its own issues file — and this issue deliberately takes no position
+  on what they should assert. It is only about
   whether their verdict binds anything.
 - **Not in scope: the factory-skill half.** `/xdu-review` and `/xdu-publish` reading the check rollup
   is `spec/readers-autoload-parquet-at-runtime/META.md` **F6**, applied by `/xdu-harness`. Kept out
@@ -147,7 +150,7 @@ Draft R-IDs, to be firmed up at promotion.
 - **Worth checking at promotion, not established here:** whether `/xdu-release` verifies CI state before
   cutting a tag. The three releases that shipped with a red image build suggest not, but the release
   path was not audited during this triage.
-- Related: [`issues/manpage-literal-assertion-fails-on-ubuntu.md`](manpage-literal-assertion-fails-on-ubuntu.md)
+- Related: `spec/manpage-literal-assertion-fails-on-ubuntu/` (fix landed, seed retired)
   and [`issues/dockerfile-builder-missing-cxx-toolchain.md`](dockerfile-builder-missing-cxx-toolchain.md)
   (the two gates this one explains), `spec/readers-autoload-parquet-at-runtime/META.md` F6 (the factory
   half), PR #10 (merged over three red checks).
