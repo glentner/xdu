@@ -47,6 +47,8 @@ Parse `$ARGUMENTS` case-insensitively. If self-contradictory, STOP and ask.
 
 - A path matching `spec/<slug>/GOAL.md` → **adopt that file** as the seed; `{slug}` is taken from the
   path. (This is the "I hand-wrote a GOAL.md" flow.)
+- A path matching `issues/<slug>.md` → **promote that file** (the deferral-promotion flow in Step 4);
+  `{slug}` is taken from the filename, `kind`/`appetite` seeded from its frontmatter.
 - `fix` / `bug` / `refactor` → set `kind`; otherwise infer from the wording, defaulting to `feature`.
 - `appetite small` / `appetite big` → set appetite; else default `small` for `kind: fix`, `big` for
   `feature`/`refactor`.

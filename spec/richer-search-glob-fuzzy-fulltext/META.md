@@ -23,7 +23,7 @@
 <!-- Real findings are appended below this line by the lifecycle skills. -->
 
 ## F1 — Argument Parsing does not cover an `issues/{slug}.md` path argument
-`origin=xdu-feature:argument-parsing severity=low category=instruction status=open target=.agents/skills/xdu-feature/SKILL.md`
+`origin=xdu-feature:argument-parsing severity=low category=instruction status=applied target=.agents/skills/xdu-feature/SKILL.md`
 - **What happened:** Invoked with an `issues/{slug}.md` path, the Argument Parsing rules only
   recognized a `spec/<slug>/GOAL.md` path and treated everything else as an inline seed prompt,
   so slug derivation, kind/appetite inheritance, and the branch mapping for the promotion flow
