@@ -227,7 +227,7 @@ is skipped by the parser):
 - **Confidence:** high · **Effort:** small
 
 ## F8 — Step 2.3's class sweep claims `.agents/**` that `AGENTS.md` routes to `/xdu-harness`
-`origin=xdu-build:step-2.3 severity=medium category=instruction status=open target=.agents/skills/xdu-build/SKILL.md`
+`origin=xdu-build:step-2.3 severity=medium category=instruction status=applied target=.agents/skills/xdu-build/SKILL.md`
 - **What happened:** Step 2.3 directs the sweep to "list every **live** site: anything an agent or
   human still acts on, `.agents/**` and `AGENTS.md` included, since a stale instruction inside the
   factory re-arms the trap." The sweep surfaced `.agents/skills/xdu-review/SKILL.md:62`, which restates

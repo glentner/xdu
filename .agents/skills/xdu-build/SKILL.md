@@ -133,9 +133,12 @@ Steps 1–2, then report the plan that *would* run and stop (no edits/commits).
 3. **In remediation mode, scope the class before editing.** A finding is evidence-backed at one
    `file:line`, but that location is an *instance* and the work item is the **class**. `Grep` the repo
    for the defect's *pattern* — the deleted symbol, the false claim's distinguishing phrase, the
-   renamed identifier — and list every **live** site: anything an agent or human still acts on,
-   `.agents/**` and `AGENTS.md` included, since a stale instruction inside the factory re-arms the
-   trap. Leave **frozen** sites alone — `spec/**` records, committed measurement labels, and the
+   renamed identifier — and list every **live** site: anything an agent or human still acts on **as a
+   fact about the product** — `AGENTS.md`, `invariants.md`, workflows, `doc/` — since a stale product
+   fact re-arms the trap. A defect in a **skill's own instructions** is not a sweep site: that is
+   `META.md` + `/xdu-harness` by the four-homes table, and a harness change must not ride in on a
+   product branch. The one-line test: *would fixing this change what the tool does, or what an agent
+   is told to do?* Leave **frozen** sites alone — `spec/**` records, committed measurement labels, and the
    `issues/`+`ROADMAP.md` deferral pair are point-in-time evidence, and retrofitting them destroys the
    audit trail. Then retune the gate (Step 1.3's `set_phase.py --verify`) to **assert the pattern is
    absent, not that the named lines changed**; that is strictly stronger, because it fails on a site
