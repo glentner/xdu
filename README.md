@@ -112,7 +112,7 @@ The `xdu-find` command provides a convenient CLI for common queries:
 
 ```bash
 # Find all Python files
-xdu-find -i /var/lib/xdu/home -p '\.py$'
+xdu-find -i /var/lib/xdu/home -p '*.py'
 
 # Find large files (>1GB) not accessed in 90 days
 xdu-find -i /var/lib/xdu/home --min-size 1G --older-than 90
@@ -121,16 +121,17 @@ xdu-find -i /var/lib/xdu/home --min-size 1G --older-than 90
 xdu-find -i /var/lib/xdu/home -u alice --min-size 100M -f size
 
 # Count matching files
-xdu-find -i /var/lib/xdu/home -p '\.tmp$' --older-than 30 --count
+xdu-find -i /var/lib/xdu/home -p '*.tmp' --older-than 30 --count
 
 # Pipe to xargs for bulk operations
-xdu-find -i /var/lib/xdu/home -p '\.tmp$' --older-than 30 | xargs rm
+xdu-find -i /var/lib/xdu/home -p '*.tmp' --older-than 30 | xargs rm
 ```
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-i, --index` | Path to Parquet index directory | Required |
-| `-p, --pattern` | Regex pattern to match paths | |
+| `-p, --pattern` | Glob pattern to match paths (e.g., `*.py`) | |
+| `--regex` | Interpret `--pattern` as a regular expression | |
 | `-u, --partition` | Filter by partition (user directory) | |
 | `--min-size` | Minimum file size (e.g., 1K, 10M, 1G) | |
 | `--max-size` | Maximum file size | |
@@ -155,7 +156,7 @@ xdu-view -i /var/lib/xdu/home -u alice
 xdu-view -i /var/lib/xdu/home --older-than 30 -s size-desc
 
 # View large Python files (>1MB)
-xdu-view -i /var/lib/xdu/home -p '\.py$' --min-size 1M
+xdu-view -i /var/lib/xdu/home -p '*.py' --min-size 1M
 ```
 
 #### Command-Line Options
@@ -164,7 +165,8 @@ xdu-view -i /var/lib/xdu/home -p '\.py$' --min-size 1M
 |--------|-------------|---------|
 | `-i, --index` | Path to Parquet index directory | Required |
 | `-u, --partition` | Start in a specific partition | |
-| `-p, --pattern` | Regex pattern to filter paths | |
+| `-p, --pattern` | Glob pattern to filter paths (e.g., `*.py`) | |
+| `--regex` | Interpret `--pattern` as a regular expression | |
 | `--min-size` | Minimum file size (e.g., 1K, 10M, 1G) | |
 | `--max-size` | Maximum file size | |
 | `--older-than` | Files not accessed in N days | |
@@ -192,7 +194,7 @@ xdu-view -i /var/lib/xdu/home -p '\.py$' --min-size 1M
 **Filtering (interactive):**
 | Key | Action |
 |-----|--------|
-| `/` | Set path pattern filter (regex) |
+| `/` | Set path pattern filter (glob) |
 | `o` | Set older-than filter (days) |
 | `n` | Set newer-than filter (days) |
 | `>` | Set minimum size filter |
@@ -205,7 +207,7 @@ When entering a filter value, type the value and press `Enter` to apply, or `Esc
 
 **Title bar** shows the current location and any active filters:
 ```
-┌─ alice/projects [older:30d] [min:1.00 MiB] [/\.py$/] ─────────────────────┐
+┌─ alice/projects [older:30d] [min:1.00 MiB] [/*.py] ─────────────────────┐
 ```
 
 **Status bar** shows entry count, current sort mode, and available keybindings:
@@ -244,7 +246,7 @@ xdu-view -i /var/lib/xdu/home --newer-than 7 -s count-desc
 **Find specific file types:**
 ```bash
 # Explore all Jupyter notebooks
-xdu-view -i /var/lib/xdu/home -p '\.ipynb$' -s size-desc
+xdu-view -i /var/lib/xdu/home -p '*.ipynb' -s size-desc
 ```
 
 ### Bulk Deletion with xdu-rm
@@ -262,7 +264,7 @@ xdu-rm -i /var/lib/xdu/home --older-than 60
 xdu-rm -i /var/lib/xdu/home --older-than 60 -j 16 --force
 
 # Delete only .tmp files older than 30 days in alice's partition
-xdu-rm -i /var/lib/xdu/home -u alice -p '\.tmp$' --older-than 30 --force
+xdu-rm -i /var/lib/xdu/home -u alice -p '*.tmp' --older-than 30 --force
 ```
 
 #### Command-Line Options
@@ -270,7 +272,8 @@ xdu-rm -i /var/lib/xdu/home -u alice -p '\.tmp$' --older-than 30 --force
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-i, --index` | Path to Parquet index directory | Required |
-| `-p, --pattern` | Regex pattern to match paths | |
+| `-p, --pattern` | Glob pattern to match paths (e.g., `*.py`) | |
+| `--regex` | Interpret `--pattern` as a regular expression | |
 | `-u, --partition` | Filter by partition (user directory) | |
 | `--min-size` | Minimum file size (e.g., 1K, 10M, 1G) | |
 | `--max-size` | Maximum file size | |
@@ -333,10 +336,10 @@ xdu-rm -i /var/lib/xdu/scratch --older-than 7 -j 32 --force
 **Targeted cleanup by file type:**
 ```bash
 # Remove old Jupyter checkpoints
-xdu-rm -i /var/lib/xdu/home -p '/\.ipynb_checkpoints/' --older-than 30 --force
+xdu-rm -i /var/lib/xdu/home --regex -p '/\.ipynb_checkpoints/' --older-than 30 --force
 
 # Remove old core dumps
-xdu-rm -i /var/lib/xdu/home -p '/core\.\d+$' --older-than 7 --force
+xdu-rm -i /var/lib/xdu/home --regex -p '/core\.\d+$' --older-than 7 --force
 ```
 
 **Preview before production:**

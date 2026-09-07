@@ -369,7 +369,7 @@ impl InputMode {
     fn prompt(&self) -> &'static str {
         match self {
             InputMode::Normal => "",
-            InputMode::Pattern => "Pattern (regex): ",
+            InputMode::Pattern => "Pattern (glob): ",
             InputMode::OlderThan => "Older than (days): ",
             InputMode::NewerThan => "Newer than (days): ",
             InputMode::MinSize => "Min size (e.g., 1M): ",

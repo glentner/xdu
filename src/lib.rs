@@ -325,11 +325,14 @@ impl FromStr for SortMode {
 /// The query builder speaks one dialect — regex — so a glob is converted at ingestion and
 /// the database never learns a second one. `*` crosses `/`: a glob names the whole path,
 /// and `*.py` must match at any depth rather than only directly below the indexed root.
-/// `?` matches a single character, `[...]` is a character class (`[!...]` negates it),
-/// and `\` quotes the next character literally. Every other regex metacharacter in a
-/// literal position is escaped, so the translation cannot smuggle in regex syntax the user
-/// did not write. Output is wrapped `^(?:…)$` because `regexp_matches` is an unanchored
-/// substring search while a glob matches the entire path.
+/// `?` matches a single character, `[...]` is a character class (`[!...]` negates it,
+/// `[a-z]` is a range), and `\` quotes the next character literally. Every other regex
+/// metacharacter in a literal position is escaped, so the translation cannot smuggle in
+/// regex syntax the user did not write. A `-` first or last in a class is literal while a
+/// middle one opens a range — the regex grammar agrees on all three positions, so it
+/// publishes unescaped — and a descending range is rejected here, so every glob failure
+/// surfaces at ingestion rather than at the database. Output is wrapped `^(?:…)$` because
+/// `regexp_matches` is an unanchored substring search while a glob matches the entire path.
 pub fn glob_to_regex(glob: &str) -> Result<String, String> {
     if glob.is_empty() {
         return Err("Empty glob pattern matches no path".to_string());
@@ -354,6 +357,10 @@ pub fn glob_to_regex(glob: &str) -> Result<String, String> {
                     chars.next();
                     class.push('^');
                 }
+                // Last literal endpoint pushed, for range validation. None at class
+                // start — the `^` negation marks nothing — and after a range
+                // operator, whose endpoint cannot open another range.
+                let mut prev: Option<char> = None;
                 let mut closed = false;
                 while let Some((_, inner)) = chars.next() {
                     match inner {
@@ -363,15 +370,52 @@ pub fn glob_to_regex(glob: &str) -> Result<String, String> {
                             closed = true;
                             break;
                         }
+                        // A middle `-` opens a range; first or last in the class
+                        // it is literal. The regex grammar reads each position
+                        // the same way, so all three publish unescaped.
+                        '-' if prev.is_some() => {
+                            match chars.peek() {
+                                Some((_, ']')) | None => {
+                                    class.push('-');
+                                    prev = Some('-');
+                                }
+                                // A quoted endpoint cannot be ordered against,
+                                // so this range escapes validation below.
+                                Some((_, '\\')) => {
+                                    class.push('-');
+                                    prev = None;
+                                }
+                                Some((_, end)) => {
+                                    let end = *end;
+                                    match prev {
+                                        Some(start) if start > end => {
+                                            return Err(format!(
+                                                "Descending range '{start}-{end}' at byte {pos} in glob pattern: {glob}"
+                                            ));
+                                        }
+                                        _ => {
+                                            class.push('-');
+                                            prev = None;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         '\\' => match chars.next() {
-                            Some((_, quoted)) => push_class_literal(&mut class, quoted),
+                            Some((_, quoted)) => {
+                                push_class_literal(&mut class, quoted);
+                                prev = Some(quoted);
+                            }
                             None => {
                                 return Err(format!(
                                     "Trailing backslash in character class of glob pattern: {glob}"
                                 ));
                             }
                         },
-                        _ => push_class_literal(&mut class, inner),
+                        _ => {
+                            push_class_literal(&mut class, inner);
+                            prev = Some(inner);
+                        }
                     }
                 }
                 if !closed {
@@ -407,8 +451,12 @@ fn push_regex_literal(out: &mut String, c: char) {
 }
 
 /// Push a literal character into a regex character class, escaping what is special there.
+///
+/// `-` needs no escape: literal by position at the class edges, a range operator in the
+/// middle, and the regex grammar agrees on each. The class parser handles `-` positionally
+/// before this is ever reached with one.
 fn push_class_literal(class: &mut String, c: char) {
-    if matches!(c, ']' | '\\' | '^' | '-') {
+    if matches!(c, ']' | '\\' | '^') {
         class.push('\\');
     }
     class.push(c);
@@ -1017,6 +1065,29 @@ mod tests {
         assert!(glob_to_regex("[]").is_err());
         assert!(glob_to_regex("abc\\").is_err());
         assert!(glob_to_regex("a[b\\").is_err());
+    }
+
+    #[test]
+    fn test_glob_to_regex_class_ranges() {
+        assert_eq!(
+            glob_to_regex("*.[a-z]og"),
+            Ok("^(?:.*\\.[a-z]og)$".to_string())
+        );
+        assert_eq!(glob_to_regex("[a-m]*"), Ok("^(?:[a-m].*)$".to_string()));
+        assert_eq!(glob_to_regex("[!0-9]*"), Ok("^(?:[^0-9].*)$".to_string()));
+    }
+
+    #[test]
+    fn test_glob_to_regex_dash_literal_at_class_edges() {
+        assert_eq!(glob_to_regex("[-a]"), Ok("^(?:[-a])$".to_string()));
+        assert_eq!(glob_to_regex("[a-]"), Ok("^(?:[a-])$".to_string()));
+        assert_eq!(glob_to_regex("[!-a]"), Ok("^(?:[^-a])$".to_string()));
+    }
+
+    #[test]
+    fn test_glob_to_regex_descending_range_rejected() {
+        let err = glob_to_regex("*.[z-a]").unwrap_err();
+        assert!(err.contains("Descending range"), "unexpected: {err}");
     }
 
     #[test]

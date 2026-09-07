@@ -382,13 +382,13 @@ xdu-find / xdu-view / xdu-rm ◀── warn if absent/errors ┘  ◀── Duck
   — `--allow-errors` is **opt-in**: by default any walk/stat error fails the run non-zero and no
   completion marker is written; with it, unreadable entries are counted, reported on stderr, the run
   exits 0, and the marker records the tolerated `errors=N`.
-- `xdu-find -i/--index DIR (env XDU_INDEX) [-p/--pattern REGEX] [-u/--partition NAME]
+- `xdu-find -i/--index DIR (env XDU_INDEX) [-p/--pattern PATTERN] [--regex] [-u/--partition NAME]
   [--min-size/--max-size SIZE] [--older-than/--newer-than DAYS] [-f/--format path|size|atime|csv|json]
   [-l/--limit N] [-c/--count] [--top N]`
-- `xdu-view -i/--index DIR [-u/--partition NAME] [-p/--pattern] [--min/max-size] [--older/newer-than]
-  [-s/--sort name|size-asc|size-desc|count-asc|count-desc|age-asc|age-desc]`
-- `xdu-rm -i/--index DIR [-p/--pattern] [-u/--partition] [--min/max-size] [--older/newer-than]
-  [-l/--limit N] [-n/--dry-run] [--safe] [-f/--force] [-v/--verbose] [-j/--jobs (env XDU_JOBS)]`
+- `xdu-view -i/--index DIR [-u/--partition NAME] [-p/--pattern PATTERN] [--regex] [--min/max-size]
+  [--older/newer-than] [-s/--sort name|size-asc|size-desc|count-asc|count-desc|age-asc|age-desc]`
+- `xdu-rm -i/--index DIR [-p/--pattern PATTERN] [--regex] [-u/--partition] [--min/max-size]
+  [--older/newer-than] [-l/--limit N] [-n/--dry-run] [--safe] [-f/--force] [-v/--verbose] [-j/--jobs (env XDU_JOBS)]`
 
 **Footgun:** `-p` means `--partition` in `xdu` but `--pattern` in the three query tools (where
 partition moves to `-u`). Same short flag, different meaning per binary — do not "fix" one side in

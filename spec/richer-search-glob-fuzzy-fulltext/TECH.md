@@ -3,7 +3,7 @@ slug: richer-search-glob-fuzzy-fulltext
 title: Glob as the default path-match dialect (pilot)
 kind: feature
 appetite: small
-status: blocked
+status: in_review
 branch: feature/richer-search-glob-fuzzy-fulltext
 base: main
 current_phase: done
@@ -23,7 +23,12 @@ phases:
   verify: cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 't=$(xdu-find
     -i "$XDU_INDEX" --count); a=$(xdu-find -i "$XDU_INDEX" -p "*" --count); b=$(xdu-find
     -i "$XDU_INDEX" --regex -p ".*" --count); [ "$t" = "$a" ] && [ "$a" = "$b" ] &&
-    ! xdu-find -i "$XDU_INDEX" -p "[" --count'
+    ! xdu-find -i "$XDU_INDEX" -p "[" --count && g=$(xdu-find -i "$XDU_INDEX" -p "*.[a-m]og"
+    --count) && r=$(xdu-find -i "$XDU_INDEX" --regex -p ".*\.[a-m]og$" --count) &&
+    [ "$g" = "1" ] && [ "$g" = "$r" ] && [ "$(xdu-find -i "$XDU_INDEX" -p "*.[a-z][a-z][a-z]"
+    --count)" = "4" ] && ! xdu-find -i "$XDU_INDEX" -p "*.[z-a]" --count' && ! grep
+    -n "pattern REGEX" AGENTS.md && grep -q -- "--regex" AGENTS.md && ! grep -n "Regex
+    pattern" README.md && ! grep -n "(regex)" README.md
 - id: P2
   name: xdu-rm on the glob dialect
   status: done
@@ -51,7 +56,8 @@ phases:
   hammerable: false
   hill: uphill
   verify: cargo build --bins && .agents/factory/bin/temp_index.sh sh -c '! xdu-view
-    -i "$XDU_INDEX" -p "["'
+    -i "$XDU_INDEX" -p "["' && grep -q "Pattern (glob)" src/bin/xdu-view.rs && ! grep
+    -q "Pattern (regex)" src/bin/xdu-view.rs
 - id: P4
   name: Full gate and deferral ledger
   status: done
@@ -145,7 +151,16 @@ checklists below are the work. `xdu-build` executes the next actionable phase, r
 - **Verify:** `cargo test --lib && .agents/factory/bin/temp_index.sh sh -c '…'` — the drive
   asserts `-p '*'` count equals the unfiltered count, equals the `--regex -p '.*'` count,
   and that `-p '['` exits non-zero (fixture-independent by construction).
-- **Touches:** `src/lib.rs`, `src/cli.rs`, `src/bin/xdu-find.rs`, `doc/xdu-find.1.scd`.
+- **Remediation (review cycle 1, CONFIRMED range defect + map drift):** `-` in a class is
+  literal first/last and a range operator in the middle (the regex grammar agrees on all
+  three, so it publishes unescaped); a descending range is rejected at translation, keeping
+  the fail-at-ingestion guarantee total. Regression unit tests for ranges, edge dashes,
+  and descending rejection. Sweep follow-ons in the same commit: `AGENTS.md` CLI surface
+  documents the glob default plus `--regex`, and `README.md` converts its `-p` examples
+  and tables (regex-only examples there silently match nothing now; the two genuinely
+  regex examples gain `--regex`).
+- **Touches:** `src/lib.rs`, `src/cli.rs`, `src/bin/xdu-find.rs`, `doc/xdu-find.1.scd`,
+  plus this remediation: `src/lib.rs` (ranges), `AGENTS.md`, `README.md`.
 
 ## Phase P2 — xdu-rm on the glob dialect
 **Satisfies:** R1, R2, R3 · **Depends on:** P1
@@ -183,7 +198,11 @@ ordered before the terminal is touched.
 - **Verify:** build plus a `temp_index.sh` drive proving an invalid startup glob exits
   non-zero. The interactive prompt shares `glob_to_regex` with P1's unit tests; exercise it
   once by hand during the phase and note the result in the commit body.
-- **Touches:** `src/bin/xdu-view.rs`, `doc/xdu-view.1.scd`, `tests/offline_tests.rs`.
+- **Remediation (review cycle 1, PLAUSIBLE prompt dialect):** the `/` prompt reads
+  `Pattern (regex): ` while the entry point translates glob and the man page says glob —
+  reword to `Pattern (glob): ` so the prompt names the dialect it speaks.
+- **Touches:** `src/bin/xdu-view.rs`, `doc/xdu-view.1.scd`, `tests/offline_tests.rs`,
+  plus this remediation: `src/bin/xdu-view.rs` (prompt text).
 
 ## Phase P4 — Full gate and deferral ledger
 **Satisfies:** (none — gate and ledger phase; see note under Frontmatter) · **Depends on:**
