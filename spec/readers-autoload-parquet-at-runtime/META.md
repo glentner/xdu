@@ -192,7 +192,7 @@ is skipped by the parser):
 - **Confidence:** high · **Effort:** small
 
 ## F7 — A fix commit can half-retire a seed, and nothing flags the pair until a sweep
-`origin=xdu-roadmap:step-4 severity=low category=missing-guidance status=open target=.agents/skills/xdu-publish/SKILL.md`
+`origin=xdu-roadmap:step-4 severity=low category=missing-guidance status=applied target=.agents/skills/xdu-publish/SKILL.md`
 - **What happened:** the readers fix removed its ROADMAP entry in the fix commit but left the seed file
   behind with `status: resolved`, where it sat for a month until the first `/xdu-roadmap` sweep. In
   between, `AGENTS.md`'s "one entry per issue" sentence was literally false (7 files, 6 entries), and

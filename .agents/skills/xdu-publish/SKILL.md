@@ -89,6 +89,11 @@ Report the verdict, commits vs `main`, and whether a PR already exists (`gh pr s
    (`repos/glentner/xdu/branches/main/protection` → 404, `…/rulesets` → `[]`), so this step is the only
    gate that exists. If the branch was never pushed there is nothing to read yet — say so, and re-check
    after Step 4a's push, before any `merge`.
+5. **Seed/roadmap pair nudge — warning only, never a STOP.** If the branch removed a ROADMAP `Seed:`
+   line while its seed file survives under `issues/` (or a `resolved` seed has no ROADMAP entry), say
+   so in the Step 3 confirmation and point at `/xdu-roadmap`. The pair is housekeeping, not
+   correctness, and touching it here would trip the item-2 staleness gate — so it must not block the
+   merge.
 
 ### Step 2 — Compose the PR title + body
 - **Title:** `[{kind}] {imperative summary}` synthesized from `GOAL.md` (not a copy of it).
