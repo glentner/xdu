@@ -36,7 +36,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F2 — TECH validation guidance ignores the template's own multi-document shape
-`origin=xdu-plan:step-6 severity=low category=instruction status=open target=.agents/skills/xdu-plan/SKILL.md`
+`origin=xdu-plan:step-6 severity=low category=instruction status=applied target=.agents/skills/xdu-plan/SKILL.md`
 - **What happened:** The skill suggests round-tripping `verify:` through `yaml.safe_load`,
   but the `TECH.md` template body contains `---` rules and `: ` prose, so a naive
   `safe_load` of the file fails on the template's own shape before any project content is

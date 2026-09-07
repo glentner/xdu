@@ -129,7 +129,9 @@ report the first phase.
 shell, so `sh -c '…'` is only for handing a command to a helper such as `temp_index.sh` (the template's
 P1 example is that case). Backslash escapes are live inside double-quoted YAML — a `\n` meant for
 `printf` arrives as a newline before the shell sees it — so prefer a single `\"` level and round-trip
-the parsed string (e.g. through `yaml.safe_load`) before committing.
+the parsed string before committing: extract the lines between the first two `---` markers and
+parse only that document (the frontmatter) through `yaml.safe_load` — the body below it carries
+`---` rules and `: ` prose, so a whole-file load fails on the template's own shape.
 
 **The unit of measurement is the unit of change.** A phase bundling two independent performance levers
 behind one benchmark gets one verdict, so a regression on one can be paid for by the other's win and
