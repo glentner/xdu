@@ -3,7 +3,7 @@ slug: dockerfile-builder-missing-cxx-toolchain
 title: Restore the container build with an explicit C++ toolchain
 kind: fix
 appetite: small
-status: in_progress
+status: done
 branch: fix/dockerfile-builder-missing-cxx-toolchain
 base: main
 current_phase: P4
