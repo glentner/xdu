@@ -1,30 +1,38 @@
 ---
 slug: xdu-view-list-preview-overlay
-title: "In-list file preview overlay for xdu-view"
+title: In-list file preview overlay for xdu-view
 kind: feature
 appetite: small
-status: in_progress
+status: in_review
 branch: feature/xdu-view-list-preview-overlay
 base: main
-current_phase: P1
-last_updated: "2026-09-07"
+current_phase: done
+last_updated: '2026-09-07'
 phases:
-  - id: P1
-    name: "List-mode Space overlay + man page"
-    status: pending
-    satisfies: [R1, R2, R3, R4, R5, R6]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test --bin xdu-view && page=$(scdoc < doc/xdu-view.1.scd | mandoc -Tutf8 | col -b | tr -d '[:space:]') && printf %s \"$page\" | grep -qF previewoverlay && printf %s \"$page\" | grep -qF 'Space(listmode)' && ! printf %s \"$page\" | grep -qF Enter/Space"
+- id: P1
+  name: List-mode Space overlay + man page
+  status: done
+  satisfies:
+  - R1
+  - R2
+  - R3
+  - R4
+  - R5
+  - R6
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: downhill
+  verify: cargo test --bin xdu-view && page=$(scdoc < doc/xdu-view.1.scd | mandoc
+    -Tutf8 | col -b | tr -d '[:space:]') && printf %s "$page" | grep -qF previewoverlay
+    && printf %s "$page" | grep -qF 'Space(listmode)' && ! printf %s "$page" | grep
+    -qF Enter/Space
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — In-list file preview overlay for xdu-view
 
 The **context engine and finite-state machine** for building this feature. The YAML
@@ -61,38 +69,38 @@ code+state commit.
 back to the same selection and scroll; Space on a directory is a no-op; Enter and → still
 drill in; the man page documents the split.
 
-- [ ] Add `list_preview: Option<FilePreview>` to `App` (not a reuse of `file_preview`) and
+- [x] Add `list_preview: Option<FilePreview>` to `App` (not a reuse of `file_preview`) and
       `InputMode::ListPreview`. Initialize to `None` / unused in `App::new`.
-- [ ] Add a pure `list_preview_entry(entries, selected) -> Option<&DirEntry>` next to
+- [x] Add a pure `list_preview_entry(entries, selected) -> Option<&DirEntry>` next to
       `DirEntry`: `Some` only for a non-directory row. No spec ids in the comment.
-- [ ] `App::open_list_preview` calls that gate; on `Some`, `load_file_preview` into
+- [x] `App::open_list_preview` calls that gate; on `Some`, `load_file_preview` into
       `list_preview` and set `input_mode = ListPreview`; on `None`, do nothing. Do not
       write `list_state`.
-- [ ] `App::close_list_preview` clears `list_preview` and returns `input_mode` to `Normal`.
+- [x] `App::close_list_preview` clears `list_preview` and returns `input_mode` to `Normal`.
       Do not write `list_state`.
-- [ ] `run_app`: handle `InputMode::ListPreview` in the same early-return slot as
+- [x] `run_app`: handle `InputMode::ListPreview` in the same early-return slot as
       `SortSelect`, *before* the generic text-input branch. Esc and Space and `q` close;
       every other key is swallowed. Do not `return Ok(())` on Esc here.
-- [ ] List-mode arm: drop `Char(' ')` from the `enter_selected` or-pattern; Space calls
+- [x] List-mode arm: drop `Char(' ')` from the `enter_selected` or-pattern; Space calls
       `open_list_preview`. Enter and Right stay on `enter_selected`. Tree-mode arm
       unchanged.
-- [ ] After `render_list_content`, if `list_preview` is `Some`, paint a centered overlay
+- [x] After `render_list_content`, if `list_preview` is `Some`, paint a centered overlay
       with `Clear` + `Block`: filename, type description, then text lines capped to inner
       height *or* the existing binary / unreadable placeholders. No
       `preview_load_more_lines`. Truncate wide lines on a char boundary. Status bar:
       `Esc/Space: close`.
-- [ ] `#[cfg(test)]` in `src/bin/xdu-view.rs`: `list_preview_entry` for a file, a
+- [x] `#[cfg(test)]` in `src/bin/xdu-view.rs`: `list_preview_entry` for a file, a
       directory, `..`, `selected = None`, and an empty slice.
-- [ ] `doc/xdu-view.1.scd` KEYBINDINGS: `*→*/*Enter*` enter directory; `*Space*` (list
+- [x] `doc/xdu-view.1.scd` KEYBINDINGS: `*→*/*Enter*` enter directory; `*Space*` (list
       mode) preview overlay, no-op on a directory; `*Space*` (tree mode) enter directory or
       focus the preview pane. Phrase **preview overlay** must survive render. Never start a
       source line with `.` or `'`. Escape literal `*`. Do not add a CI literal for this
       page.
-- [ ] Do not add a Drop guard or panic hook for terminal restore — already tracked in
+- [x] Do not add a Drop guard or panic hook for terminal restore — already tracked in
       [`issues/xdu-view-terminal-safety.md`](../../issues/xdu-view-terminal-safety.md). Do
       not lift `detect_file_type` / `load_file_preview` into `lib` (GOAL non-goal; no new
       `issues/` file).
-- [ ] Deferral ledger (this is the last phase): the two "do not" items above already name
+- [x] Deferral ledger (this is the last phase): the two "do not" items above already name
       their destinations (existing issue; GOAL non-goal). Confirm no other "do not fix" /
       "known limitation" / "follow-up" in this checklist lacks an `issues/` file and
       ROADMAP entry.

@@ -66,8 +66,17 @@ All command-line filters can also be modified interactively.
 *↓*/*j*
 	Move selection down.
 
-*→*/*Enter*/*Space*
+*→*/*Enter*
 	Enter directory.
+
+*Space* (list mode)
+	Open a preview overlay for the selected file. No-op on a
+	directory. *Esc* dismisses. *Enter* and *→* still enter
+	directories.
+
+*Space* (tree mode)
+	Enter directory, or focus the preview pane when a file is
+	selected.
 
 *←*/*Backspace*
 	Go up / back.

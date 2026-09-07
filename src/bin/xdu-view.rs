@@ -334,6 +334,15 @@ struct DirEntry {
     latest_atime: i64,
 }
 
+/// Overlay target for list-mode Space. Directories are excluded so Space on a
+/// dir is a no-op rather than a preview of something that has no text; Enter
+/// and → still drill in.
+fn list_preview_entry(entries: &[DirEntry], selected: Option<usize>) -> Option<&DirEntry> {
+    let idx = selected?;
+    let entry = entries.get(idx)?;
+    if entry.is_dir { None } else { Some(entry) }
+}
+
 /// Input mode for interactive filter entry
 #[derive(Clone, Debug, PartialEq)]
 enum InputMode {
@@ -351,6 +360,9 @@ enum InputMode {
     MaxSize,
     /// Selecting sort mode
     SortSelect,
+    /// List-mode file preview overlay. Distinct from SortSelect so Esc
+    /// dismisses the overlay instead of quitting.
+    ListPreview,
 }
 
 impl InputMode {
@@ -362,7 +374,7 @@ impl InputMode {
             InputMode::NewerThan => "Newer than (days): ",
             InputMode::MinSize => "Min size (e.g., 1M): ",
             InputMode::MaxSize => "Max size (e.g., 1G): ",
-            InputMode::SortSelect => "",
+            InputMode::SortSelect | InputMode::ListPreview => "",
         }
     }
 }
@@ -528,6 +540,10 @@ struct App {
 
     /// Whether the preview pane pager is focused (less-like scroll mode)
     preview_focused: bool,
+
+    /// List-mode overlay. Separate from `file_preview` so tree state cannot leak
+    /// into the overlay (and vice versa) across a view-mode toggle.
+    list_preview: Option<FilePreview>,
 }
 
 impl App {
@@ -558,6 +574,7 @@ impl App {
             active_column: 0,
             file_preview: None,
             preview_focused: false,
+            list_preview: None,
         };
 
         if let Some(partition) = initial_partition {
@@ -1016,7 +1033,7 @@ impl App {
                     }
                 }
             }
-            InputMode::Normal | InputMode::SortSelect => {}
+            InputMode::Normal | InputMode::SortSelect | InputMode::ListPreview => {}
         }
 
         self.input_mode = InputMode::Normal;
@@ -1062,6 +1079,23 @@ impl App {
         if !self.entries.is_empty() {
             self.list_state.select(Some(self.entries.len() - 1));
         }
+    }
+
+    fn open_list_preview(&mut self) {
+        let Some(entry) = list_preview_entry(&self.entries, self.list_state.selected()) else {
+            return;
+        };
+        // Clone before load: `entry` borrows `self.entries`.
+        let path = entry.path.clone();
+        let size = entry.total_size;
+        let atime = entry.latest_atime;
+        self.list_preview = Some(Self::load_file_preview(&path, size, atime));
+        self.input_mode = InputMode::ListPreview;
+    }
+
+    fn close_list_preview(&mut self) {
+        self.list_preview = None;
+        self.input_mode = InputMode::Normal;
     }
 
     fn enter_selected(&mut self) -> Result<()> {
@@ -1909,6 +1943,16 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     continue;
                 }
 
+                if app.input_mode == InputMode::ListPreview {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char(' ') | KeyCode::Char('q') => {
+                            app.close_list_preview();
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 // Handle text input mode
                 if app.input_mode != InputMode::Normal {
                     match key.code {
@@ -2034,10 +2078,13 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                             KeyCode::Up | KeyCode::Char('k') => app.select_prev(),
                             KeyCode::Char('g') => app.select_first(),
                             KeyCode::Char('G') => app.select_last(),
-                            KeyCode::Enter | KeyCode::Right | KeyCode::Char(' ') => {
+                            KeyCode::Enter | KeyCode::Right => {
                                 if let Err(e) = app.enter_selected() {
                                     app.status = format!("Error: {}", e);
                                 }
+                            }
+                            KeyCode::Char(' ') => {
+                                app.open_list_preview();
                             }
                             KeyCode::Left | KeyCode::Backspace => {
                                 if let Err(e) = app.go_up() {
@@ -2100,7 +2147,12 @@ fn ui(f: &mut Frame, app: &App) {
 
     // Render content based on view mode
     match app.view_mode {
-        ViewMode::List => render_list_content(f, app, chunks[0]),
+        ViewMode::List => {
+            render_list_content(f, app, chunks[0]);
+            if app.list_preview.is_some() {
+                render_list_preview_overlay(f, app, chunks[0]);
+            }
+        }
         ViewMode::Tree => render_tree_content(f, app, chunks[0]),
     }
 
@@ -2498,6 +2550,111 @@ fn render_file_preview_pane(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
+/// Center a popup inside `area`. Percentages are of the parent, not absolute cells.
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let popup = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup[1])[1]
+}
+
+/// Cut on a char boundary. Byte-index slicing panics on a multibyte name, and
+/// ratatui then never restores the terminal.
+fn truncate_to_chars(s: &str, max: usize) -> String {
+    if max == 0 {
+        return String::new();
+    }
+    let n = s.chars().count();
+    if n <= max {
+        return s.to_string();
+    }
+    let keep = max.saturating_sub(1);
+    let mut out: String = s.chars().take(keep).collect();
+    out.push('…');
+    out
+}
+
+/// List-mode overlay: type + a short text window over the current list.
+fn render_list_preview_overlay(f: &mut Frame, app: &App, area: Rect) {
+    let Some(ref preview) = app.list_preview else {
+        return;
+    };
+
+    let overlay = centered_rect(80, 70, area);
+    f.render_widget(Clear, overlay);
+
+    let file_name = preview.path.rsplit('/').next().unwrap_or(&preview.path);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            format!(" {} ", file_name),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let inner = block.inner(overlay);
+    let inner_width = inner.width as usize;
+    let inner_height = inner.height as usize;
+
+    let mut text_lines: Vec<Line> = Vec::new();
+    text_lines.push(Line::from(Span::styled(
+        truncate_to_chars(
+            &format!("  Type: {}", preview.type_description),
+            inner_width,
+        ),
+        Style::default().fg(Color::Yellow),
+    )));
+    text_lines.push(Line::from(Span::styled(
+        truncate_to_chars(
+            &format!("  Size: {}", format_bytes(preview.size as u64)),
+            inner_width,
+        ),
+        Style::default().fg(Color::Green),
+    )));
+    text_lines.push(Line::from(Span::styled(
+        truncate_to_chars(
+            &format!("  Atime: {}", app.format_atime(preview.atime)),
+            inner_width,
+        ),
+        Style::default().fg(Color::Cyan),
+    )));
+    text_lines.push(Line::from(""));
+
+    if preview.is_text && !preview.lines.is_empty() {
+        let content_height = inner_height.saturating_sub(text_lines.len());
+        for line in preview.lines.iter().take(content_height) {
+            text_lines.push(Line::from(Span::raw(truncate_to_chars(
+                &format!("  {line}"),
+                inner_width,
+            ))));
+        }
+    } else if !preview.is_text {
+        text_lines.push(Line::from(Span::styled(
+            "  (binary file — no preview)",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )));
+    }
+
+    let paragraph = Paragraph::new(text_lines).block(block);
+    f.render_widget(paragraph, overlay);
+}
+
 /// Render the shared status bar.
 fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let status_text = if app.input_mode == InputMode::SortSelect {
@@ -2516,6 +2673,16 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
             " Sort: {}  (s/→:next  ←:prev  Enter:apply  Esc:cancel)",
             options.join("")
         )
+    } else if app.input_mode == InputMode::ListPreview {
+        if let Some(ref preview) = app.list_preview {
+            let file_name = preview.path.rsplit('/').next().unwrap_or(&preview.path);
+            format!(
+                " {} │ {} │ Esc/Space: close",
+                file_name, preview.type_description
+            )
+        } else {
+            " Esc/Space: close".to_string()
+        }
     } else if app.input_mode != InputMode::Normal {
         format!(" {}{}", app.input_mode.prompt(), app.input_buffer)
     } else if app.preview_focused {
@@ -2595,4 +2762,51 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 
     let status = Paragraph::new(status_text).style(status_style);
     f.render_widget(status, area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(name: &str, is_dir: bool) -> DirEntry {
+        DirEntry {
+            name: name.to_string(),
+            path: name.to_string(),
+            is_dir,
+            total_size: 0,
+            file_count: 0,
+            latest_atime: 0,
+        }
+    }
+
+    #[test]
+    fn list_preview_entry_file() {
+        let entries = [entry("a.txt", false)];
+        let got = list_preview_entry(&entries, Some(0));
+        assert_eq!(got.map(|e| e.name.as_str()), Some("a.txt"));
+    }
+
+    #[test]
+    fn list_preview_entry_directory() {
+        let entries = [entry("subdir", true)];
+        assert!(list_preview_entry(&entries, Some(0)).is_none());
+    }
+
+    #[test]
+    fn list_preview_entry_dotdot() {
+        let entries = [entry("..", true)];
+        assert!(list_preview_entry(&entries, Some(0)).is_none());
+    }
+
+    #[test]
+    fn list_preview_entry_no_selection() {
+        let entries = [entry("a.txt", false)];
+        assert!(list_preview_entry(&entries, None).is_none());
+    }
+
+    #[test]
+    fn list_preview_entry_empty() {
+        let entries: [DirEntry; 0] = [];
+        assert!(list_preview_entry(&entries, Some(0)).is_none());
+    }
 }
