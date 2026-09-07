@@ -50,9 +50,11 @@ fn main() -> Result<()> {
     // Connect to DuckDB (in-memory)
     let conn = Connection::open_in_memory()?;
 
-    // Build filters using shared QueryFilters
+    // Build filters using shared QueryFilters. A glob is translated here; an invalid
+    // one fails before any deletion set is selected rather than at the database.
     let filters = QueryFilters::new()
-        .with_pattern(args.pattern.clone())
+        .with_path_pattern(args.pattern.clone(), args.regex)
+        .map_err(|e| anyhow::anyhow!(e))?
         .with_older_than(args.older_than)
         .with_newer_than(args.newer_than)
         .with_min_size(args.min_size.as_deref())

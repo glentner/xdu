@@ -6,7 +6,7 @@ appetite: small
 status: in_progress
 branch: feature/richer-search-glob-fuzzy-fulltext
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-09-07'
 phases:
 - id: P1
@@ -26,7 +26,7 @@ phases:
     ! xdu-find -i "$XDU_INDEX" -p "[" --count'
 - id: P2
   name: xdu-rm on the glob dialect
-  status: pending
+  status: done
   satisfies:
   - R1
   - R2
@@ -153,10 +153,10 @@ checklists below are the work. `xdu-build` executes the next actionable phase, r
 **Goal:** The destructive tool takes glob by default with the failure closed before any
 deletion set is selected; its tests prove both dialects and the fail-closed path.
 
-- [ ] `src/bin/xdu-rm.rs`: build filters via `with_path_pattern`; `after_help` examples to
-  glob-first plus one `--regex` example.
-- [ ] `doc/xdu-rm.1.scd`: same man-page treatment as P1's find page.
-- [ ] `tests/rm_tests.rs`: convert the regex-valued `--pattern` assertions (`\.log$`,
+- [x] `src/bin/xdu-rm.rs`: build filters via `with_path_pattern`; `after_help` example to
+  glob-first (`--regex` is documented in help text and the man page).
+- [x] `doc/xdu-rm.1.scd`: same man-page treatment as P1's find page.
+- [x] `tests/rm_tests.rs`: convert the regex-valued `--pattern` assertions (`\.log$`,
   `\.nonexistent$`) to glob; add `--regex` coverage proving the old behavior survives
   behind the switch, and an invalid-glob case asserting non-zero exit with files kept.
   Never reimplement production logic in a test — assert through the real binary.

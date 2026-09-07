@@ -101,7 +101,7 @@ fn test_pattern_filter_deletes_matching_files() {
         "-i",
         index.to_str().unwrap(),
         "--pattern",
-        "\\.log$",
+        "*.log",
         "--force",
     ]);
 
@@ -112,6 +112,69 @@ fn test_pattern_filter_deletes_matching_files() {
     assert!(source.join("user1/keep.txt").exists());
     assert!(!source.join("user1/delete.log").exists());
     assert!(!source.join("user1/also_delete.log").exists());
+}
+
+// =============================================================================
+// Test: --regex restores regular-expression matching
+// =============================================================================
+
+#[test]
+fn test_regex_flag_restores_regex_matching() {
+    let temp_dir = TempDir::new().unwrap();
+    let source = temp_dir.path().join("source");
+    let index = temp_dir.path().join("index");
+
+    // Same mixed fixture as the glob pattern test above.
+    fs::create_dir_all(source.join("user1")).unwrap();
+    create_test_file(&source.join("user1/keep.txt"), 100).unwrap();
+    create_test_file(&source.join("user1/delete.log"), 100).unwrap();
+    create_test_file(&source.join("user1/also_delete.log"), 100).unwrap();
+
+    // Build index
+    build_index(&source, &index);
+
+    // The old regex spelling keeps working behind the opt-in switch.
+    let (stdout, _stderr, success) = run_rm(&[
+        "-i",
+        index.to_str().unwrap(),
+        "--pattern",
+        "\\.log$",
+        "--regex",
+        "--force",
+    ]);
+
+    assert!(success);
+    assert!(stdout.contains("Deleted: 2"));
+
+    // Verify correct files remain
+    assert!(source.join("user1/keep.txt").exists());
+    assert!(!source.join("user1/delete.log").exists());
+    assert!(!source.join("user1/also_delete.log").exists());
+}
+
+// =============================================================================
+// Test: An invalid glob deletes nothing
+// =============================================================================
+
+#[test]
+fn test_invalid_glob_deletes_nothing() {
+    let temp_dir = TempDir::new().unwrap();
+    let source = temp_dir.path().join("source");
+    let index = temp_dir.path().join("index");
+
+    fs::create_dir_all(source.join("user1")).unwrap();
+    create_test_file(&source.join("user1/keep.log"), 100).unwrap();
+
+    // Build index
+    build_index(&source, &index);
+
+    // Rejection happens before any deletion set is selected, so --force is safe here.
+    let (_stdout, stderr, success) =
+        run_rm(&["-i", index.to_str().unwrap(), "--pattern", "[", "--force"]);
+
+    assert!(!success);
+    assert!(stderr.contains("Unterminated character class"));
+    assert!(source.join("user1/keep.log").exists());
 }
 
 // =============================================================================
@@ -501,7 +564,7 @@ fn test_no_matching_files() {
         "-i",
         index.to_str().unwrap(),
         "--pattern",
-        "\\.nonexistent$",
+        "*.nonexistent",
         "--force",
     ]);
 
@@ -545,7 +608,7 @@ fn test_combined_filters() {
         "-i",
         index.to_str().unwrap(),
         "--pattern",
-        "\\.log$",
+        "*.log",
         "--older-than",
         "30",
         "--min-size",

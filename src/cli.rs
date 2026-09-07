@@ -178,7 +178,7 @@ pub struct XduViewArgs {
     about = "Delete files matching index query criteria",
     after_help = "Examples:
   xdu-rm -i /index/scratch -u alice --older-than 180 -n
-  xdu-rm -i /index/scratch -p '\\.tmp$' --force
+  xdu-rm -i /index/scratch -p '*.tmp' --force
   xdu-rm -i /index/scratch --min-size 1G --safe"
 )]
 pub struct XduRmArgs {

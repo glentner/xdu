@@ -6,7 +6,7 @@ xdu-rm - delete files matching index query criteria
 
 # SYNOPSIS
 
-*xdu-rm* *-i* _DIR_ \[*-u* _NAME_] \[*-p* _REGEX_] \[*--min-size* _SIZE_]
+*xdu-rm* *-i* _DIR_ \[*-u* _NAME_] \[*-p* _PATTERN_] \[*--regex*] \[*--min-size* _SIZE_]
 	\[*--max-size* _SIZE_] \[*--older-than* _DAYS_] \[*--newer-than* _DAYS_]
 	\[*-l* _N_] \[*-n*] \[*--safe*] \[*-f*] \[*-v*] \[*-j* _N_]
 
@@ -29,8 +29,14 @@ be deleted without removing anything.
 *-u*, *--partition* _NAME_
 	Filter by partition (top-level subdirectory name).
 
-*-p*, *--pattern* _REGEX_
-	Regular expression pattern to match file paths.
+*-p*, *--pattern* _PATTERN_
+	Glob pattern to match file paths. Supports \*, ?, and [...] classes;
+	\* crosses directories, so \*.tmp matches temporary files at any depth.
+	A bare word matches only that exact name — write \*tmp\* for a substring
+	search.
+
+*--regex*
+	Interpret *-p* as a full regular expression instead of a glob.
 
 *--min-size* _SIZE_
 	Minimum file size. Supports suffixes: K, M, G, T.
@@ -89,7 +95,7 @@ Preview deletion of stale files:
 
 Delete temporary files, skipping confirmation:
 
-	xdu-rm -i /index/scratch -p '\\.tmp$' --force
+	xdu-rm -i /index/scratch -p '\*.tmp' --force
 
 Safe deletion of large files (re-check metadata before removing):
 
