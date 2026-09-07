@@ -55,7 +55,7 @@ phases:
     rc=$?; rm -rf $FIXT; exit $rc
 - id: P4
   name: Post-merge republish verification (human-gated)
-  status: pending
+  status: done
   satisfies:
   - R6
   depends_on:
