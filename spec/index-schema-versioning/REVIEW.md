@@ -117,3 +117,71 @@ authoritative path list; this copy may only ever **widen** to match it.)
 - Not run — no `completeness` argument was given. Noted for the record: all three TECH phases
   report `done` and the blind reviewer maps every product hunk to an R-ID with no scope ballooning
   observed, but that cross-check was not executed as a separate pass.
+
+## Review cycle 2 — approved (2026-09-08)
+
+Mode: fresh full blind pass over the whole spec-excluded diff (not a scoped
+remediation check). Reviewed commit `0aef8fcb6a1146a228c74f5eb441c50f22fd8d35`, base
+`main`. Contract-drift check: `git log --oneline main..HEAD --
+spec/index-schema-versioning/GOAL.md` → only the shaping commit `deadfb7`; the locked
+contract did not move.
+
+### Verification run
+
+- Blind subagent, spec-excluded diff: `git diff main...HEAD -- . ':(exclude)spec/'` →
+  product hunks in `src/lib.rs`, `src/crawl.rs`, the three reader bins,
+  `tests/common/mod.rs`, `tests/crawl_tests.rs`, new `tests/version_tests.rs`, plus the
+  P4 manual remediation in `AGENTS.md` / `.agents/factory/invariants.md` and the factory
+  process stamp on `issues/index-schema-versioning.md`. No `doc/*.scd` touched, so the
+  man-page render gate has no new inputs (reviewer confirms no CLI change; render not
+  applicable, not skipped).
+- `cargo test` (blind reviewer) → green: 74 lib + 23 crawl + 4 version + 18 rm + 5 + 1,
+  0 failures. `cargo clippy --all-targets --all-features -- -D warnings` → clean.
+  `cargo fmt --all -- --check` → clean.
+- Throwaway-index drives via `.agents/factory/bin/temp_index.sh` (blind reviewer, all
+  executed): fresh index marker carries `format=1`; `format=999` makes find/rm/view each
+  exit 1 naming `999` and supported `1` with a re-index remedy and empty stdout;
+  removed, versionless, and garbage (`format=new`) markers each refuse with the
+  no-version re-index diagnostic; FIFO and directory-at-marker-path refuse fast; refused
+  `xdu-rm --force` unlinks nothing; versioned `format=1/errors=2` marker still queries
+  exit 0 with only the soft `--allow-errors` warning.
+- P4 remediation check (orchestrator, by direct read + `grep`): the old "no on-disk
+  schema version" sentence is absent from `AGENTS.md`, `invariants.md`, and `src/`; both
+  marker-body key lists now carry `format`; both files name `INDEX_FORMAT_VERSION` and
+  the `index_version_error`-before-`index_completion_warning` refusal order.
+- Tree-clean check (orchestrator): `git status --porcelain` empty before delegation and
+  after hand-back. The reviewer reports no negative-control build-state mutation, so no
+  restore was owed.
+- Gates not observed in this session (recorded, not claimed): the CI rollup state and a
+  `scdoc` render were not re-run here — no `.scd` is in the diff, so neither gates this
+  verdict.
+
+No artifact-deliverable R-IDs exist in this goal (R1–R4 are all behavioral), so the blind
+reviewer owned the full matrix; nothing was routed to the orchestrator.
+
+### Requirement → evidence matrix (blind reviewer, executed evidence)
+
+| R-ID | Implemented by | Verified how | Status |
+|------|----------------|--------------|--------|
+| R1 — completed runs record the format version | `src/lib.rs` (`INDEX_FORMAT_VERSION = 1`); `src/crawl.rs::completion_marker_contents` appends `format=` | Throwaway index shows `format=1`; writer↔parser pin test asserts the line | ✅ |
+| R2 — unknown version refuses in find/view/rm, naming found + supported, no rows / no deletion | `index_version_error` gate at the top of the three reader bins | `format=999` → all three exit 1 with found + supported + remedy, empty stdout; refused `xdu-rm` leaves targets in place | ✅ |
+| R3 — no / versionless / unparseable version refuses with re-index direction, never reads blind | `Absent \| Unreadable` and `completion_marker_format == None` map to the no-version refusal; guarded single-stat read | Removed, versionless, `format=new`, FIFO, and directory markers each refuse exit 1 with empty stdout and a re-index diagnostic | ✅ |
+| R4 — fresh index accepted by all three, no version diagnostic; tolerated-errors warning unchanged | Same gates pass through on `format=1`; `index_completion_warning` path runs after the gate | Fresh index queries exit 0 with clean stderr; `format=1/errors=2` marker still warns soft and queries | ✅ |
+
+Unmapped changes (possible scope creep): none. Every product hunk maps to R1–R4; no
+`R#`/`P#` ids in `src/`; `doc/*.scd` correctly untouched (no CLI change).
+
+### Findings
+
+No findings — nothing CONFIRMED, nothing PLAUSIBLE. Candidates investigated and dropped
+per the refutation protocol: Absent/Unreadable/garbage markers using the no-version
+diagnostic (correct fail-closed per R3); a `stat`-then-`read` TOCTOU (pre-existing shape
+from `main`, speculative); a stale doc comment on `index_completion_warning`
+(`src/lib.rs:161-163`) — source comment, not manual drift, out of rubric scope.
+
+### Human-gate triggers
+
+- Not triggered. No CONFIRMED finding exists, and the blind pass reports no correctness,
+  R-ID, invariant, or scope-creep finding against the product diff, including the
+  high-blast-radius files the diff touches (`src/lib.rs`, `src/crawl.rs`,
+  `src/bin/xdu-rm.rs`).

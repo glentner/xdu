@@ -58,11 +58,11 @@ phases:
     && grep -q ''lossy_paths`, `format'' AGENTS.md .agents/factory/invariants.md &&
     grep -q ''index_version_error'' AGENTS.md .agents/factory/invariants.md'
 review:
-  last_reviewed_commit: 1e9bfe2a49e1f9c165687e9edb594e1dbd28b271
-  verdict: changes-requested
+  last_reviewed_commit: 0aef8fcb6a1146a228c74f5eb441c50f22fd8d35
+  verdict: approved
   blocked_reason: AGENTS.md/invariants.md still state no on-disk schema version; marker
     key lists omit format
-  cycle: 1
+  cycle: 2
 ---
 # TECH.md — Version-stamp the index marker and refuse unreadable versions
 
