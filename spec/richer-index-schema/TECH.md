@@ -74,10 +74,10 @@ phases:
     -- -D warnings && cargo test && ! grep -qF 'writes the Parquet index (path, size,
     atime)' AGENTS.md && ! grep -qF '`size` (INT64 bytes), `atime`' AGENTS.md
 review:
-  last_reviewed_commit: 09031e273f806ed000ac46aa0af55a67fc4305d6
-  verdict: changes-requested
+  last_reviewed_commit: 8589074d8308d6923b28865369dc76a38efd1113
+  verdict: approved
   blocked_reason: 'F1: AGENTS.md Project section still describes three-column schema'
-  cycle: 1
+  cycle: 2
 ---
 # TECH.md — Richer index schema: owner, group, permissions, mtime, ctime
 
