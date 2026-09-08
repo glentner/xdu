@@ -3,7 +3,7 @@ slug: index-schema-versioning
 title: Version-stamp the index marker and refuse unreadable versions
 kind: feature
 appetite: small
-status: in_review
+status: blocked
 branch: feature/index-schema-versioning
 base: main
 current_phase: done
@@ -45,10 +45,11 @@ phases:
   verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
     -- -D warnings && cargo test
 review:
-  last_reviewed_commit: ''
-  verdict: none
-  blocked_reason: ''
-  cycle: 0
+  last_reviewed_commit: 1e9bfe2a49e1f9c165687e9edb594e1dbd28b271
+  verdict: changes-requested
+  blocked_reason: AGENTS.md/invariants.md still state no on-disk schema version; marker
+    key lists omit format
+  cycle: 1
 ---
 # TECH.md — Version-stamp the index marker and refuse unreadable versions
 
