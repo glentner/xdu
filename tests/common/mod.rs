@@ -79,6 +79,45 @@ pub fn set_atime_days_ago(path: &Path, days: u64) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Set the modification time of a file to a specific number of days ago.
+///
+/// The mtime mirror of `set_atime_days_ago`: the atime is preserved while the
+/// mtime moves, so `--mtime-older-than` fixtures do not disturb the atime ones.
+pub fn set_mtime_days_ago(path: &Path, days: u64) -> std::io::Result<()> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let old_time = now - (days * 86400);
+
+    // Get current atime to preserve it
+    let metadata = fs::metadata(path)?;
+    let atime = metadata
+        .accessed()?
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    // Use libc to set mtime while preserving atime
+    let c_path = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+    let times = [
+        libc::timespec {
+            tv_sec: atime as i64,
+            tv_nsec: 0,
+        },
+        libc::timespec {
+            tv_sec: old_time as i64,
+            tv_nsec: 0,
+        },
+    ];
+    unsafe {
+        if libc::utimensat(libc::AT_FDCWD, c_path.as_ptr(), times.as_ptr(), 0) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
 /// Run `xdu` with arbitrary args; returns (stdout, stderr, success).
 pub fn run_xdu(args: &[&str]) -> (String, String, bool) {
     let output = Command::new(binary_path("xdu"))

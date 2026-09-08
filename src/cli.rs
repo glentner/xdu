@@ -105,6 +105,27 @@ pub struct XduFindArgs {
     #[arg(long, value_name = "DAYS")]
     pub newer_than: Option<u64>,
 
+    /// Files owned by this user (name or numeric uid)
+    #[arg(long, value_name = "USER")]
+    pub owner: Option<String>,
+
+    /// Files owned by this group (name or numeric gid)
+    #[arg(long, value_name = "GROUP")]
+    pub group: Option<String>,
+
+    /// Permission filter: bare octal matches exactly (644), /OCTAL matches when
+    /// any listed bit is set (/002), &OCTAL when all are (&4000)
+    #[arg(long, value_name = "SPEC")]
+    pub mode: Option<String>,
+
+    /// Files not modified in N days
+    #[arg(long, value_name = "DAYS")]
+    pub mtime_older_than: Option<u64>,
+
+    /// Files modified within N days
+    #[arg(long, value_name = "DAYS")]
+    pub mtime_newer_than: Option<u64>,
+
     /// Output format: path (default), size, atime, csv, json
     #[arg(short, long, default_value = "path")]
     pub format: String,

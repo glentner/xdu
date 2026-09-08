@@ -67,3 +67,16 @@ is skipped by the parser):
 - **Recommended fix:** Step 7's add-list should include `issues/{slug}.md` when the invocation
   promoted one.
 - **Confidence:** high · **Effort:** small
+
+## F3 — No expansion-safe path for `--verify` retunes carrying `$( )`
+`origin=xdu-build:P3 severity=low category=tooling status=open target=.agents/factory/bin/set_phase.py`
+- **What happened:** Retuning P3's gate to a drive containing `$( )` via `--verify "..."` let
+  the calling shell expand the substitutions before the script saw them, storing a corrupted
+  gate (empty `test -eq 4` fragments) that still passed YAML validation. Recovery needed a
+  file staging plus a byte-exact round-trip check; a nested-quote fix (`'&4000'`) then collided
+  with the outer `sh -c '...'` quoting and needed a second pass with the skill-blessed `\"` level.
+- **Skill cause:** The only documented retune path takes the gate through argv, where no quoting
+  survives `$( )` intact, and nothing in the procedure names the hazard or the round-trip guard.
+- **Recommended fix:** Teach `set_phase.py` a `--verify-file` (or stdin) input, and note the
+  round-trip check as the required close for any `--verify` retune.
+- **Confidence:** high · **Effort:** small

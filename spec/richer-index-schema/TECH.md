@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: feature/richer-index-schema
 base: main
-current_phase: P3
+current_phase: P4
 last_updated: '2026-09-08'
 phases:
 - id: P1
@@ -38,7 +38,7 @@ phases:
   verify: cargo test --lib
 - id: P3
   name: 'xdu-find surface: flags, wiring, csv/json, man pages'
-  status: pending
+  status: done
   satisfies:
   - R4
   - R5
@@ -52,11 +52,13 @@ phases:
   hammerable: false
   hill: uphill
   verify: .agents/factory/bin/temp_index.sh sh -c 'test $(xdu-find --owner $(id -un)
-    --count) -eq 4 && ! xdu-find --owner xdu-no-such-user --count && test $(xdu-find
-    --mode /400 --count) -eq 4 && test $(xdu-find --mtime-newer-than 1 --count) -eq
-    4 && test $(xdu-find --mtime-older-than 30 --count) -eq 0 && xdu-find -f csv |
-    head -1 | grep -q path,size,uid,gid,mode,atime,mtime,ctime && xdu-find -f json
-    | grep -q uid && test $(xdu-find -f csv | grep -c .) -eq 5 && xdu-find --top 3'
+    --count) -eq 4 && test $(xdu-find --owner 4294967294 --count) -eq 0 && ! xdu-find
+    --owner xdu-no-such-user --count && test $(xdu-find --mode /400 --count) -eq 4
+    && test $(xdu-find --mode "&4000" --count) -eq 0 && test $(xdu-find --mtime-newer-than
+    1 --count) -eq 4 && test $(xdu-find --mtime-older-than 30 --count) -eq 0 && xdu-find
+    -f csv | head -1 | grep -q path,size,uid,gid,mode,atime,mtime,ctime && xdu-find
+    -f json | grep -q uid && test $(xdu-find -f csv | grep -c .) -eq 5 && xdu-find
+    --top 3'
 - id: P4
   name: Refusal and compat pins, remaining docs, gate, ledger
   status: pending
@@ -178,13 +180,13 @@ proof waits for P3's wiring; this phase delivers the lib contract that wiring ca
 **Goal:** The filters answer on the real CLI; csv/json carry the new fields; the
 man pages describe exactly the new surface.
 
-- [ ] `src/cli.rs`: `--owner`, `--group`, `--mode`, `--mtime-older-than`,
+- [x] `src/cli.rs`: `--owner`, `--group`, `--mode`, `--mtime-older-than`,
   `--mtime-newer-than` on `XduFindArgs` only (long-only, no shorts).
-- [ ] `src/bin/xdu-find.rs`: resolve-then-build wiring with pre-query failure
+- [x] `src/bin/xdu-find.rs`: resolve-then-build wiring with pre-query failure
   (R5-shaped, empty stdout, non-zero); csv/json SELECT, header, keys, `row.get`.
-- [ ] `doc/xdu-find.1.scd`: the five flags; `doc/xdu-rm.1.scd`: the "same filter
+- [x] `doc/xdu-find.1.scd`: the five flags; `doc/xdu-rm.1.scd`: the "same filter
   options" sentence rewritten — same commit as the clap change.
-- [ ] Integration tests: per-filter behavior on a fixture with known
+- [x] Integration tests: per-filter behavior on a fixture with known
   owners/modes/mtimes (expectations derived from `geteuid` at runtime, multi-user
   case self-skips with a named skip); unresolvable owner; csv header; json keys.
 - **Verify:** the frontmatter drive — owner count, unresolvable refusal, mask,
