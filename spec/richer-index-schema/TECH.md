@@ -3,7 +3,7 @@ slug: richer-index-schema
 title: 'Richer index schema: owner, group, permissions, mtime, ctime'
 kind: feature
 appetite: big
-status: blocked
+status: in_review
 branch: feature/richer-index-schema
 base: main
 current_phase: done
@@ -71,7 +71,8 @@ phases:
   hammerable: false
   hill: uphill
   verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
-    -- -D warnings && cargo test
+    -- -D warnings && cargo test && ! grep -qF 'writes the Parquet index (path, size,
+    atime)' AGENTS.md && ! grep -qF '`size` (INT64 bytes), `atime`' AGENTS.md
 review:
   last_reviewed_commit: 09031e273f806ed000ac46aa0af55a67fc4305d6
   verdict: changes-requested
@@ -220,6 +221,12 @@ recorded or confirmed recorded.
   recipe), and the rest (MIME, TUI columns, `--safe` expansion, ctime flags,
   stored names, v1 compat, access scoping, diffing, crtime, nanoseconds, S3)
   are either decided rejections or covered by standing seeds.
+- [x] F1 remediation (review cycle 1): `AGENTS.md` Project lines updated to the
+  eight-column layout. Class sweep (predicate: states the row schema as exactly
+  path/size/atime) found no other live site: `-f` tokens, named SELECTs, and the
+  README DuckDB example are still true; `issues/` and prior `spec/` records are
+  frozen; ROADMAP's delivered-baseline belongs to `/xdu-roadmap` retirement.
+  P4 gate retuned to assert both stale strings absent (proven red on HEAD).
 - **Verify:** `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test`.
 - **Touches:** `tests/`, `doc/`, `README.md`, `AGENTS.md`,
   `.agents/factory/invariants.md`.

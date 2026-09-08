@@ -24,15 +24,16 @@ Five binaries (`Cargo.toml [[bin]]`), four user-facing plus one build helper:
 
 | Binary | Role |
 |--------|------|
-| **`xdu`** | Crawler/indexer — walks a tree, writes the Parquet index (path, size, atime). |
+| **`xdu`** | Crawler/indexer — walks a tree, writes the eight-column Parquet index (path, size, uid, gid, mode, atime, mtime, ctime). |
 | **`xdu-find`** | Query CLI — DuckDB over the index; filters + `--count`/`--top`/formats. |
 | **`xdu-view`** | ncdu-style interactive TUI (ratatui/crossterm); read-only list + tree views. |
 | **`xdu-rm`** | **Destructive** bulk deletion of files matching an index query, with `--safe` re-stat. |
 | **`gen-completions`** | Dev helper — emits bash+zsh completions from the `src/cli.rs` clap structs. |
 
-The index schema is deliberately minimal: `path` (UTF-8), `size` (INT64 bytes), `atime` (INT64
-Unix epoch seconds). It is **Unix-only** (`std::os::unix::fs::MetadataExt` for atime and disk
-usage). Snappy compression. Queries use the **bundled** DuckDB (`duckdb` crate, `bundled`
+The index schema is deliberately minimal: `path` (UTF-8), `size` (INT64 bytes), `uid`,
+`gid` and `mode` (INT64 owner, group, and permission bits), `atime`, `mtime` and `ctime`
+(INT64 Unix epoch seconds). It is **Unix-only** (`std::os::unix::fs::MetadataExt` for times,
+ownership, and disk usage). Snappy compression. Queries use the **bundled** DuckDB (`duckdb` crate, `bundled`
 feature) so there is no external DuckDB dependency.
 
 ## Environment & working rules
