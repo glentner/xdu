@@ -6,7 +6,7 @@ appetite: small
 status: in_progress
 branch: feature/index-schema-versioning
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-09-07'
 phases:
 - id: P1
@@ -21,7 +21,7 @@ phases:
   verify: cargo test --lib
 - id: P2
   name: Wire the gate into find/rm/view plus real-binary refusal tests
-  status: pending
+  status: done
   satisfies:
   - R2
   - R3
@@ -133,12 +133,12 @@ before any reader depends on it.
 **Goal:** Every reader refuses an unreadable version before touching data, proven by driving the
 real binaries end to end.
 
-- [ ] Call `index_version_error` before `index_completion_warning` in `src/bin/xdu-find.rs`,
+- [x] Call `index_version_error` before `index_completion_warning` in `src/bin/xdu-find.rs`,
   `src/bin/xdu-rm.rs`, and `src/bin/xdu-view.rs` (view: inside the existing pre-terminal block);
   bail via the bins' `anyhow::Result` with the PLAN §2 diagnostic (found vs supported, re-index
   remedy). No query, no prompt, no deletion, no terminal on refusal; warning path unchanged on pass.
-- [ ] Add the `xdu-view` arm to `tests/common/mod.rs::binary_path` (refusal needs no TTY).
-- [ ] New `tests/version_tests.rs` (`mod common;`, shared helpers only): fresh-index round-trip
+- [x] Add the `xdu-view` arm to `tests/common/mod.rs::binary_path` (refusal needs no TTY).
+- [x] New `tests/version_tests.rs` (`mod common;`, shared helpers only): fresh-index round-trip
   accepted by find/rm with no version diagnostic (R4); deleted marker and `format=7` marker each
   make find/rm/view exit non-zero with a version-and-remedy diagnostic naming the failure (R2, R3);
   refused rm unlinks nothing.

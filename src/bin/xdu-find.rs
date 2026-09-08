@@ -5,7 +5,7 @@ use clap::Parser;
 use duckdb::Connection;
 
 use xdu::cli::XduFindArgs;
-use xdu::{QueryFilters, index_completion_warning, index_glob};
+use xdu::{QueryFilters, index_completion_warning, index_glob, index_version_error};
 
 fn main() -> Result<()> {
     let args = XduFindArgs::parse();
@@ -15,6 +15,12 @@ fn main() -> Result<()> {
         .index
         .canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
+
+    // Refuse an index whose format version is unknown or unsupported before any
+    // query: rows of an unknown layout must never be read, let alone trusted.
+    if let Some(error) = index_version_error(&index_path) {
+        return Err(anyhow::anyhow!(error));
+    }
 
     // An index can be incomplete two ways — a run that never finished, or one that finished
     // under --allow-errors having skipped what it could not read. Either is still queryable,

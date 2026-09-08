@@ -22,7 +22,7 @@ use ratatui::{
 
 use xdu::{
     QueryFilters, ROOT_PARTITION, SortMode, format_bytes, glob_to_regex, index_completion_warning,
-    index_glob, parse_size,
+    index_glob, index_version_error, parse_size,
 };
 
 /// Detect file type from magic bytes, shebangs, text content, and extension.
@@ -1883,6 +1883,13 @@ fn main() -> Result<()> {
         .index
         .canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
+
+    // Refuse an index whose format version is unknown or unsupported before the
+    // terminal is touched, so the diagnostic survives on the terminal instead of being
+    // wiped with the alternate screen.
+    if let Some(error) = index_version_error(&index_path) {
+        return Err(anyhow::anyhow!(error));
+    }
 
     // Warn before the alternate screen takes over, so the message is still on the
     // terminal after the TUI exits rather than being wiped with the screen.
