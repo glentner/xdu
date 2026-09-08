@@ -1,57 +1,81 @@
 ---
 slug: richer-index-schema
-title: "Richer index schema: owner, group, permissions, mtime, ctime"
+title: 'Richer index schema: owner, group, permissions, mtime, ctime'
 kind: feature
 appetite: big
 status: in_progress
 branch: feature/richer-index-schema
 base: main
-current_phase: P1
-last_updated: "2026-09-08"
+current_phase: P2
+last_updated: '2026-09-08'
 phases:
-  - id: P1
-    name: "Schema, version, and crawler record the five columns"
-    status: pending
-    satisfies: [R1, R2, R3]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: crest
-    verify: "cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 'test $(xdu-find --count) -eq 4'"
-  - id: P2
-    name: "Lib filter core: NSS resolution, mode SPEC, QueryFilters"
-    status: pending
-    satisfies: [R4, R5, R6, R7]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test --lib"
-  - id: P3
-    name: "xdu-find surface: flags, wiring, csv/json, man pages"
-    status: pending
-    satisfies: [R4, R5, R6, R7, R8, R9]
-    depends_on: [P2]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: ".agents/factory/bin/temp_index.sh sh -c 'test $(xdu-find --owner $(id -un) --count) -eq 4 && ! xdu-find --owner xdu-no-such-user --count && test $(xdu-find --mode /400 --count) -eq 4 && test $(xdu-find --mtime-newer-than 1 --count) -eq 4 && test $(xdu-find --mtime-older-than 30 --count) -eq 0 && xdu-find -f csv | head -1 | grep -q path,size,atime,uid,gid,mode,mtime,ctime && xdu-find -f json | grep -q uid && test $(xdu-find -f csv | grep -c .) -eq 5 && xdu-find --top 3'"
-  - id: P4
-    name: "Refusal and compat pins, remaining docs, gate, ledger"
-    status: pending
-    satisfies: [R3, R9]
-    depends_on: [P3]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test"
+- id: P1
+  name: Schema, version, and crawler record the five columns
+  status: done
+  satisfies:
+  - R1
+  - R2
+  - R3
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: crest
+  verify: cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 'test $(xdu-find
+    --count) -eq 4'
+- id: P2
+  name: 'Lib filter core: NSS resolution, mode SPEC, QueryFilters'
+  status: pending
+  satisfies:
+  - R4
+  - R5
+  - R6
+  - R7
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test --lib
+- id: P3
+  name: 'xdu-find surface: flags, wiring, csv/json, man pages'
+  status: pending
+  satisfies:
+  - R4
+  - R5
+  - R6
+  - R7
+  - R8
+  - R9
+  depends_on:
+  - P2
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: .agents/factory/bin/temp_index.sh sh -c 'test $(xdu-find --owner $(id -un)
+    --count) -eq 4 && ! xdu-find --owner xdu-no-such-user --count && test $(xdu-find
+    --mode /400 --count) -eq 4 && test $(xdu-find --mtime-newer-than 1 --count) -eq
+    4 && test $(xdu-find --mtime-older-than 30 --count) -eq 0 && xdu-find -f csv |
+    head -1 | grep -q path,size,atime,uid,gid,mode,mtime,ctime && xdu-find -f json
+    | grep -q uid && test $(xdu-find -f csv | grep -c .) -eq 5 && xdu-find --top 3'
+- id: P4
+  name: Refusal and compat pins, remaining docs, gate, ledger
+  status: pending
+  satisfies:
+  - R3
+  - R9
+  depends_on:
+  - P3
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
+    -- -D warnings && cargo test
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Richer index schema: owner, group, permissions, mtime, ctime
 
 The **context engine and finite-state machine** for building this feature. The YAML
@@ -117,15 +141,15 @@ checklists below are the work. `xdu-build` executes the next actionable phase, r
 **Goal:** A fresh crawl writes eight-column rows stamped format 2, and the existing
 gate refuses anything else. R3's mechanism lands here; its explicit pin lands in P4.
 
-- [ ] `src/lib.rs`: `get_schema()` appends `uid`, `gid`, `mode`, `mtime`, `ctime`
+- [x] `src/lib.rs`: `get_schema()` appends `uid`, `gid`, `mode`, `mtime`, `ctime`
   (`Int64`, non-null); `INDEX_FORMAT_VERSION = 2` with its doc comment rewritten
   for the eight-column layout.
-- [ ] `src/crawl.rs`: measurement helper returns all seven integers from the held
+- [x] `src/crawl.rs`: measurement helper returns all seven integers from the held
   `Metadata` (`uid()`, `gid()`, `mode() & 0o7777`, `mtime()`, `ctime()` beside
   size/atime); `PartitionBuffer` gains five `Int64Builder`s (private builders
   struct, not a wider tuple); `flush` extends the batch vector in schema order.
-- [ ] `src/bin/xdu.rs`: the single `buffer.add` call site passes the new values.
-- [ ] Unit tests move with the change: schema field pin, buffer round-trip over
+- [x] `src/bin/xdu.rs`: the single `buffer.add` call site passes the new values.
+- [x] Unit tests move with the change: schema field pin, buffer round-trip over
   all eight columns, size-mode helper arity.
 - **Verify:** `cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 'test $(xdu-find --count) -eq 4'` — unit pins plus a v2 index the current find already counts.
 - **Touches:** `src/lib.rs`, `src/crawl.rs`, `src/bin/xdu.rs`.

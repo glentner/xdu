@@ -28,11 +28,11 @@ pub const COMPLETION_MARKER: &str = ".xdu-complete";
 
 /// On-disk index format version recorded in every completion marker.
 ///
-/// 1 names the current layout: three-column `get_schema()` rows under
+/// 2 names the current layout: eight-column `get_schema()` rows under
 /// `<partition>/NNNNNN.parquet` plus this marker. A future layout or schema change bumps
 /// this, and readers refuse what they do not understand instead of misreading it — the
 /// escape hatch the schema-stability invariant requires before any column is added.
-pub const INDEX_FORMAT_VERSION: u32 = 1;
+pub const INDEX_FORMAT_VERSION: u32 = 2;
 
 /// Every name the index root already claims, paired with what claims it.
 ///
@@ -765,6 +765,11 @@ pub fn get_schema() -> Arc<Schema> {
         Field::new("path", DataType::Utf8, false),
         Field::new("size", DataType::Int64, false),
         Field::new("atime", DataType::Int64, false),
+        Field::new("uid", DataType::Int64, false),
+        Field::new("gid", DataType::Int64, false),
+        Field::new("mode", DataType::Int64, false),
+        Field::new("mtime", DataType::Int64, false),
+        Field::new("ctime", DataType::Int64, false),
     ]))
 }
 
@@ -906,10 +911,23 @@ mod tests {
     #[test]
     fn test_schema_fields() {
         let schema = get_schema();
-        assert_eq!(schema.fields().len(), 3);
-        assert_eq!(schema.field(0).name(), "path");
-        assert_eq!(schema.field(1).name(), "size");
-        assert_eq!(schema.field(2).name(), "atime");
+        let names: Vec<&str> = schema
+            .fields()
+            .iter()
+            .map(|f| f.name().as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["path", "size", "atime", "uid", "gid", "mode", "mtime", "ctime"]
+        );
+        for field in schema.fields() {
+            if field.name() == "path" {
+                assert_eq!(field.data_type(), &DataType::Utf8);
+            } else {
+                assert_eq!(field.data_type(), &DataType::Int64);
+            }
+            assert!(!field.is_nullable());
+        }
     }
 
     // SizeMode::calculate() tests
