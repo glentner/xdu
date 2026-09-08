@@ -11,7 +11,8 @@ use rayon::prelude::*;
 
 use xdu::cli::XduRmArgs;
 use xdu::{
-    QueryFilters, deterministic_limit_clause, index_completion_warning, index_glob, parse_size,
+    QueryFilters, deterministic_limit_clause, index_completion_warning, index_glob,
+    index_version_error, parse_size,
 };
 
 /// File info from the index query
@@ -36,6 +37,12 @@ fn main() -> Result<()> {
         .index
         .canonicalize()
         .with_context(|| format!("Index directory not found: {}", args.index.display()))?;
+
+    // Refuse an index whose format version is unknown or unsupported before any
+    // selection: no deletion set may come from an unknown layout.
+    if let Some(error) = index_version_error(&index_path) {
+        return Err(anyhow::anyhow!(error));
+    }
 
     // An index that never finished, or that finished under --allow-errors, is missing rows —
     // which for a deletion tool means files it will not consider. Worth saying out loud

@@ -523,11 +523,11 @@ fn test_rejected_run_leaves_existing_marker_intact() {
 }
 
 // =============================================================================
-// A markerless index still queries: readers warn on stderr, they do not refuse
+// A markerless index refuses: readers demand a version, they do not read blind
 // =============================================================================
 
 #[test]
-fn test_reader_warns_but_still_queries_markerless_index() {
+fn test_reader_refuses_markerless_index() {
     let tmp = TempDir::new().unwrap();
     let source = tmp.path().join("source");
     let index = tmp.path().join("index");
@@ -546,18 +546,23 @@ fn test_reader_warns_but_still_queries_markerless_index() {
         "a complete index must not warn: {err}"
     );
 
-    // Indexes built before the marker existed have no marker; they must keep working.
+    // Indexes built before versioning have no marker; without a version there is no
+    // layout to trust, so the reader refuses and directs a re-index instead of
+    // warning and carrying on.
     fs::remove_file(index.join(COMPLETION_MARKER)).unwrap();
 
     let (out, err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
-    assert!(ok, "a markerless index must still be queryable: {err}");
-    assert_eq!(out.trim(), "2", "the warning must not change the results");
+    assert!(!ok, "a markerless index must refuse: {err}");
     assert!(
-        err.contains("completion marker"),
-        "stderr should carry the soft warning, got: {err}"
+        out.trim().is_empty(),
+        "a refusal must print no rows: {out:?}"
+    );
+    assert!(
+        err.contains("format version") && err.contains("re-index"),
+        "a refusal must name the cause and the remedy, got: {err}"
     );
     // Diagnostics stay off stdout so a piped count is still just a number.
-    assert!(!out.contains("warning"));
+    assert!(!out.contains("version"));
 }
 
 // =============================================================================
@@ -745,8 +750,15 @@ fn test_unreadable_subtree_fails_loud_by_default() {
         err.contains("secret"),
         "stderr must name the unreadable directory, got: {err}"
     );
-    // The reachable file was still indexed; the hidden subtree was omitted.
-    assert_eq!(find_count(&index, &["-u", "data"]), 1);
+    // The reachable file was still indexed; the hidden subtree was omitted. The failed
+    // run wrote no marker, so the unattested index refuses until it is rebuilt cleanly.
+    let (_out, err, ok) =
+        common::run_find(&["-i", index.to_str().unwrap(), "-u", "data", "--count"]);
+    assert!(!ok, "the unattested index must refuse: {err}");
+    assert!(
+        err.contains("format version"),
+        "the refusal must name the cause, got: {err}"
+    );
 }
 
 // =============================================================================
@@ -918,14 +930,24 @@ fn test_unreadable_path_does_not_stop_sibling_partitions() {
     );
 
     // The erroring partition was walked to the end and finalized anyway...
-    assert_eq!(find_count(&index, &["-u", "alpha"]), 1);
     assert!(
         count_chunks(&index, "alpha") >= 1,
         "the erroring partition must still be finalized"
     );
     // ...and its sibling was indexed rather than abandoned.
-    assert_eq!(find_count(&index, &["-u", "beta"]), 1);
+    assert!(
+        count_chunks(&index, "beta") >= 1,
+        "the sibling partition must still be indexed"
+    );
     assert_eq!(count_partials(&index), 0);
+    // Row counts are unassertable here: the failed run is unattested by design, and an
+    // unattested index refuses until a clean run attests it.
+    let (_out, err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(!ok, "the unattested index must refuse: {err}");
+    assert!(
+        err.contains("format version"),
+        "the refusal must name the cause, got: {err}"
+    );
     assert!(
         !index.join(COMPLETION_MARKER).exists(),
         "a run that failed on a read error must not be marked complete"
@@ -968,10 +990,13 @@ fn test_write_failure_abandons_queued_partitions() {
 
     // The partition drained before the failure is complete on disk...
     assert_eq!(count_chunks(&index, "p1"), 1);
-    assert_eq!(
-        find_count(&index, &[]),
-        1,
-        "only the partition ahead of the failure should be indexed"
+    // ...and the two still queued behind it were never started. Row counts are
+    // unassertable: the failed run is unattested, so the index refuses until rebuilt.
+    let (_out, err, ok) = common::run_find(&["-i", index.to_str().unwrap(), "--count"]);
+    assert!(!ok, "the unattested index must refuse: {err}");
+    assert!(
+        err.contains("format version"),
+        "the refusal must name the cause, got: {err}"
     );
     // ...and the two still queued behind it were never started.
     assert!(

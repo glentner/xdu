@@ -24,6 +24,7 @@ pub fn binary_path(name: &str) -> PathBuf {
         "xdu" => env!("CARGO_BIN_EXE_xdu").into(),
         "xdu-find" => env!("CARGO_BIN_EXE_xdu-find").into(),
         "xdu-rm" => env!("CARGO_BIN_EXE_xdu-rm").into(),
+        "xdu-view" => env!("CARGO_BIN_EXE_xdu-view").into(),
         other => panic!("unknown test binary: {other}"),
     }
 }
@@ -123,6 +124,23 @@ pub fn run_rm(args: &[&str]) -> (String, String, bool) {
         .args(args)
         .output()
         .expect("failed to spawn xdu-rm");
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+        output.status.success(),
+    )
+}
+
+/// Run `xdu-view` with arbitrary args; returns (stdout, stderr, success).
+///
+/// Only the pre-terminal paths are drivable without a TTY: a refusal exits before the
+/// terminal is touched, while an accepted index proceeds into TUI setup and fails
+/// without one.
+pub fn run_view(args: &[&str]) -> (String, String, bool) {
+    let output = Command::new(binary_path("xdu-view"))
+        .args(args)
+        .output()
+        .expect("failed to spawn xdu-view");
     (
         String::from_utf8_lossy(&output.stdout).to_string(),
         String::from_utf8_lossy(&output.stderr).to_string(),

@@ -29,12 +29,15 @@ subsystems.
   `path: Utf8`, `size: Int64`, `atime: Int64`. `size` is bytes as `i64` (meaning depends on the
   `SizeMode` chosen at index time — disk-usage vs apparent vs block-rounded — and is **not** recorded
   in the index); `atime` is Unix epoch seconds as `i64`.
-- There is **no on-disk schema version.** Any change to `get_schema()` or a reader's `read_parquet`
-  column list is a **breaking, cross-cutting** index-format change touching `lib.rs` + the crawler +
-  all three readers + every README `read_parquet` example. `get_schema()` is the *only* in-code
-  statement of the row shape — there is deliberately no mirror struct to drift out of step with it.
-- Issues #2 / #3 (add `owner`/`group`/`permissions`) are exactly this class — **require adding a
-  schema version field before evolving the schema.**
+- The on-disk version is the `format` key in the `.xdu-complete` marker (`INDEX_FORMAT_VERSION`,
+  `lib.rs`): version 1 names this three-column layout, and every reader refuses a marker whose
+  version it does not understand instead of misreading the rows. Any change to `get_schema()` or a
+  reader's `read_parquet` column list is therefore a **breaking, cross-cutting** index-format change
+  touching `lib.rs` + the crawler + all three readers + every README `read_parquet` example, and it
+  must bump the version in the same commit. `get_schema()` is the *only* in-code statement of the
+  row shape — there is deliberately no mirror struct to drift out of step with it.
+- Issues #2 / #3 (add `owner`/`group`/`permissions`) are exactly this class — **they must bump the
+  version alongside the schema change.**
 
 ## 2. Atomic finalization (`src/crawl.rs::PartitionBuffer::finalize`)
 
@@ -62,10 +65,14 @@ ordering is load-bearing:
   **Written only on the success path**, after every partition finalized. Never write it on a failure
   path, and never move the clear earlier than the last check that can still reject the run.
 - Body is `key=value` lines (`xdu`, `completed_at`, `files`, `bytes`, `vanished`, `errors`,
-  `lossy_paths`), so an `--allow-errors` run still records how much it skipped.
-- All three readers call `lib::index_completion_warning` → a **soft stderr warning**, never a refusal
-  (the index is still queryable). The read is size-capped (`MARKER_READ_LIMIT`) and must not block, so a
-  FIFO or an enormous file left at that path cannot hang or exhaust a reader.
+  `lossy_paths`, `format`), so an `--allow-errors` run still records how much it skipped. `format`
+  carries the run-level index format version (`INDEX_FORMAT_VERSION`); it is what the readers'
+  version gate checks.
+- All three readers call `lib::index_version_error` before `lib::index_completion_warning`: a marker
+  stating no understood version — absent marker included — is a **refusal** (no rows, no deletions),
+  never a warning. The warning stays soft and covers only a versioned marker recording tolerated
+  errors, which remains queryable. The read is size-capped (`MARKER_READ_LIMIT`) and must not block,
+  so a FIFO or an enormous file left at that path cannot hang or exhaust a reader.
 - **Known limitation (recorded, not fixed):** the marker describes the whole index but its counts come
   from one run, so a `--partition`-scoped run clears and rewrites it from its own stats and can retire a
   still-correct warning — `issues/marker-scoped-run-attestation.md`. Do not fix this incidentally; it

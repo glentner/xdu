@@ -47,6 +47,8 @@ selection for incremental backup and index diffing.
 ## Notes
 
 - Depends on: on-disk index schema versioning.
+- Downstream: content-type filtering ("all video files over 1 GB") waits on MIME metadata per
+  file; shaping decides whether that column lives in this schema.
 - Related: GitHub issues #2 and #3 (owner/group/perms); the bulk-operations theme consumes
   mtime/ctime, `issues/index-diff-incremental-select.md` first.
 - Found by: original roadmap; mtime/ctime scope added by backup-vision scoping 2026-09-07.

@@ -357,11 +357,14 @@ xdu-find / xdu-view / xdu-rm ◀── warn if absent/errors ┘  ◀── Duck
   driver fails, partitions that already succeeded stay on disk as real `.parquet` chunks,
   indistinguishable from a complete index. So the marker is **cleared once pre-flight has passed** and
   the crawl is about to write, and **written only on the success path** — its presence attests to the
-  whole run. Body is `key=value` lines (`xdu`, `completed_at`, `files`, `bytes`, `vanished`, `errors`,
-  `lossy_paths`), so an `--allow-errors` run still records how much it skipped. All three readers call
-  `lib::index_completion_warning` and emit a **soft stderr warning** (never a refusal) when the marker
-  is absent or records tolerated errors; reads are capped (`MARKER_READ_LIMIT`) and non-blocking, so a
-  FIFO or huge file left at that path cannot hang or exhaust a reader. **Known limitation:** the marker
+  whole run. Body is `key=value` lines (`xdu`, `completed_at`, `files`, `bytes`, `vanished`,
+  `errors`, `lossy_paths`, `format`), so an `--allow-errors` run still records how much it skipped;
+  `format` carries the run-level index format version (`INDEX_FORMAT_VERSION`, `lib.rs`). All three
+  readers call `lib::index_version_error` first and refuse — no rows, no deletions — when the marker
+  states no version they understand, absent marker included; a versioned marker recording tolerated
+  errors still only earns a **soft stderr warning** via `lib::index_completion_warning`. Reads are
+  capped (`MARKER_READ_LIMIT`) and non-blocking, so a FIFO or huge file left at that path cannot
+  hang or exhaust a reader. **Known limitation:** the marker
   describes the whole index but its counts come from one run, so a `--partition`-scoped run rewrites it
   from its own stats — see `issues/marker-scoped-run-attestation.md`.
 - **Concurrency (indexer):** a **single** rayon pool (`Parallelism::RayonExistingPool`) backs **all**
@@ -402,9 +405,12 @@ kept **in lockstep** with this section (this file wins if they drift). The `xdu-
 
 1. **Parquet schema stability.** `lib.rs::get_schema()` is the ONE contract: exactly three
    **non-null** fields in fixed order — `path: Utf8`, `size: Int64`, `atime: Int64`. Every reader
-   selects these by name. There is **no on-disk schema version**, so any change to `get_schema()` or
-   a reader's column list is a breaking, cross-cutting index-format change (issues
-   #2/#3 — owner/group/perms — are exactly this: add a schema version first).
+   selects these by name. The on-disk version is the `format` key in the `.xdu-complete` marker
+   (`INDEX_FORMAT_VERSION`, `lib.rs`): version 1 names this three-column layout, and every reader
+   refuses a marker whose version it does not understand instead of misreading the rows — so any
+   change to `get_schema()` or a reader's column list is a breaking, cross-cutting index-format
+   change that must bump the version in the same commit (issues #2/#3 — owner/group/perms — are
+   exactly this).
 2. **Atomic finalization.** Write `NNNNNN.parquet.partial` → `fs::rename` (same dir) → prune stale
    higher chunks (`crawl.rs::PartitionBuffer::finalize()`). Never `File::create` a final `.parquet`,
    never cross-dir rename, never let a reader glob `.partial`. **Known limitation:** finalize is

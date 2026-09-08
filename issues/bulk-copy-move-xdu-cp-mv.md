@@ -57,7 +57,7 @@ rather than a fourth copy of `rm`'s `main`.
 
 - First of the bulk-operations theme; second is `issues/xdu-tar-slice-archive.md`, third is
   `issues/index-diff-incremental-select.md`.
-- Sequenced after `issues/richer-search-glob-fuzzy-fulltext.md`,
+- Sequenced after the delivered glob pilot (record in `spec/richer-search-glob-fuzzy-fulltext/`),
   `issues/index-schema-versioning.md`, and `issues/richer-index-schema.md`.
 - Related: GitHub issue #1.
 - Found by: backup-vision scoping 2026-09-07; split from `xdu-mv-and-xdu-tar.md`.

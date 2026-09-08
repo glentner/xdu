@@ -41,7 +41,7 @@ use crate::SizeMode;
 /// `RESERVED_INDEX_NAMES` pairs both names with what claims them: it is the list
 /// `build_work_queue` rejects a top-level source directory against, so every name the index
 /// root claims is guarded in both directions.
-pub use crate::{COMPLETION_MARKER, RESERVED_INDEX_NAMES, ROOT_PARTITION};
+pub use crate::{COMPLETION_MARKER, INDEX_FORMAT_VERSION, RESERVED_INDEX_NAMES, ROOT_PARTITION};
 
 /// Location of the completion marker for an index directory.
 pub fn completion_marker_path(index: &Path) -> PathBuf {
@@ -71,11 +71,11 @@ pub fn clear_completion_marker(index: &Path) -> Result<()> {
 }
 
 /// The marker body: the crawler version and this run's totals, one `key=value` per
-/// line. The counts are recorded so a tolerated-error run (`--allow-errors`) still
-/// says how much it skipped.
+/// line, plus the index format version readers gate on. The counts are recorded so a
+/// tolerated-error run (`--allow-errors`) still says how much it skipped.
 pub fn completion_marker_contents(stats: &CrawlStats, completed_at: u64) -> String {
     format!(
-        "xdu={}\ncompleted_at={}\nfiles={}\nbytes={}\nvanished={}\nerrors={}\nlossy_paths={}\n",
+        "xdu={}\ncompleted_at={}\nfiles={}\nbytes={}\nvanished={}\nerrors={}\nlossy_paths={}\nformat={}\n",
         env!("CARGO_PKG_VERSION"),
         completed_at,
         stats.files,
@@ -83,6 +83,7 @@ pub fn completion_marker_contents(stats: &CrawlStats, completed_at: u64) -> Stri
         stats.vanished,
         stats.errors,
         stats.lossy_paths,
+        INDEX_FORMAT_VERSION,
     )
 }
 
@@ -770,6 +771,7 @@ mod tests {
         assert!(body.contains("vanished=1"));
         assert!(body.contains("errors=2"));
         assert!(body.contains("lossy_paths=3"));
+        assert!(body.contains(&format!("format={}", crate::INDEX_FORMAT_VERSION)));
 
         // A new run clears it again, leaving the index unattested until it finishes.
         clear_completion_marker(index).unwrap();
