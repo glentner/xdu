@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: feature/richer-index-schema
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-09-08'
 phases:
 - id: P1
@@ -24,7 +24,7 @@ phases:
     --count) -eq 4'
 - id: P2
   name: 'Lib filter core: NSS resolution, mode SPEC, QueryFilters'
-  status: pending
+  status: done
   satisfies:
   - R4
   - R5
@@ -163,12 +163,12 @@ gate refuses anything else. R3's mechanism lands here; its explicit pin lands in
 **Goal:** Resolution, parsing, and SQL fragments pinned by unit tests. CLI-observable
 proof waits for P3's wiring; this phase delivers the lib contract that wiring calls.
 
-- [ ] `Cargo.toml`: `libc` moves to `[dependencies]`; no new crates.
-- [ ] `src/lib.rs`: `resolve_user` / `resolve_group` (POSIX lookup-first, digit
+- [x] `Cargo.toml`: `libc` moves to `[dependencies]`; no new crates.
+- [x] `src/lib.rs`: `resolve_user` / `resolve_group` (POSIX lookup-first, digit
   fallback; documented not pool-safe); mode-SPEC parser (bare exact, `/` any,
   `&` all); `QueryFilters` fields, builders, `to_conditions` fragments, and
   `is_active` / `clear` / `format_display` coverage.
-- [ ] Unit tests: fragment pins, parse matrix with rejects, NSS policy (current
+- [x] Unit tests: fragment pins, parse matrix with rejects, NSS policy (current
   user, unknown name, digit fallback, overflow).
 - **Verify:** `cargo test --lib`.
 - **Touches:** `Cargo.toml`, `src/lib.rs`.

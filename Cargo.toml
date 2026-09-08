@@ -18,6 +18,8 @@ console = "0.15"
 # the readers autoinstall a 12 MB extension on first use and cannot query an air-gapped host.
 duckdb = { version = "1", features = ["bundled", "parquet"] }
 infer = "0.19"
+# Runtime NSS (getpwnam/getgrnam) for --owner/--group resolution; also a dev-dep below.
+libc = "0.2"
 ratatui = "0.29"
 crossterm = "0.28"
 
