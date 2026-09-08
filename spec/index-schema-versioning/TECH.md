@@ -3,7 +3,7 @@ slug: index-schema-versioning
 title: Version-stamp the index marker and refuse unreadable versions
 kind: feature
 appetite: small
-status: in_review
+status: done
 branch: feature/index-schema-versioning
 base: main
 current_phase: done
