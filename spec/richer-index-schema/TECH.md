@@ -3,7 +3,7 @@ slug: richer-index-schema
 title: 'Richer index schema: owner, group, permissions, mtime, ctime'
 kind: feature
 appetite: big
-status: in_review
+status: blocked
 branch: feature/richer-index-schema
 base: main
 current_phase: done
@@ -73,10 +73,10 @@ phases:
   verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
     -- -D warnings && cargo test
 review:
-  last_reviewed_commit: ''
-  verdict: none
-  blocked_reason: ''
-  cycle: 0
+  last_reviewed_commit: 09031e273f806ed000ac46aa0af55a67fc4305d6
+  verdict: changes-requested
+  blocked_reason: 'F1: AGENTS.md Project section still describes three-column schema'
+  cycle: 1
 ---
 # TECH.md — Richer index schema: owner, group, permissions, mtime, ctime
 
