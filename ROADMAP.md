@@ -211,6 +211,21 @@ intended behaviour. Likely one attribute per struct.
 *Horizon: near-term · Depends on: — · Refs: —*
 **Seed:** [`issues/version-flag-missing.md`](issues/version-flag-missing.md)
 
+## Piping `xdu-find` into `head` exits 1 with a broken-pipe error
+
+Rust starts with `SIGPIPE` ignored, so when the reader exits early the next
+`writeln!` returns EPIPE — and `?` carries it out as `Error: Broken pipe (os
+error 32)` with a non-zero exit. Measured: `xdu-find -f csv | head -1` puts
+find's own exit at 1, which fails any `pipefail` caller for doing exactly what
+the tool invites. Every find output arm shares the locked-stdout loop;
+`xdu-rm`'s `println!` paths are the suspected same class with a worse shape (a
+panic, not an error), unreproduced at small scale. The fix is its own behavior
+contract — silent success on EPIPE, still loud on `/dev/full` — not a rider on
+the schema cycle that surfaced it.
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** [`issues/broken-pipe-closed-stdout.md`](issues/broken-pipe-closed-stdout.md)
+
 ## Internal cleanups surfaced by the crawl-hardening pass
 
 The crawl-hardening work produced a wider architecture assessment whose low-risk cleanups were applied
