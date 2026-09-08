@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: shaped on feature/richer-index-schema (2026-09-08) — see spec/richer-index-schema/GOAL.md
 kind: feature
 appetite: big
 ---
