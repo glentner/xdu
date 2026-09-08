@@ -25,19 +25,22 @@ subsystems.
 
 ## 1. Parquet schema stability (`src/lib.rs::get_schema`) — highest blast radius
 
-- `get_schema()` is the sole writer↔reader contract: exactly **three non-null** fields, fixed order —
-  `path: Utf8`, `size: Int64`, `atime: Int64`. `size` is bytes as `i64` (meaning depends on the
+- `get_schema()` is the sole writer↔reader contract: exactly **eight non-null** fields, fixed order —
+  `path: Utf8`, `size: Int64`, `uid: Int64`, `gid: Int64`, `mode: Int64`, `atime: Int64`,
+  `mtime: Int64`, `ctime: Int64`. `size` is bytes as `i64` (meaning depends on the
   `SizeMode` chosen at index time — disk-usage vs apparent vs block-rounded — and is **not** recorded
-  in the index); `atime` is Unix epoch seconds as `i64`.
+  in the index); `atime`/`mtime`/`ctime` are Unix epoch seconds as `i64`; `mode` is permission
+  bits (`st_mode & 0o7777`).
 - The on-disk version is the `format` key in the `.xdu-complete` marker (`INDEX_FORMAT_VERSION`,
-  `lib.rs`): version 1 names this three-column layout, and every reader refuses a marker whose
+  `lib.rs`): version 2 names this eight-column layout, and every reader refuses a marker whose
   version it does not understand instead of misreading the rows. Any change to `get_schema()` or a
   reader's `read_parquet` column list is therefore a **breaking, cross-cutting** index-format change
   touching `lib.rs` + the crawler + all three readers + every README `read_parquet` example, and it
   must bump the version in the same commit. `get_schema()` is the *only* in-code statement of the
   row shape — there is deliberately no mirror struct to drift out of step with it.
-- Issues #2 / #3 (add `owner`/`group`/`permissions`) are exactly this class — **they must bump the
-  version alongside the schema change.**
+- Issues #2 / #3 (add `owner`/`group`/`permissions`) were exactly this class — the richer-schema
+  cycle added `uid`/`gid`/`mode` (plus `mtime`/`ctime`) and bumped the version alongside,
+  as required.
 
 ## 2. Atomic finalization (`src/crawl.rs::PartitionBuffer::finalize`)
 

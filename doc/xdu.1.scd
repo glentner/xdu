@@ -96,11 +96,16 @@ occupying the marker path so no run can attest or clear it again — so *xdu*
 rejects it with an error rather than corrupting the index; rename the
 directory to index it.
 
-Each Parquet file contains three columns:
+Each Parquet file contains eight columns:
 
 - *path* (UTF-8): Absolute file path
 - *size* (INT64): File size in bytes
+- *uid* (INT64): Owning user id
+- *gid* (INT64): Owning group id
+- *mode* (INT64): Permission bits (st_mode masked to 07777)
 - *atime* (INT64): Last access time as Unix epoch seconds
+- *mtime* (INT64): Last modification time as Unix epoch seconds
+- *ctime* (INT64): Last inode-change time as Unix epoch seconds
 
 Files are written atomically using a .partial suffix, then renamed on
 completion. Stale chunks from previous runs are automatically pruned.

@@ -3,6 +3,7 @@
 pub mod cli;
 pub mod crawl;
 
+use std::ffi::CString;
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -28,11 +29,11 @@ pub const COMPLETION_MARKER: &str = ".xdu-complete";
 
 /// On-disk index format version recorded in every completion marker.
 ///
-/// 1 names the current layout: three-column `get_schema()` rows under
+/// 2 names the current layout: eight-column `get_schema()` rows under
 /// `<partition>/NNNNNN.parquet` plus this marker. A future layout or schema change bumps
 /// this, and readers refuse what they do not understand instead of misreading it — the
 /// escape hatch the schema-stability invariant requires before any column is added.
-pub const INDEX_FORMAT_VERSION: u32 = 1;
+pub const INDEX_FORMAT_VERSION: u32 = 2;
 
 /// Every name the index root already claims, paired with what claims it.
 ///
@@ -563,6 +564,16 @@ pub struct QueryFilters {
     pub older_than: Option<i64>,
     /// Files accessed since this epoch timestamp.
     pub newer_than: Option<i64>,
+    /// Files owned by this uid, resolved from `--owner` at filter-build time.
+    pub owner_uid: Option<u32>,
+    /// Files owned by this gid, resolved from `--group` at filter-build time.
+    pub group_gid: Option<u32>,
+    /// Permission-bits predicate, parsed from `--mode` before any query is built.
+    pub mode: Option<ModePredicate>,
+    /// Files not modified since this epoch timestamp.
+    pub mtime_older_than: Option<i64>,
+    /// Files modified since this epoch timestamp.
+    pub mtime_newer_than: Option<i64>,
 }
 
 impl QueryFilters {
@@ -617,11 +628,7 @@ impl QueryFilters {
     /// Set older-than filter from days.
     pub fn with_older_than(mut self, days: Option<u64>) -> Self {
         if let Some(d) = days {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
-            self.older_than = Some(now - (d as i64 * 86400));
+            self.older_than = Some(days_ago_epoch(d));
         }
         self
     }
@@ -629,11 +636,45 @@ impl QueryFilters {
     /// Set newer-than filter from days.
     pub fn with_newer_than(mut self, days: Option<u64>) -> Self {
         if let Some(d) = days {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
-            self.newer_than = Some(now - (d as i64 * 86400));
+            self.newer_than = Some(days_ago_epoch(d));
+        }
+        self
+    }
+
+    /// Set owner filter from an already-resolved uid.
+    pub fn with_owner_uid(mut self, uid: Option<u32>) -> Self {
+        self.owner_uid = uid;
+        self
+    }
+
+    /// Set group filter from an already-resolved gid.
+    pub fn with_group_gid(mut self, gid: Option<u32>) -> Self {
+        self.group_gid = gid;
+        self
+    }
+
+    /// Set permission filter from a `--mode` SPEC string (e.g., "644", "/002").
+    ///
+    /// Parsing fails here — before any query is built — rather than at the database.
+    pub fn with_mode(mut self, spec: Option<&str>) -> Result<Self, String> {
+        self.mode = spec.map(parse_mode_spec).transpose()?;
+        Ok(self)
+    }
+
+    /// Set mtime-older-than filter from days, the modification-time analogue of
+    /// `with_older_than`.
+    pub fn with_mtime_older_than(mut self, days: Option<u64>) -> Self {
+        if let Some(d) = days {
+            self.mtime_older_than = Some(days_ago_epoch(d));
+        }
+        self
+    }
+
+    /// Set mtime-newer-than filter from days, the modification-time analogue of
+    /// `with_newer_than`.
+    pub fn with_mtime_newer_than(mut self, days: Option<u64>) -> Self {
+        if let Some(d) = days {
+            self.mtime_newer_than = Some(days_ago_epoch(d));
         }
         self
     }
@@ -645,6 +686,11 @@ impl QueryFilters {
             || self.max_size.is_some()
             || self.older_than.is_some()
             || self.newer_than.is_some()
+            || self.owner_uid.is_some()
+            || self.group_gid.is_some()
+            || self.mode.is_some()
+            || self.mtime_older_than.is_some()
+            || self.mtime_newer_than.is_some()
     }
 
     /// Returns individual WHERE clause conditions.
@@ -670,6 +716,30 @@ impl QueryFilters {
 
         if let Some(threshold) = self.newer_than {
             conditions.push(format!("atime >= {}", threshold));
+        }
+
+        if let Some(uid) = self.owner_uid {
+            conditions.push(format!("uid = {}", uid));
+        }
+
+        if let Some(gid) = self.group_gid {
+            conditions.push(format!("gid = {}", gid));
+        }
+
+        if let Some(pred) = self.mode {
+            conditions.push(match pred {
+                ModePredicate::Exact(bits) => format!("mode = {}", bits),
+                ModePredicate::Any(bits) => format!("(mode & {}) != 0", bits),
+                ModePredicate::All(bits) => format!("(mode & {}) = {}", bits, bits),
+            });
+        }
+
+        if let Some(threshold) = self.mtime_older_than {
+            conditions.push(format!("mtime < {}", threshold));
+        }
+
+        if let Some(threshold) = self.mtime_newer_than {
+            conditions.push(format!("mtime >= {}", threshold));
         }
 
         conditions
@@ -705,6 +775,11 @@ impl QueryFilters {
         self.max_size = None;
         self.older_than = None;
         self.newer_than = None;
+        self.owner_uid = None;
+        self.group_gid = None;
+        self.mode = None;
+        self.mtime_older_than = None;
+        self.mtime_newer_than = None;
     }
 
     /// Format active filters for display (e.g., "[older:30d] [min:1M]").
@@ -724,25 +799,167 @@ impl QueryFilters {
         }
 
         if let Some(threshold) = self.older_than {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
-            let days = (now - threshold) / 86400;
-            parts.push(format!("[older:{}d]", days));
+            parts.push(format!("[older:{}d]", days_since_epoch(threshold)));
         }
 
         if let Some(threshold) = self.newer_than {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
-            let days = (now - threshold) / 86400;
-            parts.push(format!("[newer:{}d]", days));
+            parts.push(format!("[newer:{}d]", days_since_epoch(threshold)));
+        }
+
+        if let Some(uid) = self.owner_uid {
+            parts.push(format!("[owner:{}]", uid));
+        }
+
+        if let Some(gid) = self.group_gid {
+            parts.push(format!("[group:{}]", gid));
+        }
+
+        if let Some(pred) = self.mode {
+            parts.push(format!("[mode:{}]", pred));
+        }
+
+        if let Some(threshold) = self.mtime_older_than {
+            parts.push(format!("[mtime-older:{}d]", days_since_epoch(threshold)));
+        }
+
+        if let Some(threshold) = self.mtime_newer_than {
+            parts.push(format!("[mtime-newer:{}d]", days_since_epoch(threshold)));
         }
 
         parts.join(" ")
     }
+}
+
+/// A parsed `--mode` permission filter: an operator plus permission bits.
+///
+/// Exact answers "the mode is this"; Any answers "any of these bits is set" (the
+/// exposure question — world-writable is Any(`0o002`)); All answers "every one of
+/// these bits is set" (setuid is All(`0o4000`)). Bits are the `0o7777` permission
+/// field, matching the stored `mode` column, so SQL compares them bare.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModePredicate {
+    Exact(u32),
+    Any(u32),
+    All(u32),
+}
+
+impl fmt::Display for ModePredicate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ModePredicate::Exact(bits) => write!(f, "{:o}", bits),
+            ModePredicate::Any(bits) => write!(f, "/{:o}", bits),
+            ModePredicate::All(bits) => write!(f, "&{:o}", bits),
+        }
+    }
+}
+
+/// Parse a `--mode` SPEC into an operator plus bits.
+///
+/// Grammar: bare octal (`644`, `0644`) is exact; a `/` prefix (`/002`) matches
+/// when any listed bit is set; an `&` prefix (`&4000`) matches when all listed
+/// bits are set. A leading `-` is not accepted — clap would eat it as a flag —
+/// and `&` is its spelling instead. An optional `0o` may follow the prefix.
+/// Anything else — empty input, a bare prefix, non-octal digits, more than
+/// `0o7777` — fails before any query is built.
+pub fn parse_mode_spec(spec: &str) -> Result<ModePredicate, String> {
+    let (op, digits) = match spec.strip_prefix('/') {
+        Some(rest) => ('/', rest),
+        None => match spec.strip_prefix('&') {
+            Some(rest) => ('&', rest),
+            None => ('=', spec),
+        },
+    };
+    let digits = digits.strip_prefix("0o").unwrap_or(digits);
+    if digits.is_empty() || !digits.bytes().all(|b| matches!(b, b'0'..=b'7')) {
+        return Err(format!(
+            "invalid mode SPEC: '{spec}' (want octal like 644, /002, or &4000)"
+        ));
+    }
+    let bits = u32::from_str_radix(digits, 8).map_err(|_| {
+        format!("invalid mode SPEC: '{spec}' (want octal like 644, /002, or &4000)")
+    })?;
+    if bits > 0o7777 {
+        return Err(format!(
+            "invalid mode SPEC: '{spec}' (permission bits stop at 07777)"
+        ));
+    }
+    Ok(match op {
+        '/' => ModePredicate::Any(bits),
+        '&' => ModePredicate::All(bits),
+        _ => ModePredicate::Exact(bits),
+    })
+}
+
+/// Resolve a user name to its uid, POSIX `find -user` style.
+///
+/// A name present in the user database wins — even a numeric one. Otherwise an
+/// all-digit string parses as a literal uid, so a host missing the passwd entry
+/// can still select by number. Anything else fails.
+///
+/// This calls the non-reentrant `getpwnam`, keeps no pointer past the call, and
+/// still must not run on a thread pool: the one call site resolves filters on
+/// the main thread before any query runs.
+pub fn resolve_user(name: &str) -> Result<u32, String> {
+    let cname = CString::new(name).map_err(|_| format!("unknown user: '{name}'"))?;
+    let uid = unsafe {
+        let entry = libc::getpwnam(cname.as_ptr());
+        if entry.is_null() {
+            None
+        } else {
+            Some((*entry).pw_uid)
+        }
+    };
+    if let Some(uid) = uid {
+        return Ok(uid);
+    }
+    decimal_id(name).ok_or_else(|| format!("unknown user: '{name}'"))
+}
+
+/// Resolve a group name to its gid: the group mirror of `resolve_user`, over
+/// `getgrnam`, with the same lookup-first-then-digits policy and the same
+/// single-threaded call-site constraint.
+pub fn resolve_group(name: &str) -> Result<u32, String> {
+    let cname = CString::new(name).map_err(|_| format!("unknown group: '{name}'"))?;
+    let gid = unsafe {
+        let entry = libc::getgrnam(cname.as_ptr());
+        if entry.is_null() {
+            None
+        } else {
+            Some((*entry).gr_gid)
+        }
+    };
+    if let Some(gid) = gid {
+        return Ok(gid);
+    }
+    decimal_id(name).ok_or_else(|| format!("unknown group: '{name}'"))
+}
+
+/// A digit string as a literal id. Empty strings, signs, and mixed tokens are
+/// not ids; a value past `u32` is not one either.
+fn decimal_id(text: &str) -> Option<u32> {
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    text.parse::<u32>().ok()
+}
+
+/// Unix epoch seconds `days` whole days before now: the shared conversion behind
+/// every day-count CLI filter, atime and mtime alike.
+fn days_ago_epoch(days: u64) -> i64 {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    now - (days as i64 * 86400)
+}
+
+/// Whole days between a stored epoch threshold and now, for filter displays.
+fn days_since_epoch(threshold: i64) -> i64 {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    (now - threshold) / 86400
 }
 
 /// Build the deterministic `ORDER BY path LIMIT n` tail for a capped query.
@@ -760,11 +977,21 @@ pub fn deterministic_limit_clause(limit: Option<usize>) -> String {
 }
 
 /// Returns the Arrow schema for file metadata records.
+///
+/// Identity columns first (`path`, `size`, `uid`, `gid`, `mode`), then the three
+/// clocks (`atime`, `mtime`, `ctime`). Physical order binds no reader — every query
+/// projects by name, and the version gate refuses cross-version indexes — so the
+/// layout follows semantics rather than history.
 pub fn get_schema() -> Arc<Schema> {
     Arc::new(Schema::new(vec![
         Field::new("path", DataType::Utf8, false),
         Field::new("size", DataType::Int64, false),
+        Field::new("uid", DataType::Int64, false),
+        Field::new("gid", DataType::Int64, false),
+        Field::new("mode", DataType::Int64, false),
         Field::new("atime", DataType::Int64, false),
+        Field::new("mtime", DataType::Int64, false),
+        Field::new("ctime", DataType::Int64, false),
     ]))
 }
 
@@ -906,10 +1133,21 @@ mod tests {
     #[test]
     fn test_schema_fields() {
         let schema = get_schema();
-        assert_eq!(schema.fields().len(), 3);
-        assert_eq!(schema.field(0).name(), "path");
-        assert_eq!(schema.field(1).name(), "size");
-        assert_eq!(schema.field(2).name(), "atime");
+        let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "path", "size", "uid", "gid", "mode", "atime", "mtime", "ctime"
+            ]
+        );
+        for field in schema.fields() {
+            if field.name() == "path" {
+                assert_eq!(field.data_type(), &DataType::Utf8);
+            } else {
+                assert_eq!(field.data_type(), &DataType::Int64);
+            }
+            assert!(!field.is_nullable());
+        }
     }
 
     // SizeMode::calculate() tests
@@ -1238,6 +1476,124 @@ mod tests {
         let filters = QueryFilters::new().with_min_size(Some("1M")).unwrap();
         let clause = filters.to_full_where_clause();
         assert!(clause.starts_with("WHERE "));
+    }
+
+    #[test]
+    fn test_query_filters_owner_group_fragments() {
+        let filters = QueryFilters::new()
+            .with_owner_uid(Some(1000))
+            .with_group_gid(Some(100));
+        assert!(filters.is_active());
+        let clause = filters.to_where_clause();
+        assert!(clause.contains("uid = 1000"));
+        assert!(clause.contains("gid = 100"));
+        assert!(clause.contains("AND"));
+    }
+
+    #[test]
+    fn test_query_filters_mode_fragments() {
+        let exact = QueryFilters::new().with_mode(Some("644")).unwrap();
+        assert!(exact.to_where_clause().contains("mode = 420"));
+
+        let any = QueryFilters::new().with_mode(Some("/002")).unwrap();
+        assert!(any.to_where_clause().contains("(mode & 2) != 0"));
+
+        let all = QueryFilters::new().with_mode(Some("&4000")).unwrap();
+        assert!(all.to_where_clause().contains("(mode & 2048) = 2048"));
+
+        assert!(QueryFilters::new().with_mode(Some("888")).is_err());
+        assert!(QueryFilters::new().with_mode(Some("-002")).is_err());
+    }
+
+    #[test]
+    fn test_parse_mode_spec_matrix() {
+        assert_eq!(parse_mode_spec("644"), Ok(ModePredicate::Exact(0o644)));
+        assert_eq!(parse_mode_spec("0644"), Ok(ModePredicate::Exact(0o644)));
+        assert_eq!(parse_mode_spec("0o755"), Ok(ModePredicate::Exact(0o755)));
+        assert_eq!(parse_mode_spec("/002"), Ok(ModePredicate::Any(0o002)));
+        assert_eq!(parse_mode_spec("&4000"), Ok(ModePredicate::All(0o4000)));
+        assert_eq!(parse_mode_spec("0"), Ok(ModePredicate::Exact(0)));
+        assert_eq!(parse_mode_spec("7777"), Ok(ModePredicate::Exact(0o7777)));
+
+        for bad in [
+            "", "/", "&", "8", "888", "10000", "-002", "u=rwx", "64 4", "0x10",
+        ] {
+            assert!(parse_mode_spec(bad).is_err(), "SPEC '{bad}' must fail");
+        }
+    }
+
+    #[test]
+    fn test_query_filters_mtime_fragments() {
+        let filters = QueryFilters::new()
+            .with_mtime_older_than(Some(30))
+            .with_mtime_newer_than(Some(7));
+        assert!(filters.is_active());
+        let clause = filters.to_where_clause();
+        assert!(clause.contains("mtime < "));
+        assert!(clause.contains("mtime >= "));
+        assert!(clause.contains("AND"));
+
+        let idle = QueryFilters::new()
+            .with_mtime_older_than(None)
+            .with_mtime_newer_than(None);
+        assert!(!idle.is_active());
+    }
+
+    #[test]
+    fn test_query_filters_new_fields_clear_and_display() {
+        let mut filters = QueryFilters::new()
+            .with_owner_uid(Some(1000))
+            .with_group_gid(Some(100))
+            .with_mode(Some("/002"))
+            .unwrap()
+            .with_mtime_older_than(Some(30));
+        let display = filters.format_display();
+        assert!(display.contains("[owner:1000]"));
+        assert!(display.contains("[group:100]"));
+        assert!(display.contains("[mode:/2]"));
+        assert!(display.contains("[mtime-older:30d]"));
+        filters.clear();
+        assert!(!filters.is_active());
+        assert_eq!(filters.to_where_clause(), "");
+    }
+
+    #[test]
+    fn test_resolve_user_lookup_first_then_digits() {
+        let euid = unsafe { libc::geteuid() };
+        let name = unsafe {
+            let entry = libc::getpwuid(euid);
+            assert!(!entry.is_null());
+            std::ffi::CStr::from_ptr((*entry).pw_name)
+                .to_string_lossy()
+                .into_owned()
+        };
+        assert_eq!(resolve_user(&name), Ok(euid));
+
+        assert!(resolve_user("xdu-no-such-user").is_err());
+        assert!(resolve_user("").is_err());
+        assert!(resolve_user("-1").is_err());
+        assert!(resolve_user("1000x").is_err());
+        assert!(resolve_user("99999999999").is_err());
+        // A pure digit string with no such name is the uid itself.
+        assert_eq!(resolve_user("4294967294"), Ok(4294967294));
+    }
+
+    #[test]
+    fn test_resolve_group_lookup_first_then_digits() {
+        let egid = unsafe { libc::getegid() };
+        let name = unsafe {
+            let entry = libc::getgrgid(egid);
+            assert!(!entry.is_null());
+            std::ffi::CStr::from_ptr((*entry).gr_name)
+                .to_string_lossy()
+                .into_owned()
+        };
+        assert_eq!(resolve_group(&name), Ok(egid));
+
+        assert!(resolve_group("xdu-no-such-group").is_err());
+        assert!(resolve_group("").is_err());
+        assert!(resolve_group("100x").is_err());
+        assert_eq!(resolve_group("4294967294"), Ok(4294967294));
     }
 
     // deterministic_limit_clause() tests

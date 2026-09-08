@@ -138,6 +138,86 @@ fn test_versionless_marker_refuses() {
 }
 
 // =============================================================================
+// A format-1 marker refuses after the schema bump: the old layout is unreadable
+// to new readers, and the remedy is a re-crawl, not a silent misread
+// =============================================================================
+
+#[test]
+fn test_format_1_refuses_naming_both_sides() {
+    let (_tmp, source, index) = fresh_index();
+    let idx = index_arg(&index);
+    fs::write(index.join(COMPLETION_MARKER), "xdu=test\nformat=1\n").unwrap();
+
+    let (out, err, ok) = run_find(&["-i", &idx, "--count"]);
+    assert!(!ok, "format-1 index must refuse after the bump");
+    assert!(out.trim().is_empty(), "refusal must print no rows: {out:?}");
+    assert!(
+        err.contains("index format version 1"),
+        "refusal must name the found version: {err}"
+    );
+    assert!(
+        err.contains("supports version 2"),
+        "refusal must name the supported version: {err}"
+    );
+    assert!(
+        err.contains("re-index"),
+        "refusal must direct a re-index: {err}"
+    );
+
+    let (_out, err, ok) = run_rm(&["-i", &idx, "--dry-run"]);
+    assert!(!ok, "format-1 index must refuse deletion");
+    assert!(
+        err.contains("index format version 1"),
+        "refusal must name the found version: {err}"
+    );
+    assert!(
+        source.join("alice/f1.txt").exists() && source.join("bob/f2.txt").exists(),
+        "a refused rm must unlink nothing"
+    );
+
+    // Refusal happens before the terminal is touched, so no TTY is needed to see it.
+    let (_out, err, ok) = run_view(&["-i", &idx]);
+    assert!(!ok, "format-1 index must refuse the viewer");
+    assert!(
+        err.contains("index format version 1"),
+        "refusal must name the found version: {err}"
+    );
+}
+
+// =============================================================================
+// A fresh v2 index serves the whole pre-existing surface with no version noise
+// =============================================================================
+
+#[test]
+fn test_fresh_index_serves_full_surface_without_version_diagnostic() {
+    let (_tmp, _source, index) = fresh_index();
+    let idx = index_arg(&index);
+
+    for args in [
+        vec!["-i", &idx, "--count"],
+        vec!["-i", &idx, "-f", "path"],
+        vec!["-i", &idx, "-f", "size"],
+        vec!["-i", &idx, "-f", "atime"],
+        vec!["-i", &idx, "--top", "2"],
+    ] {
+        let (out, err, ok) = run_find(&args);
+        assert!(ok, "fresh index must serve {args:?}: {err}");
+        assert!(
+            !out.trim().is_empty(),
+            "fresh index must return rows for {args:?}"
+        );
+        assert!(
+            !err.contains("format version"),
+            "fresh index must not raise the version gate for {args:?}: {err}"
+        );
+    }
+
+    let (out, _err, ok) = run_find(&["-i", &idx, "-f", "path"]);
+    assert!(ok);
+    assert_eq!(out.lines().count(), 2, "both fixture files listed: {out:?}");
+}
+
+// =============================================================================
 // An unrecognized version names both sides of the mismatch
 // =============================================================================
 

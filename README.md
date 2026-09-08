@@ -49,11 +49,16 @@ This layout enables:
 
 ### Schema
 
-| Column | Type  | Description                    |
-|--------|-------|--------------------------------|
-| path   | UTF-8 | Absolute file path             |
-| size   | INT64 | File size in bytes             |
-| atime  | INT64 | Last access time (Unix epoch)  |
+| Column | Type  | Description                         |
+|--------|-------|-------------------------------------|
+| path   | UTF-8 | Absolute file path                  |
+| size   | INT64 | File size in bytes                  |
+| uid    | INT64 | Owning user id                      |
+| gid    | INT64 | Owning group id                     |
+| mode   | INT64 | Permission bits (st_mode & 07777)   |
+| atime  | INT64 | Last access time (Unix epoch)       |
+| mtime  | INT64 | Last modification time (Unix epoch) |
+| ctime  | INT64 | Last inode-change time (Unix epoch) |
 
 ### Performance
 
@@ -137,6 +142,11 @@ xdu-find -i /var/lib/xdu/home -p '*.tmp' --older-than 30 | xargs rm
 | `--max-size` | Maximum file size | |
 | `--older-than` | Files not accessed in N days | |
 | `--newer-than` | Files accessed within N days | |
+| `--owner` | Files owned by this user (name or uid) | |
+| `--group` | Files owned by this group (name or gid) | |
+| `--mode` | Permission filter: `644` exact, `/002` any-bit, `&4000` all-bit | |
+| `--mtime-older-than` | Files not modified in N days | |
+| `--mtime-newer-than` | Files modified within N days | |
 | `-f, --format` | Output format: path, size, atime, csv, json | path |
 | `-l, --limit` | Limit number of results | |
 | `-c, --count` | Count matching records | |

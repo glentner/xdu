@@ -7,7 +7,9 @@ xdu-find - query a file metadata index for matching paths
 # SYNOPSIS
 
 *xdu-find* *-i* _DIR_ \[*-p* _PATTERN_] \[*--regex*] \[*-u* _NAME_] \[*--min-size* _SIZE_] \[*--max-size* _SIZE_]
-	\[*--older-than* _DAYS_] \[*--newer-than* _DAYS_] \[*-f* _FORMAT_] \[*-l* _N_]
+	\[*--older-than* _DAYS_] \[*--newer-than* _DAYS_] \[*--owner* _USER_] \[*--group* _GROUP_]
+	\[*--mode* _SPEC_] \[*--mtime-older-than* _DAYS_] \[*--mtime-newer-than* _DAYS_]
+	\[*-f* _FORMAT_] \[*-l* _N_]
 	\[*-c*] \[*--top* _N_]
 
 # DESCRIPTION
@@ -47,6 +49,25 @@ Uses DuckDB for efficient Parquet queries with partition pruning.
 
 *--newer-than* _DAYS_
 	Match files accessed within _DAYS_ days.
+
+*--owner* _USER_
+	Match files owned by _USER_: a user name resolved at query time, or a
+	numeric uid. An unresolvable name fails without printing rows.
+
+*--group* _GROUP_
+	Match files owned by group _GROUP_: a group name resolved at query time,
+	or a numeric gid. An unresolvable name fails without printing rows.
+
+*--mode* _SPEC_
+	Match permission bits. Bare octal matches exactly (*644*); a */* prefix
+	matches when any listed bit is set (*/002* is world-writable); an *&*
+	prefix matches when all listed bits are set (*&4000* is setuid).
+
+*--mtime-older-than* _DAYS_
+	Match files not modified in _DAYS_ days.
+
+*--mtime-newer-than* _DAYS_
+	Match files modified within _DAYS_ days.
 
 *-f*, *--format* _FORMAT_
 	Output format. One of: *path* (default), *size*, *atime*, *csv*, *json*.

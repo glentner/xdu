@@ -107,16 +107,32 @@ pub fn chunk_final_name(id: usize) -> String {
     format!("{:06}.parquet", id)
 }
 
-/// The two index columns derived from a file's metadata, under the chosen size mode.
+/// The seven integer index columns derived from a file's metadata, under the chosen
+/// size mode: size, uid, gid, permission bits, atime, mtime, ctime — schema order,
+/// so the call site unpacks them straight into `PartitionBuffer::add`.
 ///
-/// The `MetadataExt` reads (`blocks()`×512 for disk usage, `atime()`) are Unix-only.
-/// The caller performs the `stat` syscall and passes the borrowed `Metadata` in.
-pub fn file_size_and_atime(metadata: &Metadata, size_mode: SizeMode) -> (i64, i64) {
+/// The `MetadataExt` reads (`blocks()`×512 for disk usage, `atime()`, `uid()`,
+/// `gid()`, `mode()`, `mtime()`, `ctime()`) are Unix-only. The caller performs the
+/// `stat` syscall and passes the borrowed `Metadata` in. The stored mode is masked to
+/// the permission bits; the file-type bits are constant (only regular files are
+/// indexed) and would only force every reader to mask them back off.
+pub fn file_measurements(
+    metadata: &Metadata,
+    size_mode: SizeMode,
+) -> (i64, i64, i64, i64, i64, i64, i64) {
     let disk_usage = metadata.blocks() * 512;
     let file_len = metadata.len();
     let file_size = size_mode.calculate(disk_usage, file_len);
 
-    (file_size as i64, metadata.atime())
+    (
+        file_size as i64,
+        metadata.uid() as i64,
+        metadata.gid() as i64,
+        (metadata.mode() & 0o7777) as i64,
+        metadata.atime(),
+        metadata.mtime(),
+        metadata.ctime(),
+    )
 }
 
 /// Convert a path to the index's UTF-8 `path` column, reporting whether bytes were lost.
@@ -319,6 +335,36 @@ const ESTIMATED_PATH_BYTES: usize = 64;
 /// size in a few reallocations whose cost is nothing beside the `stat` per row.
 const INITIAL_ROW_CAPACITY: usize = 8192;
 
+/// One pre-sized Arrow builder per index column. A struct, not a tuple: eight
+/// positional builders would invite an ordering slip every time one is touched.
+struct ChunkBuilders {
+    path: StringBuilder,
+    size: Int64Builder,
+    uid: Int64Builder,
+    gid: Int64Builder,
+    mode: Int64Builder,
+    atime: Int64Builder,
+    mtime: Int64Builder,
+    ctime: Int64Builder,
+}
+
+impl ChunkBuilders {
+    /// Builders sized for a first batch of rows; they grow from there as needed.
+    fn new(buffsize: usize) -> Self {
+        let rows = buffsize.min(INITIAL_ROW_CAPACITY);
+        Self {
+            path: StringBuilder::with_capacity(rows, rows.saturating_mul(ESTIMATED_PATH_BYTES)),
+            size: Int64Builder::with_capacity(rows),
+            uid: Int64Builder::with_capacity(rows),
+            gid: Int64Builder::with_capacity(rows),
+            mode: Int64Builder::with_capacity(rows),
+            atime: Int64Builder::with_capacity(rows),
+            mtime: Int64Builder::with_capacity(rows),
+            ctime: Int64Builder::with_capacity(rows),
+        }
+    }
+}
+
 /// Per-partition buffer that accumulates records and flushes to Parquet.
 ///
 /// Records are appended straight into the Arrow builders as they arrive, so a path's
@@ -327,9 +373,7 @@ const INITIAL_ROW_CAPACITY: usize = 8192;
 pub struct PartitionBuffer {
     partition: String,
     outdir: PathBuf,
-    path_builder: StringBuilder,
-    size_builder: Int64Builder,
-    atime_builder: Int64Builder,
+    builders: ChunkBuilders,
     /// Rows appended since the last flush (the builders do not expose a row count).
     buffered: usize,
     buffsize: usize,
@@ -344,13 +388,10 @@ pub struct PartitionBuffer {
 
 impl PartitionBuffer {
     pub fn new(partition: String, outdir: PathBuf, buffsize: usize, schema: Arc<Schema>) -> Self {
-        let (path_builder, size_builder, atime_builder) = Self::new_builders(buffsize);
         Self {
             partition,
             outdir,
-            path_builder,
-            size_builder,
-            atime_builder,
+            builders: ChunkBuilders::new(buffsize),
             buffered: 0,
             buffsize,
             chunk_counter: 0,
@@ -361,24 +402,33 @@ impl PartitionBuffer {
         }
     }
 
-    /// Builders sized for a first batch of rows; they grow from there as needed.
-    fn new_builders(buffsize: usize) -> (StringBuilder, Int64Builder, Int64Builder) {
-        let rows = buffsize.min(INITIAL_ROW_CAPACITY);
-        (
-            StringBuilder::with_capacity(rows, rows.saturating_mul(ESTIMATED_PATH_BYTES)),
-            Int64Builder::with_capacity(rows),
-            Int64Builder::with_capacity(rows),
-        )
-    }
-
     /// Append one indexed file. `size` is already resolved under the run's `SizeMode`.
-    pub fn add(&mut self, path: &str, size: i64, atime: i64) -> Result<()> {
+    ///
+    /// Eight positional values are the whole row in schema order; grouping them
+    /// would reintroduce the intermediate row type the builders exist to avoid.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add(
+        &mut self,
+        path: &str,
+        size: i64,
+        uid: i64,
+        gid: i64,
+        mode: i64,
+        atime: i64,
+        mtime: i64,
+        ctime: i64,
+    ) -> Result<()> {
         self.file_count += 1;
         self.byte_count += size as u64;
 
-        self.path_builder.append_value(path);
-        self.size_builder.append_value(size);
-        self.atime_builder.append_value(atime);
+        self.builders.path.append_value(path);
+        self.builders.size.append_value(size);
+        self.builders.uid.append_value(uid);
+        self.builders.gid.append_value(gid);
+        self.builders.mode.append_value(mode);
+        self.builders.atime.append_value(atime);
+        self.builders.mtime.append_value(mtime);
+        self.builders.ctime.append_value(ctime);
         self.buffered += 1;
 
         if self.buffered >= self.buffsize {
@@ -408,19 +458,21 @@ impl PartitionBuffer {
         // `finish` hands over the accumulated buffers and leaves the builders empty, so
         // the next chunk starts from a fresh pre-sized set.
         let schema = self.schema.clone();
+        let mut builders = std::mem::replace(&mut self.builders, ChunkBuilders::new(self.buffsize));
         let batch = RecordBatch::try_new(
             schema,
             vec![
-                Arc::new(self.path_builder.finish()),
-                Arc::new(self.size_builder.finish()),
-                Arc::new(self.atime_builder.finish()),
+                Arc::new(builders.path.finish()),
+                Arc::new(builders.size.finish()),
+                Arc::new(builders.uid.finish()),
+                Arc::new(builders.gid.finish()),
+                Arc::new(builders.mode.finish()),
+                Arc::new(builders.atime.finish()),
+                Arc::new(builders.mtime.finish()),
+                Arc::new(builders.ctime.finish()),
             ],
         )?;
         self.buffered = 0;
-        let (path_builder, size_builder, atime_builder) = Self::new_builders(self.buffsize);
-        self.path_builder = path_builder;
-        self.size_builder = size_builder;
-        self.atime_builder = atime_builder;
 
         let file = File::create(&partial_path)
             .with_context(|| format!("Failed to create file: {}", partial_path.display()))?;
@@ -477,6 +529,9 @@ mod tests {
     use super::*;
     use crate::get_schema;
     use std::io::Write;
+
+    /// One expected row in schema order: path plus the seven integer columns.
+    type TestRow = (String, i64, i64, i64, i64, i64, i64, i64);
 
     fn top_dir(name: &str, is_dir: bool) -> TopEntry {
         TopEntry {
@@ -699,7 +754,9 @@ mod tests {
     // ---- per-file measurement ----------------------------------------------
 
     #[test]
-    fn test_file_size_and_atime_size_modes() {
+    fn test_file_measurements_size_modes_and_identity() {
+        use std::os::unix::fs::MetadataExt;
+
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("f.bin");
         {
@@ -708,14 +765,20 @@ mod tests {
         }
         let meta = fs::metadata(&path).unwrap();
 
-        let (apparent, atime) = file_size_and_atime(&meta, SizeMode::ApparentSize);
+        let (apparent, uid, gid, mode, atime, mtime, ctime) =
+            file_measurements(&meta, SizeMode::ApparentSize);
         assert_eq!(apparent, 5000);
         assert_eq!(atime, meta.atime());
+        assert_eq!(uid, meta.uid() as i64);
+        assert_eq!(gid, meta.gid() as i64);
+        assert_eq!(mode, (meta.mode() & 0o7777) as i64);
+        assert_eq!(mtime, meta.mtime());
+        assert_eq!(ctime, meta.ctime());
 
-        let (disk, _) = file_size_and_atime(&meta, SizeMode::DiskUsage);
+        let (disk, _, _, _, _, _, _) = file_measurements(&meta, SizeMode::DiskUsage);
         assert_eq!(disk, (meta.blocks() * 512) as i64);
 
-        let (rounded, _) = file_size_and_atime(&meta, SizeMode::BlockRounded(4096));
+        let (rounded, _, _, _, _, _, _) = file_measurements(&meta, SizeMode::BlockRounded(4096));
         assert_eq!(rounded, 8192); // 5000 rounds up to two 4096 blocks
     }
 
@@ -787,8 +850,10 @@ mod tests {
         let mut buf = PartitionBuffer::new("part".to_string(), outdir.clone(), 1, get_schema());
 
         // buffsize 1 => each add flushes a chunk. Two records => 000000, 000001.
-        buf.add("/part/a", 10, 0).unwrap();
-        buf.add("/part/b", 20, 0).unwrap();
+        buf.add("/part/a", 10, 1000, 1000, 0o644, 0, 50, 60)
+            .unwrap();
+        buf.add("/part/b", 20, 1000, 1000, 0o644, 0, 50, 60)
+            .unwrap();
 
         let part_dir = outdir.join("part");
         // Seed a stale contiguous tail from a hypothetical prior larger run.
@@ -823,11 +888,23 @@ mod tests {
         // follows it, twice, plus a partial final chunk.
         let mut buf = PartitionBuffer::new("part".to_string(), outdir.clone(), 2, get_schema());
 
-        let rows: Vec<(String, i64, i64)> = (0..5)
-            .map(|i| (format!("/part/f{i}"), (i as i64 + 1) * 10, 1000 + i as i64))
+        let rows: Vec<TestRow> = (0..5)
+            .map(|i| {
+                (
+                    format!("/part/f{i}"),
+                    (i as i64 + 1) * 10,
+                    1000 + i as i64,
+                    2000 + i as i64,
+                    0o644,
+                    1000 + i as i64,
+                    3000 + i as i64,
+                    4000 + i as i64,
+                )
+            })
             .collect();
-        for (path, size, atime) in &rows {
-            buf.add(path, *size, *atime).unwrap();
+        for (path, size, uid, gid, mode, atime, mtime, ctime) in &rows {
+            buf.add(path, *size, *uid, *gid, *mode, *atime, *mtime, *ctime)
+                .unwrap();
         }
         buf.flush().unwrap();
         buf.finalize().unwrap();
@@ -847,7 +924,7 @@ mod tests {
         chunk_paths.sort();
         assert_eq!(chunk_paths.len(), 3); // 2 + 2 + 1
 
-        let mut seen: Vec<(String, i64, i64)> = Vec::new();
+        let mut seen: Vec<TestRow> = Vec::new();
         for chunk in chunk_paths {
             let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(&chunk).unwrap())
                 .unwrap()
@@ -860,18 +937,31 @@ mod tests {
                     .as_any()
                     .downcast_ref::<arrow::array::StringArray>()
                     .unwrap();
-                let sizes = batch
-                    .column(1)
-                    .as_any()
-                    .downcast_ref::<arrow::array::Int64Array>()
-                    .unwrap();
-                let atimes = batch
-                    .column(2)
-                    .as_any()
-                    .downcast_ref::<arrow::array::Int64Array>()
-                    .unwrap();
+                let int_column = |n: usize| {
+                    batch
+                        .column(n)
+                        .as_any()
+                        .downcast_ref::<arrow::array::Int64Array>()
+                        .unwrap()
+                };
+                let sizes = int_column(1);
+                let uids = int_column(2);
+                let gids = int_column(3);
+                let modes = int_column(4);
+                let atimes = int_column(5);
+                let mtimes = int_column(6);
+                let ctimes = int_column(7);
                 for i in 0..batch.num_rows() {
-                    seen.push((paths.value(i).to_string(), sizes.value(i), atimes.value(i)));
+                    seen.push((
+                        paths.value(i).to_string(),
+                        sizes.value(i),
+                        uids.value(i),
+                        gids.value(i),
+                        modes.value(i),
+                        atimes.value(i),
+                        mtimes.value(i),
+                        ctimes.value(i),
+                    ));
                 }
             }
         }
@@ -885,7 +975,8 @@ mod tests {
         let mut buf = PartitionBuffer::new("part".to_string(), outdir.clone(), 100, get_schema());
 
         // One flush => a single chunk 000000.
-        buf.add("/part/a", 10, 0).unwrap();
+        buf.add("/part/a", 10, 1000, 1000, 0o644, 0, 50, 60)
+            .unwrap();
         buf.flush().unwrap();
 
         let part_dir = outdir.join("part");

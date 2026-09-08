@@ -5,7 +5,10 @@ use clap::Parser;
 use duckdb::Connection;
 
 use xdu::cli::XduFindArgs;
-use xdu::{QueryFilters, index_completion_warning, index_glob, index_version_error};
+use xdu::{
+    QueryFilters, index_completion_warning, index_glob, index_version_error, resolve_group,
+    resolve_user,
+};
 
 fn main() -> Result<()> {
     let args = XduFindArgs::parse();
@@ -35,7 +38,21 @@ fn main() -> Result<()> {
     let conn = Connection::open_in_memory()?;
 
     // Build filters using shared QueryFilters. A glob is translated here; an invalid
-    // one fails before any query is built rather than at the database.
+    // one fails before any query is built rather than at the database. Owner and
+    // group names resolve to ids up front for the same reason: only integers
+    // reach SQL, and an unresolvable name exits non-zero having printed no rows.
+    let owner_uid = args
+        .owner
+        .as_deref()
+        .map(resolve_user)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let group_gid = args
+        .group
+        .as_deref()
+        .map(resolve_group)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!(e))?;
     let filters = QueryFilters::new()
         .with_path_pattern(args.pattern.clone(), args.regex)
         .map_err(|e| anyhow::anyhow!(e))?
@@ -44,7 +61,13 @@ fn main() -> Result<()> {
         .with_min_size(args.min_size.as_deref())
         .map_err(|e| anyhow::anyhow!(e))?
         .with_max_size(args.max_size.as_deref())
-        .map_err(|e| anyhow::anyhow!(e))?;
+        .map_err(|e| anyhow::anyhow!(e))?
+        .with_owner_uid(owner_uid)
+        .with_group_gid(group_gid)
+        .with_mode(args.mode.as_deref())
+        .map_err(|e| anyhow::anyhow!(e))?
+        .with_mtime_older_than(args.mtime_older_than)
+        .with_mtime_newer_than(args.mtime_newer_than);
 
     let where_clause = filters.to_full_where_clause();
 
@@ -137,27 +160,47 @@ fn main() -> Result<()> {
         }
         "csv" => {
             let sql = format!(
-                "SELECT path, size, atime FROM read_parquet('{}') {} {}",
+                "SELECT path, size, uid, gid, mode, atime, mtime, ctime FROM read_parquet('{}') {} {}",
                 glob_pattern, where_clause, limit_clause
             );
-            writeln!(out, "path,size,atime")?;
+            writeln!(out, "path,size,uid,gid,mode,atime,mtime,ctime")?;
             let mut stmt = conn.prepare(&sql)?;
             let mut rows = stmt.query([])?;
             while let Some(row) = rows.next()? {
                 let path: String = row.get(0)?;
                 let size: i64 = row.get(1)?;
-                let atime: i64 = row.get(2)?;
+                let uid: i64 = row.get(2)?;
+                let gid: i64 = row.get(3)?;
+                let mode: i64 = row.get(4)?;
+                let atime: i64 = row.get(5)?;
+                let mtime: i64 = row.get(6)?;
+                let ctime: i64 = row.get(7)?;
                 // Escape commas and quotes in path for CSV
                 if path.contains(',') || path.contains('"') {
-                    writeln!(out, "\"{}\",{},{}", path.replace('"', "\"\""), size, atime)?;
+                    writeln!(
+                        out,
+                        "\"{}\",{},{},{},{},{},{},{}",
+                        path.replace('"', "\"\""),
+                        size,
+                        uid,
+                        gid,
+                        mode,
+                        atime,
+                        mtime,
+                        ctime
+                    )?;
                 } else {
-                    writeln!(out, "{},{},{}", path, size, atime)?;
+                    writeln!(
+                        out,
+                        "{},{},{},{},{},{},{},{}",
+                        path, size, uid, gid, mode, atime, mtime, ctime
+                    )?;
                 }
             }
         }
         "json" => {
             let sql = format!(
-                "SELECT path, size, atime FROM read_parquet('{}') {} {}",
+                "SELECT path, size, uid, gid, mode, atime, mtime, ctime FROM read_parquet('{}') {} {}",
                 glob_pattern, where_clause, limit_clause
             );
             let mut stmt = conn.prepare(&sql)?;
@@ -167,7 +210,12 @@ fn main() -> Result<()> {
             while let Some(row) = rows.next()? {
                 let path: String = row.get(0)?;
                 let size: i64 = row.get(1)?;
-                let atime: i64 = row.get(2)?;
+                let uid: i64 = row.get(2)?;
+                let gid: i64 = row.get(3)?;
+                let mode: i64 = row.get(4)?;
+                let atime: i64 = row.get(5)?;
+                let mtime: i64 = row.get(6)?;
+                let ctime: i64 = row.get(7)?;
                 if !first {
                     writeln!(out, ",")?;
                 }
@@ -181,8 +229,8 @@ fn main() -> Result<()> {
                     .replace('\t', "\\t");
                 write!(
                     out,
-                    "  {{\"path\":\"{}\",\"size\":{},\"atime\":{}}}",
-                    escaped_path, size, atime
+                    "  {{\"path\":\"{}\",\"size\":{},\"uid\":{},\"gid\":{},\"mode\":{},\"atime\":{},\"mtime\":{},\"ctime\":{}}}",
+                    escaped_path, size, uid, gid, mode, atime, mtime, ctime
                 )?;
             }
             writeln!(out)?;

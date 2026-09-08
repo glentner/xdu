@@ -26,18 +26,6 @@ Everything below builds on that baseline.
 
 ---
 
-## On-disk index schema versioning
-
-Today the Parquet schema is three fixed, non-null columns with no version marker on disk, so any
-change to it would silently break every existing index and every reader (the schema-stability
-invariant). Before the index can grow new columns, it needs to carry its own format version so
-readers can detect, reject, or migrate older indices instead of misreading them. Small on its own,
-this is the hard prerequisite for enriching the schema at all — it must land before any column is
-added.
-
-*Horizon: near-term · Depends on: — · Refs: — (enabler for the two features below)*
-**Seed:** [`issues/index-schema-versioning.md`](issues/index-schema-versioning.md)
-
 ## Richer index schema: owner, group, permissions, mtime, ctime
 
 On large shared filesystems (`/projects/{lab1,lab2,…}`) administrators need more than "which project
@@ -48,9 +36,9 @@ what-changed either: "modified since the last backup" is an mtime question, and 
 while size misses same-size rewrites — so mtime and ctime join the new columns as the comparator set
 index diffing and the bulk tools' `--safe` re-stat will read. Recording all five unlocks per-user
 accounting, exposure reasoning, and reliable incremental selection in one breaking change, behind
-the schema version above.
+the index format versioning delivered on main.
 
-*Horizon: mid-term · Depends on: on-disk schema versioning (breaking, cross-cutting index-format change) · Refs: #2, #3*
+*Horizon: mid-term · Depends on: on-disk schema versioning, delivered on main (breaking, cross-cutting index-format change) · Refs: #2, #3*
 **Seed:** [`issues/richer-index-schema.md`](issues/richer-index-schema.md)
 
 ## Bulk operations: `xdu-cp` and `xdu-mv` over a shared select-act engine
@@ -223,6 +211,21 @@ intended behaviour. Likely one attribute per struct.
 *Horizon: near-term · Depends on: — · Refs: —*
 **Seed:** [`issues/version-flag-missing.md`](issues/version-flag-missing.md)
 
+## Piping `xdu-find` into `head` exits 1 with a broken-pipe error
+
+Rust starts with `SIGPIPE` ignored, so when the reader exits early the next
+`writeln!` returns EPIPE — and `?` carries it out as `Error: Broken pipe (os
+error 32)` with a non-zero exit. Measured: `xdu-find -f csv | head -1` puts
+find's own exit at 1, which fails any `pipefail` caller for doing exactly what
+the tool invites. Every find output arm shares the locked-stdout loop;
+`xdu-rm`'s `println!` paths are the suspected same class with a worse shape (a
+panic, not an error), unreproduced at small scale. The fix is its own behavior
+contract — silent success on EPIPE, still loud on `/dev/full` — not a rider on
+the schema cycle that surfaced it.
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** [`issues/broken-pipe-closed-stdout.md`](issues/broken-pipe-closed-stdout.md)
+
 ## Internal cleanups surfaced by the crawl-hardening pass
 
 The crawl-hardening work produced a wider architecture assessment whose low-risk cleanups were applied
@@ -262,7 +265,7 @@ other partitions remain missing. The readers, `xdu-rm` included, then report a c
 an index that is still incomplete. Needs per-partition attestation, or a scoped run declining to write a
 whole-index marker — marker-format or CLI-semantics work either way.
 
-*Horizon: near-term · Depends on: — · Refs: On-disk index schema versioning*
+*Horizon: near-term · Depends on: — · Refs: index format versioning, delivered on main*
 **Seed:** [`issues/marker-scoped-run-attestation.md`](issues/marker-scoped-run-attestation.md)
 
 ## Re-indexing never retires a partition whose source directory is gone

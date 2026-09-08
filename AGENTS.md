@@ -24,15 +24,16 @@ Five binaries (`Cargo.toml [[bin]]`), four user-facing plus one build helper:
 
 | Binary | Role |
 |--------|------|
-| **`xdu`** | Crawler/indexer — walks a tree, writes the Parquet index (path, size, atime). |
+| **`xdu`** | Crawler/indexer — walks a tree, writes the eight-column Parquet index (path, size, uid, gid, mode, atime, mtime, ctime). |
 | **`xdu-find`** | Query CLI — DuckDB over the index; filters + `--count`/`--top`/formats. |
 | **`xdu-view`** | ncdu-style interactive TUI (ratatui/crossterm); read-only list + tree views. |
 | **`xdu-rm`** | **Destructive** bulk deletion of files matching an index query, with `--safe` re-stat. |
 | **`gen-completions`** | Dev helper — emits bash+zsh completions from the `src/cli.rs` clap structs. |
 
-The index schema is deliberately minimal: `path` (UTF-8), `size` (INT64 bytes), `atime` (INT64
-Unix epoch seconds). It is **Unix-only** (`std::os::unix::fs::MetadataExt` for atime and disk
-usage). Snappy compression. Queries use the **bundled** DuckDB (`duckdb` crate, `bundled`
+The index schema is deliberately minimal: `path` (UTF-8), `size` (INT64 bytes), `uid`,
+`gid` and `mode` (INT64 owner, group, and permission bits), `atime`, `mtime` and `ctime`
+(INT64 Unix epoch seconds). It is **Unix-only** (`std::os::unix::fs::MetadataExt` for times,
+ownership, and disk usage). Snappy compression. Queries use the **bundled** DuckDB (`duckdb` crate, `bundled`
 feature) so there is no external DuckDB dependency.
 
 ## Environment & working rules
@@ -403,10 +404,11 @@ The curated, numbered gate is [`.agents/factory/invariants.md`](.agents/factory/
 kept **in lockstep** with this section (this file wins if they drift). The `xdu-plan` gate and the
 `xdu-review` footgun checklist both draw from it. Summary of what must not silently break:
 
-1. **Parquet schema stability.** `lib.rs::get_schema()` is the ONE contract: exactly three
-   **non-null** fields in fixed order — `path: Utf8`, `size: Int64`, `atime: Int64`. Every reader
+1. **Parquet schema stability.** `lib.rs::get_schema()` is the ONE contract: exactly eight
+   **non-null** fields in fixed order — `path: Utf8`, `size: Int64`, `uid: Int64`,
+   `gid: Int64`, `mode: Int64`, `atime: Int64`, `mtime: Int64`, `ctime: Int64`. Every reader
    selects these by name. The on-disk version is the `format` key in the `.xdu-complete` marker
-   (`INDEX_FORMAT_VERSION`, `lib.rs`): version 1 names this three-column layout, and every reader
+   (`INDEX_FORMAT_VERSION`, `lib.rs`): version 2 names this eight-column layout, and every reader
    refuses a marker whose version it does not understand instead of misreading the rows — so any
    change to `get_schema()` or a reader's column list is a breaking, cross-cutting index-format
    change that must bump the version in the same commit (issues #2/#3 — owner/group/perms — are

@@ -19,7 +19,7 @@ use rayon::ThreadPoolBuilder;
 use xdu::cli::XduArgs;
 use xdu::crawl::{
     CrawlStats, EntryError, PartitionBuffer, TopEntry, build_work_queue, classify_io_error,
-    clear_completion_marker, completion_marker_contents, file_size_and_atime, lossy_path,
+    clear_completion_marker, completion_marker_contents, file_measurements, lossy_path,
     write_completion_marker,
 };
 use xdu::{SizeMode, format_bytes, format_count, format_speed, get_schema, parse_size};
@@ -36,7 +36,7 @@ use xdu::{SizeMode, format_bytes, format_count, format_speed, get_schema, parse_
 ///   run's error. Thread budget: N pool + C drivers + 1 main.
 ///
 /// The pure classification/ordering (`build_work_queue`), per-file measurement
-/// (`file_size_and_atime`, `lossy_path`), and Parquet finalization (`PartitionBuffer`)
+/// (`file_measurements`, `lossy_path`), and Parquet finalization (`PartitionBuffer`)
 /// live in `xdu::crawl` so they are unit-testable; this function is the orchestrator.
 /// Nothing builds an intermediate row struct — the measured columns are appended
 /// straight into the Arrow builders.
@@ -329,7 +329,8 @@ fn crawl(
                                     }
                                 };
 
-                                let (file_size, atime) = file_size_and_atime(&metadata, size_mode);
+                                let (file_size, uid, gid, mode, atime, mtime, ctime) =
+                                    file_measurements(&metadata, size_mode);
                                 let path = entry.path();
                                 let (path_str, lossy) = lossy_path(&path);
 
@@ -350,7 +351,9 @@ fn crawl(
                                     }
                                 }
 
-                                buffer.add(&path_str, file_size, atime)?;
+                                buffer.add(
+                                    &path_str, file_size, uid, gid, mode, atime, mtime, ctime,
+                                )?;
 
                                 // Update global atomics
                                 global_files.fetch_add(1, Ordering::Relaxed);

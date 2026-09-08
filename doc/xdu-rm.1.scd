@@ -13,8 +13,10 @@ xdu-rm - delete files matching index query criteria
 # DESCRIPTION
 
 *xdu-rm* deletes files that match query criteria against a Parquet index
-built by *xdu*(1). It uses the same filter options as *xdu-find*(1) to select
-files for deletion and supports parallel processing for efficient bulk removal.
+built by *xdu*(1). It shares the path, size, and access-time filter options
+with *xdu-find*(1) — but not the owner, group, permission, or modification-time
+filters — to select files for deletion and supports parallel processing for
+efficient bulk removal.
 
 Before deleting, *xdu-rm* displays a summary of matched files and prompts for
 confirmation unless *--force* is given. Use *--dry-run* to preview what would
