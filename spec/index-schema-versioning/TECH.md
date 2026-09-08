@@ -3,11 +3,11 @@ slug: index-schema-versioning
 title: Version-stamp the index marker and refuse unreadable versions
 kind: feature
 appetite: small
-status: blocked
+status: in_review
 branch: feature/index-schema-versioning
 base: main
 current_phase: done
-last_updated: '2026-09-07'
+last_updated: '2026-09-08'
 phases:
 - id: P1
   name: 'Lib core: version constant, marker line, gate, unit tests'
@@ -44,6 +44,19 @@ phases:
   hill: uphill
   verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
     -- -D warnings && cargo test
+- id: P4
+  name: 'F1/F2 remediation: version the manual marker story'
+  status: done
+  satisfies:
+  - R1
+  depends_on:
+  - P3
+  parallel: false
+  hammerable: false
+  hill: downhill
+  verify: '! grep -q ''no on-disk schema version'' AGENTS.md .agents/factory/invariants.md
+    && grep -q ''lossy_paths`, `format'' AGENTS.md .agents/factory/invariants.md &&
+    grep -q ''index_version_error'' AGENTS.md .agents/factory/invariants.md'
 review:
   last_reviewed_commit: 1e9bfe2a49e1f9c165687e9edb594e1dbd28b271
   verdict: changes-requested
@@ -164,6 +177,32 @@ deferral escapes unrecorded.
   `issues/marker-scoped-run-attestation.md`; record that confirmation in the commit body.
 - **Verify:** `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test`.
 - **Touches:** spec state only (plus any gate fallout the mirror gate exposes).
+
+## Phase P4 — F1/F2 remediation: version the manual marker story
+**Satisfies:** R1 · **Depends on:** P3
+**Goal:** `AGENTS.md` and `.agents/factory/invariants.md` describe the marker the writer now
+emits, so the next plan/review cycle reasons from a true map.
+
+- [x] Restate the §1 "no on-disk schema version" sentences around the marker-carried `format`
+  key (version 1 names the current three-column layout; readers refuse what they do not
+  understand); keep the breaking-change warning and the issues #2/#3 pointer, now as a
+  must-bump-the-version rule.
+- [x] Add `format` to both marker-body key enumerations (Architecture paragraph in `AGENTS.md`,
+  §2b in `invariants.md`); name it as the run-level version the readers gate on.
+- [x] In the same two paragraphs, split the reader behavior the feature changed: an
+  understood-version marker with tolerated errors still warns soft, but an unversioned or
+  unknown-version marker — absent marker included — now refuses before any row is read. This
+  widens the review remedy within the same defect class (pre-versioning marker semantics stated
+  as current fact); no new files, and `doc/*.scd` is untouched (no CLI change, and the reader
+  pages never described the marker).
+- [x] Sweep class confirmed closed: `grep` finds the false sentence only in frozen `spec/**`
+  records (TECH `blocked_reason`, REVIEW findings — point-in-time evidence, left alone);
+  `issues/marker-scoped-run-attestation.md` enumerates counts, not the body, so it stays.
+- **Verify:** `! grep -q 'no on-disk schema version' AGENTS.md .agents/factory/invariants.md
+  && grep -q 'lossy_paths`, `format' AGENTS.md .agents/factory/invariants.md && grep -q
+  'index_version_error' AGENTS.md .agents/factory/invariants.md` (pattern-absent: fails on any
+  live site still stating the old fact, including ones nobody enumerated).
+- **Touches:** `AGENTS.md`, `.agents/factory/invariants.md`.
 
 ---
 
