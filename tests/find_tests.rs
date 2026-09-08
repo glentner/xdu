@@ -190,7 +190,10 @@ fn test_find_mtime_filters() {
     let source = tmp.path().join("source");
     let index = tmp.path().join("index");
     three_file_tree(&source);
-    set_mtime_days_ago(&source.join("part/c.txt"), 30).unwrap();
+    // A day of margin either side of the 30-day threshold: the stored mtime and
+    // the query threshold are stamped seconds apart, so an exact 30-day fixture
+    // flakes whenever both land in the same Unix second.
+    set_mtime_days_ago(&source.join("part/c.txt"), 31).unwrap();
     build_index(&source, &index);
 
     assert_eq!(find_count(&index, &["--mtime-older-than", "30"]), 1);

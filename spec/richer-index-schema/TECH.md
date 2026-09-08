@@ -3,10 +3,10 @@ slug: richer-index-schema
 title: 'Richer index schema: owner, group, permissions, mtime, ctime'
 kind: feature
 appetite: big
-status: in_progress
+status: in_review
 branch: feature/richer-index-schema
 base: main
-current_phase: P4
+current_phase: done
 last_updated: '2026-09-08'
 phases:
 - id: P1
@@ -61,7 +61,7 @@ phases:
     --top 3'
 - id: P4
   name: Refusal and compat pins, remaining docs, gate, ledger
-  status: pending
+  status: done
   satisfies:
   - R3
   - R9
@@ -201,19 +201,25 @@ man pages describe exactly the new surface.
 durable suite; prose ground truth updated; the mirror gate green; every deferral
 recorded or confirmed recorded.
 
-- [ ] `tests/version_tests.rs`: `format=1` planted on a fresh index refuses in
+- [x] `tests/version_tests.rs`: `format=1` planted on a fresh index refuses in
   all three readers (the R3 pin the suite cannot currently catch regressing).
-- [ ] R9 pins: fresh-index full-surface run (find path/size/atime/count/top, rm
+- [x] R9 pins: fresh-index full-surface run (find path/size/atime/count/top, rm
   dry-run) with no version diagnostic; view covered by the shared gate's unit
   pin, stated here so review routes it to the orchestrator, not the blind
   reviewer.
-- [ ] Docs: `doc/xdu.1.scd` column list, `README.md` schema table and DuckDB
+- [x] Docs: `doc/xdu.1.scd` column list, `README.md` schema table and DuckDB
   example, `AGENTS.md` plus `invariants.md` §1 (eight fields, version 2);
   re-count asserted literals on touched `.scd` pages; render every touched page
   and read the published text.
-- [ ] Deferral ledger: walk P1–P3 bodies for deferred, follow-up, and known-
-  limitation language; confirm each has its `issues/` plus `ROADMAP.md` entry.
-  An unrecorded deferral fails this phase.
+- [x] Deferral ledger: P1–P3 bodies carry no deferred/follow-up/known-limitation
+  language (verified by grep; "waits for P3" is intra-cycle sequencing). The one
+  genuine deferral surfaced by the cycle — EPIPE on closed stdout, found in P3's
+  drive — is filed as `issues/broken-pipe-closed-stdout.md` plus its ROADMAP
+  entry. GOAL non-goals need no seeds: per-owner ranking and ad-hoc grouping
+  are already expressible in raw DuckDB over the new columns (README's GROUP BY
+  recipe), and the rest (MIME, TUI columns, `--safe` expansion, ctime flags,
+  stored names, v1 compat, access scoping, diffing, crtime, nanoseconds, S3)
+  are either decided rejections or covered by standing seeds.
 - **Verify:** `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test`.
 - **Touches:** `tests/`, `doc/`, `README.md`, `AGENTS.md`,
   `.agents/factory/invariants.md`.
