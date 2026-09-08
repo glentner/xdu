@@ -19,8 +19,12 @@ docs plus gate.
 ## 2. Design
 
 **Writer (`src/lib.rs`, `src/crawl.rs`, `src/bin/xdu.rs`).**
-`get_schema()` appends five non-null `Int64` fields after `atime`: `uid`, `gid`,
-`mode`, `mtime`, `ctime`. `INDEX_FORMAT_VERSION` becomes 2 and its doc comment is
+`get_schema()` carries eight non-null fields in semantic order — identity first
+(`path`, `size`, `uid`, `gid`, `mode`), then the three clocks (`atime`, `mtime`,
+`ctime`) — all `Int64` except `path`. Physical order binds no reader (every query
+projects by name, and the version gate refuses cross-version indexes), so the
+layout follows semantics rather than preserving the old ordinals.
+`INDEX_FORMAT_VERSION` becomes 2 and its doc comment is
 rewritten to name the eight-column layout in the same commit; the marker writer
 interpolates the constant, so R2 follows without further edits. The crawler's
 `file_size_and_atime` grows into one measurement helper returning all seven integers
@@ -74,10 +78,11 @@ help, completions, and `--safe` semantics cannot drift; the `xdu-rm.1.scd`
 sentence claiming identical filter options is rewritten in the same commit.
 
 **csv/json (`src/bin/xdu-find.rs` only).** Both arms extend their SELECT to
-`path, size, atime, uid, gid, mode, mtime, ctime` and read the new integers from
-`row.get(3..=7)`. The csv header becomes
-`path,size,atime,uid,gid,mode,mtime,ctime`; json objects gain the same five keys
-after `atime`. Path, size, atime, count, and top arms are untouched.
+`path, size, uid, gid, mode, atime, mtime, ctime`: uid/gid/mode from
+`row.get(2..=4)`, atime from `row.get(5)`, mtime/ctime from `row.get(6..=7)`.
+The csv header becomes
+`path,size,uid,gid,mode,atime,mtime,ctime`; json objects carry the same eight
+keys in schema order. Path, size, atime, count, and top arms are untouched.
 
 **Docs.** `doc/xdu-find.1.scd` documents the five flags (same commit as the clap
 change); `doc/xdu.1.scd` column list and the `README.md` schema table plus

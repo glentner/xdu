@@ -55,7 +55,7 @@ phases:
     --count) -eq 4 && ! xdu-find --owner xdu-no-such-user --count && test $(xdu-find
     --mode /400 --count) -eq 4 && test $(xdu-find --mtime-newer-than 1 --count) -eq
     4 && test $(xdu-find --mtime-older-than 30 --count) -eq 0 && xdu-find -f csv |
-    head -1 | grep -q path,size,atime,uid,gid,mode,mtime,ctime && xdu-find -f json
+    head -1 | grep -q path,size,uid,gid,mode,atime,mtime,ctime && xdu-find -f json
     | grep -q uid && test $(xdu-find -f csv | grep -c .) -eq 5 && xdu-find --top 3'
 - id: P4
   name: Refusal and compat pins, remaining docs, gate, ledger
@@ -151,6 +151,10 @@ gate refuses anything else. R3's mechanism lands here; its explicit pin lands in
 - [x] `src/bin/xdu.rs`: the single `buffer.add` call site passes the new values.
 - [x] Unit tests move with the change: schema field pin, buffer round-trip over
   all eight columns, size-mode helper arity.
+- Amendment (post-P1): column order revised to
+  `path,size,uid,gid,mode,atime,mtime,ctime` — identity then times — per digest
+  C5. Ordinal preservation across versions is moot (the gate refuses v1), and
+  P3's csv/json header follows the same order.
 - **Verify:** `cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 'test $(xdu-find --count) -eq 4'` — unit pins plus a v2 index the current find already counts.
 - **Touches:** `src/lib.rs`, `src/crawl.rs`, `src/bin/xdu.rs`.
 

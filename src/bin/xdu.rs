@@ -329,7 +329,7 @@ fn crawl(
                                     }
                                 };
 
-                                let (file_size, atime, uid, gid, mode, mtime, ctime) =
+                                let (file_size, uid, gid, mode, atime, mtime, ctime) =
                                     file_measurements(&metadata, size_mode);
                                 let path = entry.path();
                                 let (path_str, lossy) = lossy_path(&path);
@@ -352,7 +352,7 @@ fn crawl(
                                 }
 
                                 buffer.add(
-                                    &path_str, file_size, atime, uid, gid, mode, mtime, ctime,
+                                    &path_str, file_size, uid, gid, mode, atime, mtime, ctime,
                                 )?;
 
                                 // Update global atomics

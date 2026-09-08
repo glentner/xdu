@@ -760,14 +760,19 @@ pub fn deterministic_limit_clause(limit: Option<usize>) -> String {
 }
 
 /// Returns the Arrow schema for file metadata records.
+///
+/// Identity columns first (`path`, `size`, `uid`, `gid`, `mode`), then the three
+/// clocks (`atime`, `mtime`, `ctime`). Physical order binds no reader — every query
+/// projects by name, and the version gate refuses cross-version indexes — so the
+/// layout follows semantics rather than history.
 pub fn get_schema() -> Arc<Schema> {
     Arc::new(Schema::new(vec![
         Field::new("path", DataType::Utf8, false),
         Field::new("size", DataType::Int64, false),
-        Field::new("atime", DataType::Int64, false),
         Field::new("uid", DataType::Int64, false),
         Field::new("gid", DataType::Int64, false),
         Field::new("mode", DataType::Int64, false),
+        Field::new("atime", DataType::Int64, false),
         Field::new("mtime", DataType::Int64, false),
         Field::new("ctime", DataType::Int64, false),
     ]))
@@ -911,14 +916,12 @@ mod tests {
     #[test]
     fn test_schema_fields() {
         let schema = get_schema();
-        let names: Vec<&str> = schema
-            .fields()
-            .iter()
-            .map(|f| f.name().as_str())
-            .collect();
+        let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
         assert_eq!(
             names,
-            vec!["path", "size", "atime", "uid", "gid", "mode", "mtime", "ctime"]
+            vec![
+                "path", "size", "uid", "gid", "mode", "atime", "mtime", "ctime"
+            ]
         );
         for field in schema.fields() {
             if field.name() == "path" {

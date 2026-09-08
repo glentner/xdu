@@ -76,6 +76,16 @@ through resolution; SQL emission formats identically either way. Mode bits likew
 `u32` beside a small exact/any/all operator enum; mtime thresholds stay `i64`
 epochs like the atime pair they mirror.
 
+## C5 — Column order: identity then times (revises 01/02)
+
+Briefs 01 and 02 recommend appending after `atime` to preserve ordinals 0–2.
+**Ruling: `path,size,uid,gid,mode,atime,mtime,ctime`.** Ordinal preservation only
+matters to a positional read crossing a version boundary, and none exists: the
+gate refuses cross-version indexes, and the one ordinal reader (the round-trip
+unit test) is version-locked to the new schema. Identity-then-times reads better
+in `SELECT *`, csv headers, and json keys at zero performance cost — Parquet
+stores columns independently and every query projects by name.
+
 ## Test gaps
 
 The missing R3 pin is a `version_tests` case planting `format=1` and asserting
