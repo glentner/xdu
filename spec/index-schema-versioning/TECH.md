@@ -3,10 +3,10 @@ slug: index-schema-versioning
 title: Version-stamp the index marker and refuse unreadable versions
 kind: feature
 appetite: small
-status: in_progress
+status: in_review
 branch: feature/index-schema-versioning
 base: main
-current_phase: P3
+current_phase: done
 last_updated: '2026-09-07'
 phases:
 - id: P1
@@ -34,7 +34,7 @@ phases:
   verify: cargo test --test version_tests
 - id: P3
   name: Mirror gate, refusal spot-drive, deferral ledger
-  status: pending
+  status: done
   satisfies:
   - R4
   depends_on:
@@ -151,13 +151,13 @@ real binaries end to end.
 **Goal:** The tree is green under the release gate, the refusal flows are seen live once, and no
 deferral escapes unrecorded.
 
-- [ ] Spot-drive via `.agents/factory/bin/temp_index.sh sh -c '…'` against a throwaway index:
+- [x] Spot-drive via `.agents/factory/bin/temp_index.sh sh -c '…'` against a throwaway index:
   delete the marker and run each reader (expect refusal); write a `format=999` marker and rerun
   find (expect refusal); fresh index queries clean (expect no diagnostic). Evidence only — the
   committed proof stays in P1/P2 tests.
-- [ ] Run the mirror gate: `cargo fmt --all -- --check`, `cargo clippy --all-targets
+- [x] Run the mirror gate: `cargo fmt --all -- --check`, `cargo clippy --all-targets
   --all-features -- -D warnings`, full `cargo test`.
-- [ ] Deferral ledger: walk P1/P2 checklists for "do not fix here" / "known limitation" /
+- [x] Deferral ledger: walk P1/P2 checklists for "do not fix here" / "known limitation" /
   "follow-up" language and confirm each has a matching `issues/` file plus `ROADMAP.md` entry.
   Expected outcome: none — the scoped-marker limitation already lives in
   `issues/marker-scoped-run-attestation.md`; record that confirmation in the commit body.
