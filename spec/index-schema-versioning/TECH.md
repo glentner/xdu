@@ -1,48 +1,55 @@
 ---
 slug: index-schema-versioning
-title: "Version-stamp the index marker and refuse unreadable versions"
+title: Version-stamp the index marker and refuse unreadable versions
 kind: feature
 appetite: small
 status: in_progress
 branch: feature/index-schema-versioning
 base: main
-current_phase: P1
-last_updated: "2026-09-07"
+current_phase: P2
+last_updated: '2026-09-07'
 phases:
-  - id: P1
-    name: "Lib core: version constant, marker line, gate, unit tests"
-    status: pending
-    satisfies: [R1]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test --lib"
-  - id: P2
-    name: "Wire the gate into find/rm/view plus real-binary refusal tests"
-    status: pending
-    satisfies: [R2, R3, R4]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test --test version_tests"
-  - id: P3
-    name: "Mirror gate, refusal spot-drive, deferral ledger"
-    status: pending
-    satisfies: [R4]
-    depends_on: [P2]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test"
+- id: P1
+  name: 'Lib core: version constant, marker line, gate, unit tests'
+  status: done
+  satisfies:
+  - R1
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test --lib
+- id: P2
+  name: Wire the gate into find/rm/view plus real-binary refusal tests
+  status: pending
+  satisfies:
+  - R2
+  - R3
+  - R4
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test --test version_tests
+- id: P3
+  name: Mirror gate, refusal spot-drive, deferral ledger
+  status: pending
+  satisfies:
+  - R4
+  depends_on:
+  - P2
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
+    -- -D warnings && cargo test
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Version-stamp the index marker and refuse unreadable versions
 
 The **context engine and finite-state machine** for building this feature. The YAML
@@ -108,14 +115,14 @@ checklists below are the work. `xdu-build` executes the next actionable phase, r
 **Goal:** The version exists on disk and can be checked, with the contract pinned by unit tests
 before any reader depends on it.
 
-- [ ] Add `pub const INDEX_FORMAT_VERSION: u32 = 1` in `src/lib.rs` beside `COMPLETION_MARKER`.
-- [ ] Append `format={INDEX_FORMAT_VERSION}` as the last line of
+- [x] Add `pub const INDEX_FORMAT_VERSION: u32 = 1` in `src/lib.rs` beside `COMPLETION_MARKER`.
+- [x] Append `format={INDEX_FORMAT_VERSION}` as the last line of
   `crawl::completion_marker_contents` (PLAN §2; never parse the `xdu=` tool-version key).
-- [ ] Extract the guarded marker read into one helper shared by `index_completion_warning` and
+- [x] Extract the guarded marker read into one helper shared by `index_completion_warning` and
   the new gate (same stat-once / skip-non-file / `MARKER_READ_LIMIT` / degrade-to-empty semantics).
-- [ ] Add `completion_marker_format(body) -> Option<u32>` (first `format` key wins, strict parse)
+- [x] Add `completion_marker_format(body) -> Option<u32>` (first `format` key wins, strict parse)
   and `index_version_error(index) -> Option<String>` failing closed per PLAN §2.
-- [ ] Extend the writer↔reader pin test to the `format=` line; add the gate matrix (fresh body
+- [x] Extend the writer↔reader pin test to the `format=` line; add the gate matrix (fresh body
   accepted; missing / versionless / garbage / wrong-number refused; good version with
   `errors=N` accepted).
 - **Verify:** `cargo test --lib`.

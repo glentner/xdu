@@ -26,6 +26,14 @@ pub const ROOT_PARTITION: &str = "__root__";
 /// this name's membership in `RESERVED_INDEX_NAMES`.
 pub const COMPLETION_MARKER: &str = ".xdu-complete";
 
+/// On-disk index format version recorded in every completion marker.
+///
+/// 1 names the current layout: three-column `get_schema()` rows under
+/// `<partition>/NNNNNN.parquet` plus this marker. A future layout or schema change bumps
+/// this, and readers refuse what they do not understand instead of misreading it — the
+/// escape hatch the schema-stability invariant requires before any column is added.
+pub const INDEX_FORMAT_VERSION: u32 = 1;
+
 /// Every name the index root already claims, paired with what claims it.
 ///
 /// `<index>/` holds exactly two kinds of entry: partition directories named after the
@@ -68,6 +76,66 @@ pub fn completion_marker_errors(body: &str) -> Option<u64> {
     None
 }
 
+/// What a guarded read of the completion marker found.
+///
+/// The marker lives in a directory operators share, so whatever sits at that path is
+/// untrusted: a FIFO or device node would block a reader that opened it blindly, and an
+/// enormous file would be pulled into memory. One `stat` decides all three cases before
+/// anything is opened.
+enum MarkerRead {
+    /// No entry at the marker path: an interrupted run, or an index predating the marker.
+    Absent,
+    /// An entry that must not be read: not a regular file, over `MARKER_READ_LIMIT`, or
+    /// unreadable since the stat. Attests nothing, and is never opened.
+    Unreadable,
+    /// A regular file of sane size, read — possibly as empty when it vanished mid-read.
+    Body(String),
+}
+
+/// Read the completion marker without trusting what is at its path. Both the
+/// completeness warning and the version gate go through here, so the non-blocking and
+/// size-cap protections stay single-sourced.
+fn read_completion_marker(index: &Path) -> MarkerRead {
+    let marker = index.join(COMPLETION_MARKER);
+
+    // One `stat`, not two: `Path::exists()` *is* `metadata().is_ok()`, so an absent marker
+    // behaves exactly as it did before bodies were read at all.
+    let meta = match fs::metadata(&marker) {
+        Ok(meta) => meta,
+        Err(_) => return MarkerRead::Absent,
+    };
+
+    // Presence alone already attests that the run finished; the body only ever adds detail.
+    // So consulting it must never cost more than not consulting it: opening a FIFO, socket
+    // or device node of this name would block the reader forever, and an oversized file
+    // would be pulled into memory. Neither is worth a detail, so neither is opened.
+    if !meta.is_file() || meta.len() > MARKER_READ_LIMIT {
+        return MarkerRead::Unreadable;
+    }
+
+    // Anything unreadable here — a permission change, non-UTF-8 bytes, or the marker being
+    // deleted since the stat above — degrades to an empty body, which callers treat as
+    // unattested rather than as evidence of anything.
+    MarkerRead::Body(fs::read_to_string(&marker).unwrap_or_default())
+}
+
+/// The index format version a completion marker body states, if it states one.
+///
+/// Mirrors `completion_marker_errors`: the first key trimming to `format` decides, and
+/// anything absent or unparseable is `None` rather than a guess. The `xdu=` key beside
+/// it names the tool release that wrote the index, which outpaces format changes and so
+/// is never a compatibility answer.
+pub fn completion_marker_format(body: &str) -> Option<u32> {
+    for line in body.lines() {
+        if let Some((key, value)) = line.split_once('=')
+            && key.trim() == "format"
+        {
+            return value.trim().parse().ok();
+        }
+    }
+    None
+}
+
 /// The `read_parquet` glob for an index, optionally scoped to a single partition.
 ///
 /// Every reader goes through here, so the index layout (`<index>/<partition>/*.parquet`)
@@ -94,13 +162,8 @@ pub fn index_glob(index: &Path, partition: Option<&str>) -> String {
 /// existed is still perfectly queryable, and breaking those would be worse than the risk
 /// being flagged.
 pub fn index_completion_warning(index: &Path) -> Option<String> {
-    let marker = index.join(COMPLETION_MARKER);
-
-    // One `stat`, not two: `Path::exists()` *is* `metadata().is_ok()`, so an absent marker
-    // behaves exactly as it did before this function read bodies at all.
-    let meta = match fs::metadata(&marker) {
-        Ok(meta) => meta,
-        Err(_) => {
+    let body = match read_completion_marker(index) {
+        MarkerRead::Absent => {
             return Some(format!(
                 "warning: {} has no completion marker ({}); it may be from an interrupted \
                  run or predate the marker, so results may be incomplete",
@@ -108,20 +171,11 @@ pub fn index_completion_warning(index: &Path) -> Option<String> {
                 COMPLETION_MARKER
             ));
         }
+        // An entry that cannot be read offers no detail, so there is nothing to add —
+        // which is the behavior a marker-present index had before bodies were read.
+        MarkerRead::Unreadable => return None,
+        MarkerRead::Body(body) => body,
     };
-
-    // Presence alone already attests that the run finished; the body only ever adds detail.
-    // So consulting it must never cost more than not consulting it: opening a FIFO, socket
-    // or device node of this name would block the reader forever, and an oversized file
-    // would be pulled into memory. Neither is worth a detail, so neither is opened.
-    if !meta.is_file() || meta.len() > MARKER_READ_LIMIT {
-        return None;
-    }
-
-    // Anything unreadable here — a permission change, non-UTF-8 bytes, or the marker being
-    // deleted since the stat above — degrades to an empty body and therefore to silence,
-    // which is the behavior a marker-present index had before.
-    let body = fs::read_to_string(&marker).unwrap_or_default();
 
     match completion_marker_errors(&body) {
         Some(errors) if errors > 0 => Some(format!(
@@ -131,6 +185,36 @@ pub fn index_completion_warning(index: &Path) -> Option<String> {
             errors
         )),
         _ => None,
+    }
+}
+
+/// A refusal to read an index whose format version is unknown or unsupported, else `None`.
+///
+/// Every index built before versioning carries no `format=` key, so absence of a version
+/// is not grandfathered: those rows predate the only check that could vouch for their
+/// layout, and reading them blind is the silent misread this exists to prevent. The
+/// remedy is always a re-crawl, which is why the diagnostic says so.
+pub fn index_version_error(index: &Path) -> Option<String> {
+    let found = match read_completion_marker(index) {
+        MarkerRead::Body(body) => completion_marker_format(&body),
+        // Absent or unreadable attestation answers nothing about the layout.
+        MarkerRead::Absent | MarkerRead::Unreadable => None,
+    };
+
+    match found {
+        Some(version) if version == INDEX_FORMAT_VERSION => None,
+        Some(version) => Some(format!(
+            "error: {} has index format version {}, but this xdu supports version {}; \
+             re-index with this xdu to query it",
+            index.display(),
+            version,
+            INDEX_FORMAT_VERSION
+        )),
+        None => Some(format!(
+            "error: {} carries no index format version (it predates index versioning or \
+             comes from an interrupted run); re-index with this xdu to query it",
+            index.display(),
+        )),
     }
 }
 
@@ -1239,7 +1323,10 @@ mod tests {
             },
             1_700_000_000,
         );
+        // The writer stamps the format the gate checks: pin both ends together so a
+        // renamed key fails here instead of refusing every index at query time.
         assert_eq!(completion_marker_errors(&body), Some(3));
+        assert_eq!(completion_marker_format(&body), Some(INDEX_FORMAT_VERSION));
         assert_eq!(
             completion_marker_errors(&crawl::completion_marker_contents(
                 &crawl::CrawlStats::default(),
@@ -1263,6 +1350,73 @@ mod tests {
 
         // The first key trimming to `errors` decides the answer.
         assert_eq!(completion_marker_errors("errors=1\nerrors=9\n"), Some(1));
+    }
+
+    #[test]
+    fn test_completion_marker_format_parses_the_writers_key() {
+        // The tool release beside it is not a format: a crate version must never read as
+        // compatibility, or every upgrade would refuse every readable index.
+        assert_eq!(completion_marker_format("xdu=7\n"), None);
+        assert_eq!(completion_marker_format(""), None);
+        assert_eq!(completion_marker_format("xdu=0.4.1\nfiles=10\n"), None);
+        assert_eq!(completion_marker_format("format=garbage\n"), None);
+        assert_eq!(completion_marker_format("format=-1\n"), None);
+        assert_eq!(completion_marker_format("format=\n"), None);
+        assert_eq!(completion_marker_format("format=1.5\n"), None);
+        assert_eq!(completion_marker_format("no separator here\n"), None);
+
+        // Stray whitespace, a missing trailing newline, and CRLF all still parse.
+        assert_eq!(completion_marker_format("format=1"), Some(1));
+        assert_eq!(completion_marker_format("format= 2 \n"), Some(2));
+        assert_eq!(completion_marker_format("files=1\r\nformat=3\r\n"), Some(3));
+
+        // The first key trimming to `format` decides the answer.
+        assert_eq!(completion_marker_format("format=4\nformat=9\n"), Some(4));
+    }
+
+    #[test]
+    fn test_index_version_error() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let index = dir.path();
+
+        // No marker answers nothing about the layout: refuse, directing a re-index.
+        let error = index_version_error(index).expect("markerless index must refuse");
+        assert!(error.contains("no index format version"));
+        assert!(error.contains("re-index"));
+
+        // A pre-versioning marker is versionless, however clean its run was: same refusal.
+        std::fs::write(index.join(COMPLETION_MARKER), "xdu=test\nerrors=0\n").unwrap();
+        let error = index_version_error(index).expect("versionless index must refuse");
+        assert!(error.contains("no index format version"));
+        assert!(error.contains("re-index"));
+
+        // Garbage where the version belongs is not a version.
+        std::fs::write(index.join(COMPLETION_MARKER), "xdu=test\nformat=new\n").unwrap();
+        assert!(index_version_error(index).is_some());
+
+        // A version this build does not understand names both sides of the mismatch.
+        std::fs::write(index.join(COMPLETION_MARKER), "xdu=test\nformat=999\n").unwrap();
+        let error = index_version_error(index).expect("future version must refuse");
+        assert!(error.contains("999"));
+        assert!(error.contains(&INDEX_FORMAT_VERSION.to_string()));
+        assert!(error.contains("re-index"));
+
+        // What the writer emits is accepted, tolerated errors and all — the version gate
+        // passes and the completeness warning stays that function's own job.
+        let body = crawl::completion_marker_contents(
+            &crawl::CrawlStats {
+                errors: 2,
+                ..Default::default()
+            },
+            1_700_000_000,
+        );
+        std::fs::write(index.join(COMPLETION_MARKER), &body).unwrap();
+        assert_eq!(index_version_error(index), None);
+
+        // Something of that name that is not a file cannot vouch for the layout either.
+        std::fs::remove_file(index.join(COMPLETION_MARKER)).unwrap();
+        std::fs::create_dir(index.join(COMPLETION_MARKER)).unwrap();
+        assert!(index_version_error(index).is_some());
     }
 
     #[test]
