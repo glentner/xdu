@@ -3,7 +3,7 @@ slug: richer-index-schema
 title: 'Richer index schema: owner, group, permissions, mtime, ctime'
 kind: feature
 appetite: big
-status: in_review
+status: done
 branch: feature/richer-index-schema
 base: main
 current_phase: done
