@@ -11,8 +11,8 @@ appetite: small
 
 ## Problem
 
-There is no content-aware search: the index holds pathnames, sizes, and atimes, and every
-query is a predicate over those three columns. Whether DuckDB's full-text search machinery
+There is no content-aware search: the index holds pathnames, sizes, atimes, ownership, permissions,
+and change times, and every query is a predicate over those columns. Whether DuckDB's full-text search machinery
 fits this product — as a richer query option over paths, now, or over file contents later —
 has never been evaluated, only named as a direction.
 

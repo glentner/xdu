@@ -47,8 +47,8 @@ and starts reading the difference.
 ## Notes
 
 - Third of the bulk-operations theme; its consumer is `issues/xdu-tar-slice-archive.md`.
-- Depends on `issues/richer-index-schema.md` (mtime/ctime comparator columns), satisfied by theme
-  sequencing; transitively on index format versioning, delivered on main (record in
+- Depends on the richer schema's mtime/ctime comparator columns, delivered on `main` (record in
+  `spec/richer-index-schema/`); transitively on index format versioning, delivered on main (record in
   `spec/index-schema-versioning/`).
 - Related: `issues/streaming-index-updates-lustre-changelog.md` answers the same staleness from the
   ingestion side (merge-on-read deltas); the two meet at "what changed".

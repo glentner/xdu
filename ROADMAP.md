@@ -5,8 +5,8 @@ xdu is a high-performance filesystem indexer and query suite for HPC and enterpr
 index once, then answers size/age/pattern questions instantly via DuckDB — on the command line
 (`xdu-find`), in an interactive TUI (`xdu-view`), or through guarded bulk deletion (`xdu-rm`). This
 document records the larger-scale features still intended: reaching beyond the local disk to object
-storage and change-stream ingestion, beyond `path/size/atime` to richer metadata, and beyond the
-terminal to the browser.
+storage and change-stream ingestion, beyond `path/size/atime` to richer metadata (delivered on
+`main`), and beyond the terminal to the browser.
 
 This is a **forward-looking roadmap, not an implementation plan.** Each entry states a user problem
 and the intention behind solving it — a seed for `/xdu-feature` to shape into a `GOAL.md`, leaving
@@ -17,7 +17,7 @@ term) are **indicative** — the hard constraints are the stated dependencies.
 ## Delivered to date
 
 The foundation is in place and in daily use: a shared-rayon-pool concurrent crawler that walks a tree
-into a Hive-partitioned Parquet index (`path`, `size`, `atime`), and the three tools that read it —
+into a Hive-partitioned Parquet index (path, size, uid, gid, mode, atime, mtime, ctime), and the three tools that read it —
 `xdu-find` for scripted DuckDB queries, `xdu-rm` for guarded bulk deletion, and `xdu-view` for
 interactive exploration with both a list view and a Miller-columns tree view (file-type detection and
 a scrollable text preview pane). Packaging is established too: the release tarball, `install.sh`, the
@@ -25,21 +25,6 @@ scdoc man pages, and generated shell completions (so GitHub issue #4 is effectiv
 Everything below builds on that baseline.
 
 ---
-
-## Richer index schema: owner, group, permissions, mtime, ctime
-
-On large shared filesystems (`/projects/{lab1,lab2,…}`) administrators need more than "which project
-is biggest?" — they need "which *user within* a project is biggest?", plus octal permissions to
-reason about exposure and cleanup. The current `path/size/atime` schema cannot answer per-owner or
-per-permission questions at all; today that means falling back to a slow `find`. It cannot answer
-what-changed either: "modified since the last backup" is an mtime question, and atime moves on read
-while size misses same-size rewrites — so mtime and ctime join the new columns as the comparator set
-index diffing and the bulk tools' `--safe` re-stat will read. Recording all five unlocks per-user
-accounting, exposure reasoning, and reliable incremental selection in one breaking change, behind
-the index format versioning delivered on main.
-
-*Horizon: mid-term · Depends on: on-disk schema versioning, delivered on main (breaking, cross-cutting index-format change) · Refs: #2, #3*
-**Seed:** [`issues/richer-index-schema.md`](issues/richer-index-schema.md)
 
 ## Bulk operations: `xdu-cp` and `xdu-mv` over a shared select-act engine
 
@@ -75,9 +60,9 @@ no primitive today: `--newer-than` is a wall-clock atime filter, the wrong clock
 question, and no A-to-B index comparison exists. Diffing two indices of the same root into
 added/changed/removed/unchanged on the path key turns incremental backup from a time guess into a
 measured difference — and the theme ordering is what makes it reliable, with the mtime/ctime columns
-guaranteed present by the schema entry above.
+guaranteed present by the schema now delivered on `main` (record in `spec/richer-index-schema/`).
 
-*Horizon: mid-term · Depends on: schema entry above (mtime/ctime); after tar above · Refs: —*
+*Horizon: mid-term · Depends on: richer-schema mtime/ctime, delivered on `main`; after tar above · Refs: —*
 **Seed:** [`issues/index-diff-incremental-select.md`](issues/index-diff-incremental-select.md)
 
 ## Permission-aware, access-scoped queries
@@ -88,7 +73,7 @@ Borrowing from GUFI's shadow-tree model, queries could be scoped so a user only 
 normally access — applied by default (or by an explicit flag) when `xdu` builds or serves an index as
 root. This is what makes a shared, centrally built index safe to expose to the tenants it describes.
 
-*Horizon: long-term · Depends on: richer index schema (owner/group/perms) · Refs: #3*
+*Horizon: long-term · Depends on: richer index schema (owner/group/perms), delivered on `main` · Refs: #3*
 **Seed:** [`issues/access-scoped-queries.md`](issues/access-scoped-queries.md)
 
 ## S3 as an index target
@@ -348,7 +333,7 @@ default across `xdu-find`, `xdu-view`, and `xdu-rm`, with `--regex` opting back 
 expressions. What remains is fuzzy matching for approximate filename search and DuckDB's full-text
 search extension for richer queries — each now its own seed — alongside the longer-term content-type
 filtering ("all video files over 1 GB"), which depends on MIME metadata living in the index and
-ties back to the schema-evolution work above.
+ties back to the schema work delivered on `main` (record in `spec/richer-index-schema/`).
 
 *Horizon: mid-term · Depends on: content-type filtering needs the richer schema · Refs: —*
 **Seeds:** [`issues/fuzzy-filename-matching.md`](issues/fuzzy-filename-matching.md),
