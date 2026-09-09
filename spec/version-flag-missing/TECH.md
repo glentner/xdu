@@ -1,30 +1,40 @@
 ---
 slug: version-flag-missing
-title: "Answer -V/--version in all four binaries"
+title: Answer -V/--version in all four binaries
 kind: fix
 appetite: small
-status: in_progress
+status: in_review
 branch: fix/version-flag-missing
 base: main
-current_phase: P1
-last_updated: "2026-09-09"
+current_phase: done
+last_updated: '2026-09-09'
 phases:
-  - id: P1
-    name: "Derive --version from Cargo.toml in all four clis plus regression test"
-    status: pending
-    satisfies: [R1, R2, R3]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: 'cargo build --bins -q && want=$(grep -m1 "^version" Cargo.toml | cut -d\" -f2) && for b in xdu xdu-find xdu-view xdu-rm; do for f in --version -V; do out=$(./target/debug/$b $f) || exit 1; echo "$out" | grep -qF "$want" || { echo "MISMATCH $b $f got: $out want: $want"; exit 1; }; done; done && ! grep -rnF "$want" src/ && d=$(mktemp -d) && ./target/debug/gen-completions "$d/bash" "$d/zsh" >/dev/null && test $(grep -rl -- --version "$d/bash" | wc -l) -eq 4 || { echo "MISSING bash completions"; exit 1; } && test $(grep -rl -- --version "$d/zsh" | wc -l) -eq 4 || { echo "MISSING zsh completions"; exit 1; } && rm -rf "$d" && cargo clippy --all-targets --all-features -- -D warnings && cargo test'
+- id: P1
+  name: Derive --version from Cargo.toml in all four clis plus regression test
+  status: done
+  satisfies:
+  - R1
+  - R2
+  - R3
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: downhill
+  verify: 'cargo build --bins -q && want=$(grep -m1 "^version" Cargo.toml | cut -d\"
+    -f2) && for b in xdu xdu-find xdu-view xdu-rm; do for f in --version -V; do out=$(./target/debug/$b
+    $f) || exit 1; echo "$out" | grep -qF "$want" || { echo "MISMATCH $b $f got: $out
+    want: $want"; exit 1; }; done; done && ! grep -rnF "$want" src/ && d=$(mktemp
+    -d) && ./target/debug/gen-completions "$d/bash" "$d/zsh" >/dev/null && test $(grep
+    -rl -- --version "$d/bash" | wc -l) -eq 4 || { echo "MISSING bash completions";
+    exit 1; } && test $(grep -rl -- --version "$d/zsh" | wc -l) -eq 4 || { echo "MISSING
+    zsh completions"; exit 1; } && rm -rf "$d" && cargo clippy --all-targets --all-features
+    -- -D warnings && cargo test'
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Answer -V/--version in all four binaries
 
 The **context engine and finite-state machine** for building this feature. The YAML
@@ -92,12 +102,12 @@ the per-phase checklists below are the work. `xdu-build` executes the next actio
 **Goal:** all four binaries answer `-V`/`--version` with the `Cargo.toml` version, completions
 offer the flag, and a committed test locks the behavior.
 
-- [ ] Add the bare `version` key (no value) to each of the four `#[command(...)]` blocks in
+- [x] Add the bare `version` key (no value) to each of the four `#[command(...)]` blocks in
   `src/cli.rs`: `XduArgs`, `XduFindArgs`, `XduViewArgs`, `XduRmArgs`. No literal anywhere.
-- [ ] Add a `tests/` regression test driving the four real binaries with both flags via the
+- [x] Add a `tests/` regression test driving the four real binaries with both flags via the
   shared `tests/common/mod.rs` helpers, expecting exit 0 and `env!("CARGO_PKG_VERSION")` on
   stdout. Name it for the behavior, with no spec R-IDs in file names, test names, or comments.
-- [ ] Leave `doc/*.scd` untouched (already correct) and `gen-completions` untouched (same
+- [x] Leave `doc/*.scd` untouched (already correct) and `gen-completions` untouched (same
   `Command` objects); do not "fix" the stale `0.4.1` marker-parse fixtures in `lib.rs` unit
   tests — out of scope.
 - **Verify:** build all bins; drive every binary × both flags against the `Cargo.toml` version;
