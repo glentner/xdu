@@ -195,6 +195,10 @@ def main(argv: list[str]) -> int:
             review["verdict"] = args.verdict
             # A verdict marks one completed review pass; the counter backs the bounded loop.
             review["cycle"] = int(review.get("cycle") or 0) + 1
+            if args.verdict == "approved" and args.blocked_reason is None:
+                # An approval retires the previous block; an explicit --blocked-reason still
+                # wins. Empty string matches the TECH.md template's fresh-review convention.
+                review["blocked_reason"] = ""
         if args.reviewed_commit is not None:
             review["last_reviewed_commit"] = args.reviewed_commit
         if args.blocked_reason is not None:

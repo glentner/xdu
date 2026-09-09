@@ -412,3 +412,9 @@ Read `origin`/`severity`/`category` from the finding in `META.md`; this ledger r
   site, routed here per the four-homes table instead of riding the product branch. Now states clap
   derives `-V`/`--version` from `Cargo.toml` and allows the confirmation. Fail-safe direction kept:
   reading `Cargo.toml` remains a named alternative.
+
+## 2026-09-09 — version-flag-missing F2: approving verdicts retire the blocked reason
+`decision=applied commit=2c48fd2 target=.agents/factory/bin/set_phase.py`
+- **Rationale:** `--verdict approved` kept the prior cycle's `blocked_reason`, leaving frontmatter
+  that read approved yet blocked. Approving now resets it to the template's `""` unless an
+  explicit `--blocked-reason` is passed. State transition, not a gate; weakens nothing.

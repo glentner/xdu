@@ -64,7 +64,7 @@ is skipped by the parser):
 - **Confidence:** high · **Effort:** small
 
 ## F2 — set_phase.py --verdict approved leaves a stale blocked_reason behind
-`origin=xdu-review:step-4 severity=low category=tooling status=open target=.agents/factory/bin/set_phase.py`
+`origin=xdu-review:step-4 severity=low category=tooling status=applied target=.agents/factory/bin/set_phase.py`
 - **What happened:** setting `--verdict approved` kept cycle 1's `blocked_reason` text, leaving
   frontmatter that reads approved yet blocked; a second `--blocked-reason ""` call was needed to clear it.
 - **Skill cause:** the skill's Step 4 command lists no clearing flag, and the tool does not clear the
