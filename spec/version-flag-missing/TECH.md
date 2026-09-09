@@ -3,7 +3,7 @@ slug: version-flag-missing
 title: Answer -V/--version in all four binaries
 kind: fix
 appetite: small
-status: in_review
+status: blocked
 branch: fix/version-flag-missing
 base: main
 current_phase: done
@@ -30,10 +30,10 @@ phases:
     zsh completions"; exit 1; } && rm -rf "$d" && cargo clippy --all-targets --all-features
     -- -D warnings && cargo test'
 review:
-  last_reviewed_commit: ''
-  verdict: none
-  blocked_reason: ''
-  cycle: 0
+  last_reviewed_commit: 0181ac779c8efaf8ad206a8489e4f3eda8c8c226
+  verdict: changes-requested
+  blocked_reason: AGENTS.md/invariants.md still state --version flag does not exist
+  cycle: 1
 ---
 # TECH.md — Answer -V/--version in all four binaries
 
