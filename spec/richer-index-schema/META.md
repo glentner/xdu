@@ -47,7 +47,7 @@ is skipped by the parser):
 <!-- Real findings are appended below this line by the lifecycle skills. -->
 
 ## F1 — Circuit-breaker questions land after the branch exists
-`origin=xdu-feature:step-3 severity=low category=instruction status=open target=.agents/skills/xdu-feature/SKILL.md`
+`origin=xdu-feature:step-3 severity=low category=instruction status=applied target=.agents/skills/xdu-feature/SKILL.md`
 - **What happened:** Step 3 creates `feature/{slug}` before Step 4's circuit-breaker and
   clarifications. This seed's split question could have changed the slug (owner/group/mode vs
   mtime/ctime vs the bundled name). Asking first was a deviation from the written order.

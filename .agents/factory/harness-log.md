@@ -383,3 +383,10 @@ Read `origin`/`severity`/`category` from the finding in `META.md`; this ledger r
   saying the file is not one YAML document — verified here that a whole-file load fails
   (`ComposerError`) on a real TECH while frontmatter-only extraction parses. Adjacent to the applied
   readers-F2 quoting rule in the same paragraph, which stays intact. Generalizes to every plan.
+
+## 2026-09-09 — richer-index-schema F1: resolve slug-affecting questions before the branch exists
+`decision=applied commit=6051b68 target=.agents/skills/xdu-feature/SKILL.md`
+- **Rationale:** Step 3 froze the slug in a branch name before Step 4 asked the questions that can
+  change it (circuit-breaker split first among them). Step 3 now resolves slug-affecting
+  clarifications before `git switch -c`, with `git branch -m` as the backstop when shaping still
+  renames the slug later. Generalizes to every shaped feature; weakens nothing.

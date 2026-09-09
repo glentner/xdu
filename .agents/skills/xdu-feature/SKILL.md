@@ -91,7 +91,12 @@ Parse `$ARGUMENTS` case-insensitively. If self-contradictory, STOP and ask.
    must not be tracked. STOP on collision.
 
 ### Step 3 — Create the branch
-`git switch -c {branch} main` where `{branch}` = `fix/{slug}` or `feature/{slug}`.
+First resolve the slug-affecting clarifications — at minimum the size circuit-breaker split
+(Safety Principles), plus any scope question that could rename the slug — via AskUserQuestion.
+The branch name freezes the slug, so asking after creation strands a misnamed branch.
+Then `git switch -c {branch} main` where `{branch}` = `fix/{slug}` or `feature/{slug}`.
+If shaping still changes the slug later, rename the branch with `git branch -m {new-branch}`
+in the same step.
 
 ### Step 4 — Write / refine `spec/{slug}/GOAL.md`
 Start from the template. Fill: **Problem** (the raw need — motivate, don't design), **Outcome**,
