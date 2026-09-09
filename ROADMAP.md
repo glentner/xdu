@@ -199,18 +199,6 @@ can ever be asserted and already mis-measured the `groff` work above. Deriving t
 *Horizon: near-term, low priority · Depends on: — · Refs: the two entries above; `issues/ci-gates-are-advisory.md` (a gate that binds nothing is the wider version)*
 **Seed:** [`issues/manpage-gate-coverage-gaps.md`](issues/manpage-gate-coverage-gaps.md)
 
-## `--version` is documented but rejected by every binary
-
-All four man pages document `-V, --version`, and `AGENTS.md` states the version is single-sourced from
-`Cargo.toml` via clap — but no `#[command(...)]` block in `src/cli.rs` sets `version`, so every binary
-exits with `error: unexpected argument '--version' found`. A user-facing defect in a released version,
-and an invariant §10 (man-pages-vs-code) violation narrowed to exactly that pair: the generated
-completions omit the flag correctly, and the man pages need no edit because they already describe the
-intended behaviour. Likely one attribute per struct.
-
-*Horizon: near-term · Depends on: — · Refs: —*
-**Seed:** [`issues/version-flag-missing.md`](issues/version-flag-missing.md)
-
 ## Piping `xdu-find` into `head` exits 1 with a broken-pipe error
 
 Rust starts with `SIGPIPE` ignored, so when the reader exits early the next
