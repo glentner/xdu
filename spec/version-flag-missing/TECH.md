@@ -3,7 +3,7 @@ slug: version-flag-missing
 title: Answer -V/--version in all four binaries
 kind: fix
 appetite: small
-status: in_review
+status: done
 branch: fix/version-flag-missing
 base: main
 current_phase: done
