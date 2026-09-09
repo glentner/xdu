@@ -31,10 +31,10 @@ phases:
     AGENTS.md .agents/factory/invariants.md && cargo clippy --all-targets --all-features
     -- -D warnings && cargo test'
 review:
-  last_reviewed_commit: 0181ac779c8efaf8ad206a8489e4f3eda8c8c226
-  verdict: changes-requested
-  blocked_reason: AGENTS.md/invariants.md still state --version flag does not exist
-  cycle: 1
+  last_reviewed_commit: af1ac9f5c66c46ed32e4564141e8d9994d563b93
+  verdict: approved
+  blocked_reason: ''
+  cycle: 2
 ---
 # TECH.md — Answer -V/--version in all four binaries
 

@@ -62,3 +62,13 @@ is skipped by the parser):
   every user-facing binary, and allow confirming the bump with `xdu --version` (or keep reading
   `Cargo.toml`; either is now true).
 - **Confidence:** high · **Effort:** small
+
+## F2 — set_phase.py --verdict approved leaves a stale blocked_reason behind
+`origin=xdu-review:step-4 severity=low category=tooling status=open target=.agents/factory/bin/set_phase.py`
+- **What happened:** setting `--verdict approved` kept cycle 1's `blocked_reason` text, leaving
+  frontmatter that reads approved yet blocked; a second `--blocked-reason ""` call was needed to clear it.
+- **Skill cause:** the skill's Step 4 command lists no clearing flag, and the tool does not clear the
+  reason on an approving verdict — neither side owns the transition.
+- **Recommended fix:** have `set_phase.py` drop `blocked_reason` when `--verdict approved`, or add the
+  clearing flag to the skill's clean-path command.
+- **Confidence:** med · **Effort:** small
