@@ -397,3 +397,11 @@ Read `origin`/`severity`/`category` from the finding in `META.md`; this ledger r
   GOAL (and META), so following the list literally stranded the status change uncommitted. The
   add-list now names the issues file when Step 4 promoted one. One line; generalizes to every
   issues-promoted feature.
+
+## 2026-09-09 — richer-index-schema F3: stage `$( )` gates in a file, then round-trip
+`decision=applied commit=eae09bb target=.agents/factory/bin/set_phase.py + skills/xdu-build/SKILL.md`
+- **Rationale:** the only retune path took the gate through argv, where the shell expands `$( )`
+  before the script sees it — storing a corrupted gate that still passed YAML validation. New
+  `--verify-file PATH` (mutually exclusive with `--verify`; blank files refused by the existing
+  non-empty guard), plus the round-trip close in `xdu-build` Step 1.3. Generalizes to every retune;
+  weakens nothing.

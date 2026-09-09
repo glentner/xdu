@@ -119,7 +119,10 @@ Steps 1–2, then report the plan that *would* run and stop (no edits/commits).
    CLI↔man-page pair), commit them together as if `bundle` had been passed, and record why in a
    `TECH.md` amendment. A reopened phase's body is retuned the same script-safe way — tighten a too-weak
    gate with `set_phase.py --phase P<n> --verify "…"` (or `--name`/`--satisfies`/`--depends-on`),
-   never by hand-editing the YAML `verify:` field. Only if a fix maps to no existing phase, add one
+   never by hand-editing the YAML `verify:` field. When the gate carries `$( )` or other text the
+    calling shell would expand, stage it in a file and pass `--verify-file PATH`, then round-trip
+    (read the stored `verify:` back and byte-compare it against the staged file) before running it.
+    Only if a fix maps to no existing phase, add one
    **through the script**: `set_phase.py --add-phase P<next> --name "F# remediation: …" --satisfies
    R<n> --depends-on P<m> --verify "…"` — then write its checklist body and re-validate with
    `next_phase.py`. Set `--top-status in_progress`, then proceed. If a finding

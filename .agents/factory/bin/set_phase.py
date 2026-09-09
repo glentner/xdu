@@ -39,6 +39,10 @@ Usage examples:
     uv run --with pyyaml python .agents/factory/bin/set_phase.py spec/<slug>/TECH.md \
         --phase P3 --verify ".agents/factory/bin/temp_index.sh xdu-rm --dry-run --safe --min-size 1G --force" --touch
 
+    # retune a gate carrying $( ) without argv expansion mangling it
+    uv run --with pyyaml python .agents/factory/bin/set_phase.py spec/<slug>/TECH.md \
+        --phase P3 --verify-file /tmp/gate.txt --touch
+
 Exit codes: 0 ok · 2 parse/validation error · 3 unknown --phase/--after id.
 """
 from __future__ import annotations
@@ -83,6 +87,9 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     ap.add_argument("--depends-on", dest="depends_on", help="comma-separated prerequisite phase ids (for --add-phase or an existing --phase; '' clears)")
     ap.add_argument("--after", help="insert the new phase after this phase id (default: append last; --add-phase only)")
     ap.add_argument("--verify", help="verify command (for --add-phase, or to retune an existing --phase's gate)")
+    ap.add_argument("--verify-file", metavar="PATH",
+                    help="read verify command from file (expansion-safe path for gates carrying $( ) "
+                         "or quoting the calling shell would mangle through argv)")
     ap.add_argument("--current", help="set current_phase pointer (phase id, '' , or 'done')")
     ap.add_argument("--top-status", choices=sorted(TOP_STATUSES), help="set top-level status")
     ap.add_argument("--verdict", choices=["none", "changes-requested", "approved"], help="set review.verdict")
@@ -95,6 +102,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str]) -> int:
     args = _parse_args(argv)
     path = Path(args.path)
+    if args.verify_file:
+        if args.verify:
+            print("--verify and --verify-file are mutually exclusive", file=sys.stderr)
+            return 2
+        try:
+            args.verify = Path(args.verify_file).read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            print(f"--verify-file: {exc}", file=sys.stderr)
+            return 2
     try:
         text = path.read_text(encoding="utf-8")
         data, body = split_frontmatter(text)

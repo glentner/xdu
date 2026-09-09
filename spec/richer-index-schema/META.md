@@ -69,7 +69,7 @@ is skipped by the parser):
 - **Confidence:** high · **Effort:** small
 
 ## F3 — No expansion-safe path for `--verify` retunes carrying `$( )`
-`origin=xdu-build:P3 severity=low category=tooling status=open target=.agents/factory/bin/set_phase.py`
+`origin=xdu-build:P3 severity=low category=tooling status=applied target=.agents/factory/bin/set_phase.py`
 - **What happened:** Retuning P3's gate to a drive containing `$( )` via `--verify "..."` let
   the calling shell expand the substitutions before the script saw them, storing a corrupted
   gate (empty `test -eq 4` fragments) that still passed YAML validation. Recovery needed a
