@@ -405,3 +405,10 @@ Read `origin`/`severity`/`category` from the finding in `META.md`; this ledger r
   `--verify-file PATH` (mutually exclusive with `--verify`; blank files refused by the existing
   non-empty guard), plus the round-trip close in `xdu-build` Step 1.3. Generalizes to every retune;
   weakens nothing.
+
+## 2026-09-09 — version-flag-missing F1: confirm the bump with xdu --version
+`decision=applied commit=73438a4 target=.agents/skills/xdu-release/SKILL.md`
+- **Rationale:** the last live "that flag does not exist" product claim — the class sweep's third
+  site, routed here per the four-homes table instead of riding the product branch. Now states clap
+  derives `-V`/`--version` from `Cargo.toml` and allows the confirmation. Fail-safe direction kept:
+  reading `Cargo.toml` remains a named alternative.

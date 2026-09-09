@@ -50,7 +50,7 @@ is skipped by the parser):
 <!-- Real findings are appended below this line by the lifecycle skills. -->
 
 ## F1 — xdu-release SKILL.md still forbids confirming a bump with xdu --version
-`origin=xdu-build:P1 severity=medium category=instruction status=open target=.agents/skills/xdu-release/SKILL.md`
+`origin=xdu-build:P1 severity=medium category=instruction status=applied target=.agents/skills/xdu-release/SKILL.md`
 - **What happened:** the class sweep for review F1 found the stale "that flag does not exist" product
   claim in a third live site (the "Do not confirm the bump with `xdu --version`" bullet), alongside
   the two manual sites fixed on this branch. It was left for harness because a skill's own
