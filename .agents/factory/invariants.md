@@ -193,10 +193,8 @@ ordering is load-bearing:
 ## 13. Project conventions (same-commit / packaging) — violations are HIGH, not CRITICAL
 
 - **Version is single-sourced from `Cargo.toml`** — never hardcode a version in `src/`; read it from
-  `CARGO_PKG_VERSION`. The `-V`/`--version` **flag does not exist**: no `#[command(...)]` in
-  `src/cli.rs` sets `version`, so all four binaries reject it while all four `doc/*.scd` document it.
-  That is a recorded defect — [`issues/version-flag-missing.md`](../../issues/version-flag-missing.md)
-  — not a convention to reason from.
+  `CARGO_PKG_VERSION`. All four `#[command(...)]` blocks in `src/cli.rs` set `version`, so clap
+  derives `-V`/`--version` from `Cargo.toml` for every user-facing binary.
 - `share/` is a **generated** artifact (man via `scdoc` from `doc/*.scd`; completions via
   `gen-completions` from `src/cli.rs`), git-ignored, rebuilt in CI and by `/xdu-release`; CI asserts
   it generates. `.scd` sources carry no version string (a pure version bump doesn't touch them).

@@ -48,3 +48,17 @@ is skipped by the parser):
 ```
 
 <!-- Real findings are appended below this line by the lifecycle skills. -->
+
+## F1 — xdu-release SKILL.md still forbids confirming a bump with xdu --version
+`origin=xdu-build:P1 severity=medium category=instruction status=open target=.agents/skills/xdu-release/SKILL.md`
+- **What happened:** the class sweep for review F1 found the stale "that flag does not exist" product
+  claim in a third live site (the "Do not confirm the bump with `xdu --version`" bullet), alongside
+  the two manual sites fixed on this branch. It was left for harness because a skill's own
+  instructions must not ride in on a product branch.
+- **Skill cause:** not this skill's fault; recorded here per xdu-build Step 2 routing (skill defects
+  go META.md + `/xdu-harness`, never a product diff). The failure direction is fail-safe (a
+  prohibition, not a trap), so deferring it changes no release outcome.
+- **Recommended fix:** reword the bullet to state clap derives `-V`/`--version` from `Cargo.toml` for
+  every user-facing binary, and allow confirming the bump with `xdu --version` (or keep reading
+  `Cargo.toml`; either is now true).
+- **Confidence:** high · **Effort:** small

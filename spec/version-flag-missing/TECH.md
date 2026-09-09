@@ -3,7 +3,7 @@ slug: version-flag-missing
 title: Answer -V/--version in all four binaries
 kind: fix
 appetite: small
-status: blocked
+status: in_review
 branch: fix/version-flag-missing
 base: main
 current_phase: done
@@ -27,7 +27,8 @@ phases:
     -d) && ./target/debug/gen-completions "$d/bash" "$d/zsh" >/dev/null && test $(grep
     -rl -- --version "$d/bash" | wc -l) -eq 4 || { echo "MISSING bash completions";
     exit 1; } && test $(grep -rl -- --version "$d/zsh" | wc -l) -eq 4 || { echo "MISSING
-    zsh completions"; exit 1; } && rm -rf "$d" && cargo clippy --all-targets --all-features
+    zsh completions"; exit 1; } && rm -rf "$d" && ! grep -rn "flag does not exist"
+    AGENTS.md .agents/factory/invariants.md && cargo clippy --all-targets --all-features
     -- -D warnings && cargo test'
 review:
   last_reviewed_commit: 0181ac779c8efaf8ad206a8489e4f3eda8c8c226
@@ -110,6 +111,11 @@ offer the flag, and a committed test locks the behavior.
 - [x] Leave `doc/*.scd` untouched (already correct) and `gen-completions` untouched (same
   `Command` objects); do not "fix" the stale `0.4.1` marker-parse fixtures in `lib.rs` unit
   tests — out of scope.
+- [x] Remediate review F1 (operating-manual drift): reword the stale `--version` defect record in
+  `AGENTS.md` (Version single-sourced bullet) and `.agents/factory/invariants.md` (§13) to state the
+  flag exists and derives from `Cargo.toml`. Class sweep found one further live site,
+  `.agents/skills/xdu-release/SKILL.md:94`, which is harness-owned and rides via `META.md` +
+  `/xdu-harness`, not this branch; `spec/**`, `issues/` + `ROADMAP.md` are frozen records and stay.
 - **Verify:** build all bins; drive every binary × both flags against the `Cargo.toml` version;
   assert the version string appears nowhere in `src/`; generate completions into scratch dirs
   and count `--version` in all four outputs per shell; then `clippy -D warnings` and full
