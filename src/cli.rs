@@ -11,6 +11,7 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(
     name = "xdu",
+    version,
     about = "Build a distributed file metadata index in Parquet format",
     after_help = "\
 Examples:
@@ -64,6 +65,7 @@ pub struct XduArgs {
 #[derive(Parser, Debug)]
 #[command(
     name = "xdu-find",
+    version,
     about = "Query a file metadata index for matching paths",
     after_help = "Examples:
   xdu-find -i /index/scratch -p '*.py' --min-size 1M
@@ -147,6 +149,7 @@ pub struct XduFindArgs {
 #[derive(Parser, Debug)]
 #[command(
     name = "xdu-view",
+    version,
     about = "Interactive TUI for exploring a file metadata index",
     after_help = "\
 Examples:
@@ -196,6 +199,7 @@ pub struct XduViewArgs {
 #[derive(Parser, Debug)]
 #[command(
     name = "xdu-rm",
+    version,
     about = "Delete files matching index query criteria",
     after_help = "Examples:
   xdu-rm -i /index/scratch -u alice --older-than 180 -n

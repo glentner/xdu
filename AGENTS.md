@@ -49,10 +49,9 @@ feature) so there is no external DuckDB dependency.
   is tracked in the **PR body** instead, which ends with an attribution trailer naming the
   actual harness, model, and variant.
 - **Version is single-sourced from `Cargo.toml`** — never hardcode a version string in `src/`; read it
-  from `CARGO_PKG_VERSION` (the completion marker does, `crawl.rs`). **The `--version` flag itself does
-  not exist:** no `#[command(...)]` in `src/cli.rs` sets `version`, so all four binaries reject `-V`
-  and `--version` even though every `doc/*.scd` documents the flag. That mismatch is a recorded defect,
-  not a convention — see [`issues/version-flag-missing.md`](issues/version-flag-missing.md).
+  from `CARGO_PKG_VERSION` (the completion marker does, `crawl.rs`). All four `#[command(...)]`
+  blocks in `src/cli.rs` set `version`, so clap derives `-V`/`--version` from `Cargo.toml` for every
+  user-facing binary.
 - **A CLI change updates its `doc/*.scd` man page source in the same commit.** Shell completions
   regenerate automatically from `src/cli.rs` (`gen-completions`), so they are not committed; the
   generated `share/` tree is git-ignored (built in CI and by `/xdu-release`).
