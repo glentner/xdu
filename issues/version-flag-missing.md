@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: shaped on fix/version-flag-missing (2026-09-09) — see spec/version-flag-missing/GOAL.md
 kind: fix
 appetite: small
 ---
