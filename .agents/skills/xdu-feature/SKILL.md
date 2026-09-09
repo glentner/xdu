@@ -160,7 +160,7 @@ code fence:
 
 ### Step 7 — Commit
 ```
-git add spec/{slug}/GOAL.md          # add spec/{slug}/META.md too if you recorded a meta-note
+git add spec/{slug}/GOAL.md          # + spec/{slug}/META.md with a meta-note, + issues/{slug}.md when Step 4 promoted one (its status: change lands in the same commit)
 git commit -m "[{category}] Shape {slug} goal"
 ```
 `{category}` is the GOAL's `kind` verbatim (`feature`|`fix`|`refactor`) — the same house style as

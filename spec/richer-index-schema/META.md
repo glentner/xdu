@@ -58,7 +58,7 @@ is skipped by the parser):
 - **Confidence:** med · **Effort:** small
 
 ## F2 — Promotion status update is missing from the commit add-list
-`origin=xdu-feature:step-7 severity=medium category=instruction status=open target=.agents/skills/xdu-feature/SKILL.md`
+`origin=xdu-feature:step-7 severity=medium category=instruction status=applied target=.agents/skills/xdu-feature/SKILL.md`
 - **What happened:** Step 4 requires setting `issues/{slug}.md` `status:` to `shaped on <branch>`,
   but Step 7's `git add` names only `spec/{slug}/GOAL.md` (and META.md). Following that list
   literally leaves the status change uncommitted.

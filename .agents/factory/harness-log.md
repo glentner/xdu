@@ -390,3 +390,10 @@ Read `origin`/`severity`/`category` from the finding in `META.md`; this ledger r
   change it (circuit-breaker split first among them). Step 3 now resolves slug-affecting
   clarifications before `git switch -c`, with `git branch -m` as the backstop when shaping still
   renames the slug later. Generalizes to every shaped feature; weakens nothing.
+
+## 2026-09-09 — richer-index-schema F2: commit the promoted issues file with the GOAL
+`decision=applied commit=eb946c8 target=.agents/skills/xdu-feature/SKILL.md`
+- **Rationale:** Step 4 writes `issues/{slug}.md` `status:` but Step 7's `git add` named only the
+  GOAL (and META), so following the list literally stranded the status change uncommitted. The
+  add-list now names the issues file when Step 4 promoted one. One line; generalizes to every
+  issues-promoted feature.
