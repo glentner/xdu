@@ -22,7 +22,10 @@ use xdu::crawl::{
     clear_completion_marker, completion_marker_contents, file_measurements, lossy_path,
     write_completion_marker,
 };
-use xdu::{SizeMode, format_bytes, format_count, format_speed, get_schema, parse_size};
+use xdu::{
+    SizeMode, format_bytes, format_count, format_partition_progress, format_speed, get_schema,
+    parse_size,
+};
 
 /// Crawl a directory tree using concurrent per-partition walks with a shared thread pool.
 ///
@@ -154,7 +157,7 @@ fn crawl(
 
     std::thread::scope(|s| -> Result<()> {
         let handles: Vec<_> = (0..num_drivers)
-            .map(|driver_id| {
+            .map(|_| {
                 let pool = pool.clone();
                 let queue = queue.clone();
                 let global_files = global_files.clone();
@@ -410,13 +413,17 @@ fn crawl(
                                         String::new()
                                     };
 
-                                    bar.set_message(format!(
-                                        "{}: {} files, {}{} [T{}]",
-                                        item.partition,
-                                        format_count(buffer.file_count),
-                                        format_bytes(buffer.byte_count),
-                                        speed_str,
-                                        driver_id,
+                                    // The lively branch only: files have completed, so the
+                                    // directory and elapsed counters cannot select another
+                                    // state. P2 supplies the live counters and wires the
+                                    // quiet branches through the same builder.
+                                    bar.set_message(format_partition_progress(
+                                        &item.partition,
+                                        buffer.file_count,
+                                        buffer.byte_count,
+                                        0,
+                                        0,
+                                        &speed_str,
                                     ));
                                     global_bar_ref.set_message(format!(
                                         "{} files, {}{}",

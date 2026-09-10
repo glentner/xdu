@@ -1,39 +1,44 @@
 ---
 slug: crawl-progress-misleads-on-huge-trees
-title: "Honest crawl progress on huge trees"
+title: Honest crawl progress on huge trees
 kind: fix
 appetite: small
 status: in_progress
 branch: fix/crawl-progress-misleads-on-huge-trees
 base: main
-current_phase: P1
-last_updated: "2026-09-09"
+current_phase: P2
+last_updated: '2026-09-09'
 phases:
-  - id: P1
-    name: "Pure message builder in lib, [Tn] dropped"
-    status: pending
-    satisfies: [R1]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test --lib"
-  - id: P2
-    name: "Quiet-partition liveness plus full gate and drive"
-    status: pending
-    satisfies: [R2, R3, R4]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test && .agents/factory/bin/temp_index.sh xdu-find --count"
+- id: P1
+  name: Pure message builder in lib, [Tn] dropped
+  status: done
+  satisfies:
+  - R1
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test --lib
+- id: P2
+  name: Quiet-partition liveness plus full gate and drive
+  status: pending
+  satisfies:
+  - R2
+  - R3
+  - R4
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
+    -- -D warnings && cargo test && .agents/factory/bin/temp_index.sh xdu-find --count
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Honest crawl progress on huge trees
 
 The **context engine and finite-state machine** for building this feature. The YAML
@@ -98,13 +103,13 @@ checklists below are the work. `xdu-build` executes the next actionable phase, r
 **Goal:** The per-partition line no longer claims driver ownership, and its rendering lives in a
 unit-tested pure builder in `src/lib.rs`.
 
-- [ ] Add a pure partition-line builder to `src/lib.rs` (all three line states — waiting,
+- [x] Add a pure partition-line builder to `src/lib.rs` (all three line states — waiting,
   quiet-scanning, lively; exact signature the implementer's choice within `PLAN.md` §2's
   required elements), reusing `format_count` / `format_bytes`; unit-test each state.
-- [ ] Wire the lively branch into `src/bin/xdu.rs` in place of the current inline `format!`,
+- [x] Wire the lively branch into `src/bin/xdu.rs` in place of the current inline `format!`,
   minus the `[T{driver_id}]` token; clean up the now-unused `driver_id` binding so
   `clippy -D warnings` stays green.
-- [ ] No behavior change to the walk, the index bytes, the global line, or non-TTY output.
+- [x] No behavior change to the walk, the index bytes, the global line, or non-TTY output.
 - **Verify:** `cargo test --lib`.
 - **Touches:** `src/lib.rs`, `src/bin/xdu.rs`.
 
