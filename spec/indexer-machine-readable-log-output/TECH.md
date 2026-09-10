@@ -1,48 +1,63 @@
 ---
 slug: indexer-machine-readable-log-output
-title: "Machine-readable log output for scripted and cron-driven crawls"
+title: Machine-readable log output for scripted and cron-driven crawls
 kind: feature
 appetite: small
 status: in_progress
 branch: feature/indexer-machine-readable-log-output
 base: main
-current_phase: P1
-last_updated: "2026-09-10"
+current_phase: P2
+last_updated: '2026-09-10'
 phases:
-  - id: P1
-    name: "Timestamped severity-tagged records end to end"
-    status: pending
-    satisfies: [R1, R4, R5]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 'mkdir -p t/a && head -c 512 /dev/zero > t/a/f && xdu t -o idx 2>err.log && grep -qE \"^[0-9]{4}-[0-9]{2}-[0-9]{2}T\" err.log && grep -q \"INFO\" err.log && grep -q \"Completed\" err.log'"
-  - id: P2
-    name: "Run-start arguments, marker verdict, and failure record"
-    status: pending
-    satisfies: [R2, R3]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: ".agents/factory/bin/temp_index.sh sh -c 'xdu /nonexistent-path-xyz -o idx2 2>fail.log; test $? -ne 0 && grep -q \"ERROR\" fail.log && test ! -e idx2/.xdu-complete'"
-  - id: P3
-    name: "Regression tests, full gate, and deferral ledger"
-    status: pending
-    satisfies: [R1, R2, R3, R4, R5]
-    depends_on: [P2]
-    parallel: false
-    hammerable: true
-    hill: uphill
-    verify: "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test"
+- id: P1
+  name: Timestamped severity-tagged records end to end
+  status: done
+  satisfies:
+  - R1
+  - R4
+  - R5
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 'mkdir -p t/a
+    && head -c 512 /dev/zero > t/a/f && xdu t -o idx 2>err.log && grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+    err.log && grep -q "INFO" err.log && grep -q "Completed" err.log'
+- id: P2
+  name: Run-start arguments, marker verdict, and failure record
+  status: pending
+  satisfies:
+  - R2
+  - R3
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: .agents/factory/bin/temp_index.sh sh -c 'xdu /nonexistent-path-xyz -o idx2
+    2>fail.log; test $? -ne 0 && grep -q "ERROR" fail.log && test ! -e idx2/.xdu-complete'
+- id: P3
+  name: Regression tests, full gate, and deferral ledger
+  status: pending
+  satisfies:
+  - R1
+  - R2
+  - R3
+  - R4
+  - R5
+  depends_on:
+  - P2
+  parallel: false
+  hammerable: true
+  hill: uphill
+  verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
+    -- -D warnings && cargo test
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Machine-readable log output for scripted and cron-driven crawls
 
 The **context engine and finite-state machine** for building this feature. The YAML
@@ -107,13 +122,13 @@ checklists below are the work. `xdu-build` executes the next actionable phase, r
 **Goal:** Every existing non-TTY diagnostic goes to stderr through the new record format;
 TTY output is provably untouched and stdout gains nothing.
 
-- [ ] Add `LogLevel` + `format_log_record` to `src/lib.rs` with unit tests (line shape, tag
+- [x] Add `LogLevel` + `format_log_record` to `src/lib.rs` with unit tests (line shape, tag
   set, UTC timestamp format, hostile input such as embedded newlines stays one line).
-- [ ] Route all non-TTY arms in `src/bin/xdu.rs` through it (`Indexing`, per-partition
+- [x] Route all non-TTY arms in `src/bin/xdu.rs` through it (`Indexing`, per-partition
   `Finished`, `warning:`/`error:` reports, final `Completed`); keep every message tail a
   superstring of what the existing `tests/crawl_tests.rs` `contains` assertions match
   (prefix, never rewrite).
-- [ ] Confirm the TTY arms are byte-identical and no new write to stdout exists.
+- [x] Confirm the TTY arms are byte-identical and no new write to stdout exists.
 - **Verify:** `cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 'mkdir -p t/a && head -c 512 /dev/zero > t/a/f && xdu t -o idx 2>err.log && grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" err.log && grep -q "INFO" err.log && grep -q "Completed" err.log'` (lib tests plus a real non-TTY crawl whose stderr carries timestamps, tags, and the summary).
 - **Touches:** `src/lib.rs`, `src/bin/xdu.rs`.
 

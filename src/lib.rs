@@ -1075,6 +1075,79 @@ pub fn format_partition_progress(
     }
 }
 
+/// Severity of one stderr log record emitted by a non-TTY run.
+///
+/// The tag a script greps for. Three levels cover the crawl's vocabulary: routine progress,
+/// tolerated anomalies, and run-failing faults.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogLevel {
+    Info,
+    Warn,
+    Error,
+}
+
+impl LogLevel {
+    /// The tag text rendered into the record line.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LogLevel::Info => "INFO",
+            LogLevel::Warn => "WARN",
+            LogLevel::Error => "ERROR",
+        }
+    }
+}
+
+/// Render a `SystemTime` as a UTC `YYYY-MM-DDTHH:MM:SSZ` stamp.
+///
+/// Second precision is the cron-correlation granularity this log promises; ordering within
+/// a second is still line order. The conversion is `std` alone: `chrono` arrives only
+/// transitively through `arrow`, and one stamp line does not justify promoting it to a
+/// direct dependency. A pre-epoch time saturates at the epoch rather than failing the run.
+pub fn format_log_timestamp(now: SystemTime) -> String {
+    let secs = now
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = secs / 86_400;
+    let time = secs % 86_400;
+    // Days since 1970-01-01 to civil date. The input cannot be negative (pre-epoch
+    // saturates above), so Euclidean division agrees with truncation throughout.
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year,
+        m,
+        d,
+        time / 3_600,
+        (time % 3_600) / 60,
+        time % 60
+    )
+}
+
+/// Render one machine-readable stderr log record: `<timestamp> <LEVEL> <message>`.
+///
+/// The message tail is the caller's verbatim apart from line-break folding: a record is one
+/// line by construction, so embedded breaks (legal in Unix paths) become spaces rather than
+/// forging extra lines a script would misread as separate events.
+pub fn format_log_record(level: LogLevel, message: &str) -> String {
+    let single_line: Vec<&str> = message.split(['\r', '\n']).collect();
+    format!(
+        "{} {} {}",
+        format_log_timestamp(SystemTime::now()),
+        level.as_str(),
+        single_line.join(" ")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1225,6 +1298,57 @@ mod tests {
         assert_eq!(
             format_bytes(1024_u64 * 1024 * 1024 * 1024 * 2 + 1024_u64 * 1024 * 1024 * 512),
             "2.50 TiB"
+        );
+    }
+
+    #[test]
+    fn test_log_level_tags() {
+        assert_eq!(LogLevel::Info.as_str(), "INFO");
+        assert_eq!(LogLevel::Warn.as_str(), "WARN");
+        assert_eq!(LogLevel::Error.as_str(), "ERROR");
+    }
+
+    #[test]
+    fn test_format_log_timestamp_epoch() {
+        assert_eq!(format_log_timestamp(UNIX_EPOCH), "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_format_log_timestamp_known_dates() {
+        let at =
+            |secs: u64| format_log_timestamp(UNIX_EPOCH + std::time::Duration::from_secs(secs));
+        assert_eq!(at(946_684_799), "1999-12-31T23:59:59Z");
+        assert_eq!(at(951_868_799), "2000-02-29T23:59:59Z");
+        assert_eq!(at(1_709_210_096), "2024-02-29T12:34:56Z");
+        assert_eq!(at(1_789_009_201), "2026-09-10T03:00:01Z");
+    }
+
+    #[test]
+    fn test_format_log_record_shape() {
+        let record = format_log_record(LogLevel::Info, "Indexing /data");
+        assert!(
+            record.ends_with(" INFO Indexing /data"),
+            "tail stays verbatim: {record}"
+        );
+        let stamp = &record[..20];
+        assert_eq!(&stamp[4..5], "-");
+        assert_eq!(&stamp[7..8], "-");
+        assert_eq!(&stamp[10..11], "T");
+        assert_eq!(&stamp[13..14], ":");
+        assert_eq!(&stamp[16..17], ":");
+        assert_eq!(&stamp[19..20], "Z");
+        assert!(
+            !record.contains('\n') && !record.contains('\r'),
+            "one record is one line: {record:?}"
+        );
+    }
+
+    #[test]
+    fn test_format_log_record_folds_embedded_breaks() {
+        let record = format_log_record(LogLevel::Error, "error: a\nb\rc: denied");
+        assert!(
+            record.ends_with(" ERROR error: a b c: denied"),
+            "breaks fold to spaces: {record:?}"
         );
     }
 
