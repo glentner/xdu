@@ -3,7 +3,7 @@ slug: crawl-progress-misleads-on-huge-trees
 title: Honest crawl progress on huge trees
 kind: fix
 appetite: small
-status: in_review
+status: done
 branch: fix/crawl-progress-misleads-on-huge-trees
 base: main
 current_phase: P2
