@@ -3,7 +3,7 @@ slug: indexer-machine-readable-log-output
 title: Machine-readable log output for scripted and cron-driven crawls
 kind: feature
 appetite: small
-status: blocked
+status: in_review
 branch: feature/indexer-machine-readable-log-output
 base: main
 current_phase: done
@@ -22,7 +22,10 @@ phases:
   hill: uphill
   verify: cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 'mkdir -p t/a
     && head -c 512 /dev/zero > t/a/f && xdu t -o idx 2>err.log && grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
-    err.log && grep -q "INFO" err.log && grep -q "Completed" err.log'
+    err.log && grep -q "INFO" err.log && grep -q "Completed" err.log' && .agents/factory/bin/temp_index.sh
+    sh -c 'xdu /nonexistent-path-xyz -o idx2 2>fail.log; test $? -ne 0 && grep -q
+    "ERROR" fail.log && test ! -e idx2/.xdu-complete && ! grep -qvE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z
+    (INFO|WARN|ERROR) " fail.log'
 - id: P2
   name: Run-start arguments, marker verdict, and failure record
   status: done
@@ -129,6 +132,11 @@ TTY output is provably untouched and stdout gains nothing.
   superstring of what the existing `tests/crawl_tests.rs` `contains` assertions match
   (prefix, never rewrite).
 - [x] Confirm the TTY arms are byte-identical and no new write to stdout exists.
+- [x] F1 remediation (review cycle 1): the non-TTY failure path returned `Err` through
+  `Termination`, so the runtime printed its own untimestamped `Error:`/`Caused by:` trailer
+  after the shaped record (R1 partial). `main` now exits 1 directly off-TTY after the shaped
+  record; the TTY `Err` return is untouched. The phase `verify:` gains the failure-shape gate
+  (`! grep -qvE …`), which fails on the old binary's trailer by construction.
 - **Verify:** `cargo test --lib && .agents/factory/bin/temp_index.sh sh -c 'mkdir -p t/a && head -c 512 /dev/zero > t/a/f && xdu t -o idx 2>err.log && grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" err.log && grep -q "INFO" err.log && grep -q "Completed" err.log'` (lib tests plus a real non-TTY crawl whose stderr carries timestamps, tags, and the summary).
 - **Touches:** `src/lib.rs`, `src/bin/xdu.rs`.
 
@@ -161,6 +169,10 @@ tests below, so the orchestrator (not the blind reviewer) grades them.
   non-goal of a future `--log-format`/`--quiet` flag, negotiated at shaping — not a
   build-time deferral, so no new `issues/` file; P1–P2 bodies and the diff carry no
   "do not fix here".)
+- [x] F2 remediation (review cycle 1): `test_failing_run_logs_error_record_without_marker`
+  filtered to `ERROR` lines, so the trailer passed through unchecked. It now asserts every
+  stderr line keeps the record shape behind a non-empty guard, the way the success-path test
+  does. Ships in the same commit as the P1 fix: the test is the durable lock for the fix.
 - **Verify:** `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test`.
 - **Touches:** `tests/crawl_tests.rs`.
 

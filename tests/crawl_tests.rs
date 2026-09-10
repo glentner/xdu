@@ -1106,17 +1106,21 @@ fn test_failing_run_logs_error_record_without_marker() {
     let (_out, err, ok) = run_xdu(&["-o", index.to_str().unwrap(), missing.to_str().unwrap()]);
     assert!(!ok, "indexing a missing directory must fail");
 
-    let errors: Vec<&str> = err.lines().filter(|l| l.contains("ERROR")).collect();
+    // The failure leaves exactly the timestamped record: with the runtime's own
+    // `Error:`/`Caused by:` trailer suppressed, every stderr line keeps the shape,
+    // the way the success-path test already demands.
+    let lines: Vec<&str> = err.lines().collect();
     assert!(
-        !errors.is_empty(),
+        !lines.is_empty(),
+        "the failure must leave a record: {err:?}"
+    );
+    for line in &lines {
+        assert!(is_log_record(line), "every line is one record: {line:?}");
+    }
+    assert!(
+        err.contains("ERROR"),
         "the failure must leave a timestamped record: {err:?}"
     );
-    for line in &errors {
-        assert!(
-            is_log_record(line),
-            "the failure record keeps the shape: {line:?}"
-        );
-    }
     assert!(
         err.contains("missing"),
         "the record must name what failed: {err:?}"

@@ -572,17 +572,21 @@ fn main() -> Result<()> {
     match run(is_tty) {
         Ok(()) => Ok(()),
         Err(err) => {
-            // The process verdict below (anyhow's `Error:` print) carries no timestamp,
-            // so a scripted run would log what failed without saying when. This record is
-            // the timestamped witness; the `Err` return still drives the exit code, and
-            // the marker ordering below is untouched — a failed run stays unattested.
-            if !is_tty {
+            if is_tty {
+                Err(err)
+            } else {
+                // The shaped record below is the run's only verdict. Returning `Err`
+                // would make the runtime print its own untimestamped `Error:`/`Caused
+                // by:` block after it, breaking the one-record-per-line shape the
+                // non-TTY log promises. Exiting directly keeps the failure loud at
+                // the same status code the `Err` return would have produced, and the
+                // marker ordering is untouched — a failed run stays unattested.
                 eprintln!(
                     "{}",
                     format_log_record(LogLevel::Error, &format!("{err:#}"))
                 );
+                std::process::exit(1);
             }
-            Err(err)
         }
     }
 }
