@@ -24,14 +24,14 @@ appetite: small
 
 The skewed-tree pass gives a quiet partition evidence of life (`scanning N dirs, Ns, no files yet`),
 but the refresh that renders it runs only when the walker yields an entry: the tick block sits
-inside `for entry in walker` (`src/bin/xdu.rs:372-441`), gated on the 100 ms interval, while the
-line's content until the first tick is the bare `scanning...` set at partition start (`:213`). A
+inside `for entry in walker` (`src/bin/xdu.rs:405-474`), gated on the 100 ms interval, while the
+line's content until the first tick is the bare `scanning...` set at partition start (`:234`). A
 partition whose reads block entirely — no yield before the first entry, or a stall between
 yields — therefore keeps the bare line with no dirs count and no elapsed, for as long as the
 blockage lasts.
 Two consequences follow. A quiet line carries no duration, so quiet-for-seconds and
 quiet-for-an-hour read identically; the operator gets the wedged-against-moving-global reading but
-not its age. And a stall across every partition at once freezes the global line too (`:434` sits in
+not its age. And a stall across every partition at once freezes the global line too (`:467` sits in
 the same gated block), leaving no motion anywhere on the display.
 
 ## Why it was deferred

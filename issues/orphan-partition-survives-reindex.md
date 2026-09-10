@@ -19,7 +19,7 @@ clean bill of health for an index carrying rows for files that no longer exist.
 - `src/crawl.rs:493` — `PartitionBuffer::finalize()` prunes stale chunks only *within* the partition it
   just wrote (`for chunk_id in num_chunks..` under `outdir.join(&self.partition)`). A partition the run
   never enqueued is never opened, so nothing prunes it.
-- `src/bin/xdu.rs:654` — the marker is written from the run's own stats, so `files=` counts the rows this
+- `src/bin/xdu.rs:713` — the marker is written from the run's own stats, so `files=` counts the rows this
   run wrote while the index still returns those plus every phantom row. Nothing cross-checks the two.
 
 Reproduced against the real binaries (three partitions of three files; `p3` removed from the source,

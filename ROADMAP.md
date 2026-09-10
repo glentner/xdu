@@ -126,19 +126,6 @@ single-pool work-stealing walk untouched.
 *Horizon: near-term · Depends on: the skewed-tree display fix, delivered on `main` — see `spec/crawl-progress-misleads-on-huge-trees/` · Refs: `spec/crawl-progress-misleads-on-huge-trees/REVIEW.md` (cycle 1, F1)*
 **Seed:** [`issues/crawl-progress-zero-yield-stall.md`](issues/crawl-progress-zero-yield-stall.md)
 
-## Machine-readable log output for cron-driven crawls
-
-`xdu` has one output posture: rich spinners on a TTY, plain lines otherwise. The non-TTY path
-already keeps stdout clean and prints records to stderr, but they carry no timestamp, no severity,
-and no stable parseable shape — a 3 AM cron failure leaves a log that says what finished without
-saying when or how severely. The intent is a log mode (format still open: timestamped tagged
-lines, JSON lines, or a syslog transport) from which a script or a human can reconstruct the run:
-start with arguments, per-partition completions, warnings, the completion-marker verdict, and a
-final summary. The interactive display is untouched.
-
-*Horizon: near-term · Depends on: — · Refs: —*
-**Seed:** [`issues/indexer-machine-readable-log-output.md`](issues/indexer-machine-readable-log-output.md)
-
 ## Web client (`xdu-web`)
 
 `xdu-view` is terminal-only, which limits who can explore an index and from where. Once indices live

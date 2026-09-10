@@ -21,7 +21,7 @@ previous index held. With `--allow-errors` the run then exits 0 and writes a com
   `num_chunks == 0`, so the prune starts at `000000.parquet` and walks the whole tail. The loop is
   correct for its intended job (retiring the surplus of a prior *larger* run); it has no way to
   distinguish "this partition is legitimately smaller now" from "this partition could not be read".
-- `src/bin/xdu.rs:654` — with `--allow-errors` the marker is written anyway, recording `errors=1`, so
+- `src/bin/xdu.rs:713` — with `--allow-errors` the marker is written anyway, recording `errors=1`, so
   the destroyed partition is attested by a run that exited 0.
 
 Reproduced against the real binaries (`alpha` holding 10 files, `beta` holding 1; `alpha` then made
