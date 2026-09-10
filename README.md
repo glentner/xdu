@@ -94,6 +94,14 @@ cargo install --git https://github.com/xdu-project/xdu.git
 
 Requires [Rust](https://rustup.rs) nightly toolchain.
 
+### Containers
+
+Container specs for Docker and Apptainer/Singularity live in [`hpccm/`](hpccm/), generated
+from a single [HPCCM](https://github.com/NVIDIA/hpc-container-maker) recipe. They install
+the published release binaries with no Rust toolchain, so they finish in seconds; see
+[`hpccm/README.md`](hpccm/README.md) for usage. They track release tags, not the working
+tree — for unreleased commits, build from source instead.
+
 ## Usage
 
 ### Building an Index
