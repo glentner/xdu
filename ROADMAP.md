@@ -312,6 +312,18 @@ already define the exact file map these packages would ship.
 *Horizon: near-term, low priority · Depends on: — (builds on the established release layout) · Refs: #5*
 **Seed:** [`issues/native-os-packages-deb-rpm.md`](issues/native-os-packages-deb-rpm.md)
 
+## Portable Linux baseline (manylinux) for RHEL8/9
+
+Release tarballs build on Ubuntu 24.04 and need glibc up to 2.39, so they fail at first exec on
+RHEL8 (2.28), RHEL9 (2.34), and even bookworm (2.36) — the machines HPC operators actually run.
+The container recipe works around this with a trixie runtime, but the native tarball stays
+unusable without one. The intent is a `manylinux_2_28`-class builder floor (2.28 covers RHEL8 and
+everything newer; Ubuntu 22.04 at 2.35 does not), guarded in CI so the floor cannot float back
+with the next toolchain bump, with the container recipe tracking the new baseline afterward.
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** [`issues/manylinux-release-baseline.md`](issues/manylinux-release-baseline.md)
+
 ## Toward v1.0: narrative, branding, and community
 
 A v1.0 cut is as much about explaining the project as shipping code. Why does an extreme-scale
