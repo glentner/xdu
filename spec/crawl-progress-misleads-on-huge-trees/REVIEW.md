@@ -104,3 +104,11 @@ authoritative path list; this copy may only ever **widen** to match it.)
 ## Optional completeness sub-pass (separate reviewer; may see TECH.md)
 
 - Not run: no `completeness` argument was passed.
+
+## Triage note (2026-09-10)
+
+The human triaged F1 as **defer, not fix**: the zero-yield window reads as R2's own
+wedged-against-moving-global case, and the full fix (a yield-independent refresh) is
+disproportionate on this branch. Recorded as a known limitation in
+[`issues/crawl-progress-zero-yield-stall.md`](../../issues/crawl-progress-zero-yield-stall.md)
+with a `ROADMAP.md` entry. `GOAL.md` is unchanged; the cycle 1 verdict stands.
