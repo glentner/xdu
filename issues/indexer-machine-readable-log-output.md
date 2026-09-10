@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: shaped on feature/indexer-machine-readable-log-output (2026-09-10) — see spec/indexer-machine-readable-log-output/GOAL.md
 kind: feature
 appetite: small
 ---
