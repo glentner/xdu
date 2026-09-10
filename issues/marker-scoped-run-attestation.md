@@ -14,9 +14,9 @@ appetite: small
 The completion marker attests to a *whole index*, but its contents come from **one run's** stats, and
 nothing scopes either half to the partitions that run actually touched.
 
-- `src/bin/xdu.rs:92` — `clear_completion_marker(outdir)?` runs on **every** crawl, including
+- `src/bin/xdu.rs:97` — `clear_completion_marker(outdir)?` runs on **every** crawl, including
   `xdu -p onepartition`. The clear is not filtered by `partition_filter`.
-- `src/bin/xdu.rs:636` — `write_completion_marker(&outdir, &completion_marker_contents(&stats, …))`
+- `src/bin/xdu.rs:654` — `write_completion_marker(&outdir, &completion_marker_contents(&stats, …))`
   writes `files=`, `errors=`, `vanished=`, `lossy_paths=` from that run alone.
 
 So this sequence silently loses a warning that was correct:
@@ -37,7 +37,7 @@ covering partitions it never looked at.
 Recorded during `crawl-hardening` P9, which introduced the reader-side warning that makes this
 reachable. Fixing it is **marker-format or CLI-semantics work** — per-partition attestation, or
 refusing to write a whole-index marker from a scoped run — and both were explicit non-goals of that
-GOAL. P9 left a `// Known limitation:` comment at the write site (`xdu.rs:628`) rather than smuggling
+GOAL. P9 left a `// Known limitation:` comment at the write site (`xdu.rs:646`) rather than smuggling
 a format change into a reader-warning phase.
 
 Worth stating plainly: P9's warning is **still a strict improvement**. Before it, an `--allow-errors`

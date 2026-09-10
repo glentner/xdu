@@ -16,10 +16,10 @@ directory is removed from the source, its partition directory — chunks and row
 indefinitely, the run still exits 0, and it writes a completion marker. Every reader then reports a
 clean bill of health for an index carrying rows for files that no longer exist.
 
-- `src/crawl.rs:440` — `PartitionBuffer::finalize()` prunes stale chunks only *within* the partition it
+- `src/crawl.rs:493` — `PartitionBuffer::finalize()` prunes stale chunks only *within* the partition it
   just wrote (`for chunk_id in num_chunks..` under `outdir.join(&self.partition)`). A partition the run
   never enqueued is never opened, so nothing prunes it.
-- `src/bin/xdu.rs:636` — the marker is written from the run's own stats, so `files=` counts the rows this
+- `src/bin/xdu.rs:654` — the marker is written from the run's own stats, so `files=` counts the rows this
   run wrote while the index still returns those plus every phantom row. Nothing cross-checks the two.
 
 Reproduced against the real binaries (three partitions of three files; `p3` removed from the source,

@@ -16,12 +16,12 @@ directory has become unreadable. The walk yields one hard error and zero files, 
 still finalized, and finalize prunes from chunk 0 — taking the entire contiguous run of chunks the
 previous index held. With `--allow-errors` the run then exits 0 and writes a completion marker.
 
-- `src/crawl.rs:458` — `PartitionBuffer::finalize()` prunes `for chunk_id in num_chunks..`, where
+- `src/crawl.rs:511` — `PartitionBuffer::finalize()` prunes `for chunk_id in num_chunks..`, where
   `num_chunks` is the count *this* run wrote. A partition that produced no records finalizes with
   `num_chunks == 0`, so the prune starts at `000000.parquet` and walks the whole tail. The loop is
   correct for its intended job (retiring the surplus of a prior *larger* run); it has no way to
   distinguish "this partition is legitimately smaller now" from "this partition could not be read".
-- `src/bin/xdu.rs:636` — with `--allow-errors` the marker is written anyway, recording `errors=1`, so
+- `src/bin/xdu.rs:654` — with `--allow-errors` the marker is written anyway, recording `errors=1`, so
   the destroyed partition is attested by a run that exited 0.
 
 Reproduced against the real binaries (`alpha` holding 10 files, `beta` holding 1; `alpha` then made

@@ -13,7 +13,7 @@ appetite: small
 
 `xdu` has one output posture: rich indicatif spinners on a TTY, plain lines otherwise. The
 non-TTY path already keeps stdout clean and prints `Indexing …` / `Finished …` records to stderr
-(`src/bin/xdu.rs:98-100`, `:117-119`, `:460-467`), so a cron job captures *something* — but the
+(`src/bin/xdu.rs:101-103`, `:117-119`, `:460-467`), so a cron job captures *something* — but the
 records carry no timestamp, no severity, and no stable machine-parseable shape. A 3 AM cron
 failure leaves a log that says what finished without saying when, in what order relative to
 wall-clock events elsewhere, or at which severity a warning was emitted. There is no `--log-format`
@@ -42,7 +42,7 @@ status. The interactive TTY display is untouched.
   byte counts), warning, completion-marker, and final-summary records, so the log alone explains
   the exit status.
 - **R3** — Stdout SHALL stay clean and pipeable in every log mode (the existing non-TTY invariant
-  in `src/bin/xdu.rs:182`, `AGENTS.md` §13).
+  in `src/bin/xdu.rs:185`, `AGENTS.md` §13).
 
 ## Notes
 
