@@ -33,6 +33,16 @@ directories visited, and elapsed time since the partition started; exact wording
 choice. When files flow, the lively branch keeps its current shape (counts, bytes, speed) minus
 `[Tn]`. One interval (`bar_interval`, 100 ms) governs both branches; no second clock.
 
+Zero yields get their own word. Until the first walker entry (file or directory) yields, the
+line SHALL read `waiting...` with elapsed time — never `scanning...`: the partition left the
+queue when the driver popped it, so `queued` would misstate it in the other direction, but
+nothing has been scanned yet and the startup/starved state must not borrow the active word.
+The flip to `scanning` happens on the first yielded entry and never flips back. Whether the
+quiet comes from pool starvation or a slow filesystem is unobservable from the driver loop,
+so the line states the observation (elapsed with zero yields), never the cause. Unclaimed
+partitions stay invisible — bars are per-driver, at most N lines — and a shared claimed/done
+counter was considered and rejected: new shared state for what the global totals already show.
+
 **R3 — the global line rides the same hoist.** The global totals refresh (`:421-426`) lives
 inside the same gated block, so it freezes exactly when every partition is quiet. Hoisting the
 block fixes the global line with no separate change; its shape is unchanged.
@@ -43,9 +53,9 @@ pay it too. No new threads (the thread budget in §7 stands), no new shared atom
 queue change. `enable_steady_tick` on both bar kinds is unchanged.
 
 **Testability (§11).** Extract the partition-line rendering into `src/lib.rs` as a pure
-function (one function covering both branches, e.g. taking partition, file/dir counts, bytes,
-elapsed, and the optional speed fragment — exact signature is the build's choice) and unit-test
-both branches there, reusing `format_count`/`format_bytes`. The bin keeps orchestration:
+function (one function covering all three line states — waiting, quiet-scanning, lively;
+exact signature is the build's choice) and unit-test each state there, reusing
+`format_count`/`format_bytes`. The bin keeps orchestration:
 counting, throttling, `set_message`. The global line stays inline; its shape does not change.
 
 **Out of scope, restated.** Non-TTY stderr posture byte-identical (draw target hidden, `Finished`
@@ -56,7 +66,7 @@ lines as-is). No flag, no schema, no partition-scheme, no marker change.
 | R-ID | Design element(s) that satisfy it |
 |------|-----------------------------------|
 | R1   | Delete `[T{driver_id}]` from the per-partition message (`:413-420`); clean up the unused binding. |
-| R2   | Driver-local `dirs_visited` + hoisted 100 ms refresh + quiet-branch message (partition, dirs, elapsed) via a new pure `lib` builder with unit tests. |
+| R2   | Driver-local `dirs_visited` + hoisted 100 ms refresh + quiet-branch message (partition, dirs, elapsed) via a new pure `lib` builder with unit tests; zero-yield lines read `waiting...` with elapsed, flipping to `scanning` on the first yielded entry, never back. |
 | R3   | Global totals refresh covered by the same hoist; message shape unchanged. |
 | R4   | No thread/pool/queue change; per-entry cost is one increment plus one clock read; existing crawl tests plus a `temp_index.sh` drive prove no regression. |
 

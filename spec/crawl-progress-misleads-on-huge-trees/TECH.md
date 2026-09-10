@@ -98,9 +98,9 @@ checklists below are the work. `xdu-build` executes the next actionable phase, r
 **Goal:** The per-partition line no longer claims driver ownership, and its rendering lives in a
 unit-tested pure builder in `src/lib.rs`.
 
-- [ ] Add a pure partition-line builder to `src/lib.rs` (both lively and quiet branches;
-  exact signature the implementer's choice within `PLAN.md` §2's required elements), reusing
-  `format_count` / `format_bytes`; unit-test both branches.
+- [ ] Add a pure partition-line builder to `src/lib.rs` (all three line states — waiting,
+  quiet-scanning, lively; exact signature the implementer's choice within `PLAN.md` §2's
+  required elements), reusing `format_count` / `format_bytes`; unit-test each state.
 - [ ] Wire the lively branch into `src/bin/xdu.rs` in place of the current inline `format!`,
   minus the `[T{driver_id}]` token; clean up the now-unused `driver_id` binding so
   `clippy -D warnings` stays green.
@@ -116,8 +116,9 @@ real-binary drive prove no regression.
 
 - [ ] Add a driver-local `dirs_visited` counter; hoist the throttled bar refresh so every
   walker entry (files and directories) triggers it, per `PLAN.md` §2.
-- [ ] Render the quiet branch (zero files: partition, dirs visited, elapsed) through the P1
-  builder; leave the global message shape unchanged.
+- [ ] Render the quiet states through the P1 builder — `waiting...` with elapsed at zero
+  yields, `scanning` with dirs visited plus elapsed once entries flow; leave the global
+  message shape unchanged.
 - [ ] Drive the real binaries on a throwaway index and assert the index is byte-complete
   (`xdu-find --count` over the fixture); run `fmt --check`, `clippy -D warnings`, full
   `cargo test`.
