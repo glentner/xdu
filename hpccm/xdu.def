@@ -1,0 +1,60 @@
+# NOTE: this definition file depends on features only available in
+# Singularity 3.2 and later.
+BootStrap: docker
+From: debian:trixie-slim
+Stage: build
+%post
+    . /.singularity.d/env/10-docker*.sh
+
+%post
+    apt-get update -y
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl
+    rm -rf /var/lib/apt/lists/*
+
+%post
+    cd /
+    curl -fsSL -o /xdu-dist.tar.gz "https://github.com/xdu-project/xdu/releases/download/v0.5.1/xdu-v0.5.1-$(uname -m)-unknown-linux-gnu.tar.gz"
+
+BootStrap: docker
+From: debian:trixie-slim
+%post
+    . /.singularity.d/env/10-docker*.sh
+
+%labels
+    org.opencontainers.image.source https://github.com/xdu-project/xdu
+    org.opencontainers.image.version v0.5.1
+
+%post
+    apt-get update -y
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libstdc++6
+    rm -rf /var/lib/apt/lists/*
+
+%files from build
+    /xdu-dist.tar.gz /xdu-dist.tar.gz
+
+%post
+    cd /
+    mkdir -p /opt/xdu
+    tar -xzf /xdu-dist.tar.gz -C /opt/xdu
+    rm -f /xdu-dist.tar.gz
+
+%post
+    cd /
+    /opt/xdu/bin/xdu --version
+    /opt/xdu/bin/xdu-find --version
+    /opt/xdu/bin/xdu-view --version
+    /opt/xdu/bin/xdu-rm --version
+
+%environment
+    export MANPATH=/opt/xdu/share/man:$MANPATH
+    export PATH=/opt/xdu/bin:$PATH
+%post
+    export MANPATH=/opt/xdu/share/man:$MANPATH
+    export PATH=/opt/xdu/bin:$PATH
+
+%runscript
+    exec /opt/xdu/bin/xdu "$@"

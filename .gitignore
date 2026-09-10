@@ -22,3 +22,5 @@ __pycache__/
 !/bench/results/comparison-*.json
 # MacOS cache
 .DS_Store
+# Singularity/Apptainer images
+*.sif
