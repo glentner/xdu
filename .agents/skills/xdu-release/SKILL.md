@@ -5,7 +5,8 @@ description: >-
   xdu-publish leaves ("version bumps / releases are a separate concern... out of scope here"). Two
   modes: `release` (final vX.Y.Z off main) and `pre-release` (SemVer prerelease vX.Y.Z-rc.N off main;
   ghcr latest/major/minor suppressed by metadata-action type=semver). Shared core: bump the single
-  version source (Cargo.toml) + `cargo update -p xdu`, rebuild man/completions only if the CLI changed,
+  version source (Cargo.toml) + `cargo update -p xdu`, bump the hpccm recipe version + regenerate its
+  specs, rebuild man/completions only if the CLI changed,
   run the CI-mirror gate (cargo fmt --check → clippy -D warnings → test --locked → build --release
   --locked), sign an annotated tag, then — only after an explicit human OK before the first irreversible
   step — push + `gh release create`, and verify the GitHub release / ghcr / Actions. Rehearses every op
@@ -90,13 +91,16 @@ self-contradictory or ambiguous, STOP and ask.
 - **The gate is non-negotiable.** `cargo fmt --all -- --check`, `cargo clippy --all-targets
   --all-features -- -D warnings`, `cargo test --locked`, and `cargo build --release --locked` must ALL
   pass. A red gate is a STOP, never an override-to-ship.
-- **Version is single-sourced.** Bump `Cargo.toml` only; `cargo update -p xdu` refreshes the `xdu`
-  entry in `Cargo.lock`. Confirm the bump with `xdu --version` — all four `#[command(...)]` blocks
-  in `src/cli.rs` set `version`, so clap derives `-V`/`--version` from `Cargo.toml` — or read
-  `Cargo.toml`, or the `xdu=` line of a completion marker, which is built from `CARGO_PKG_VERSION`. The
-  `doc/*.scd` man sources carry **no** version string and completions derive from `src/cli.rs`, so a
-  pure version bump does **not** rebuild them; `share/` is a generated artifact built in CI regardless
-  ([`invariants.md`](../../factory/invariants.md) §13). Never hardcode a version elsewhere.
+- **Version is single-sourced, with one tracked exception.** Bump `Cargo.toml`;
+  `cargo update -p xdu` refreshes the `xdu` entry in `Cargo.lock`. Confirm the bump with
+  `xdu --version` — all four `#[command(...)]` blocks in `src/cli.rs` set `version`, so clap
+  derives `-V`/`--version` from `Cargo.toml` — or read `Cargo.toml`, or the `xdu=` line of a
+  completion marker, which is built from `CARGO_PKG_VERSION`. The `doc/*.scd` man sources carry
+  **no** version string and completions derive from `src/cli.rs`, so a pure version bump does
+  **not** rebuild them; `share/` is a generated artifact built in CI regardless
+  ([`invariants.md`](../../factory/invariants.md) §13). The `hpccm/xdu.py` recipe `VERSION` is
+  the single exception: it pins the release the containers install, so the bump moves it in
+  lockstep with regenerated specs (Step 4). Never hardcode a version anywhere else.
 - **Signed tags only.** A signed annotated tag (`git tag -s`, letting git pick the configured signing
   key — **do not hardcode a key id**), verified with `git tag -v` **before** any push.
 - **Release notes are drafted, then confirmed.** Auto-draft from `git log <lasttag>..HEAD` grouped by
@@ -136,9 +140,10 @@ Rehearse the ENTIRE release in isolation before any real ref moves:
    (**`--detach`** — `main` is already checked out in the main tree and git refuses to check out the
    same branch twice; a detached worktree at the `main` commit sidesteps that and needs no branch of
    its own).
-2. In that worktree, replay the shared core (Step 4: bump + `cargo update -p xdu`, and any man/
-   completion rebuild only if the CLI changed) and the **full gate** (Step 5: `cargo fmt --check` +
-   `cargo clippy … -D warnings` + `cargo test --locked` + `cargo build --release --locked`).
+2. In that worktree, replay the shared core (Step 4: bump + `cargo update -p xdu`, the hpccm
+   `VERSION` bump + `make -B` regen, and any man/completion rebuild only if the CLI changed) and
+   the **full gate** (Step 5: `cargo fmt --check` + `cargo clippy … -D warnings` +
+   `cargo test --locked` + `cargo build --release --locked`).
 3. `git worktree remove "$dir/rel"`. Any red → STOP and report; **nothing in the real tree moved.**
 
 Portability: this is plain `git worktree` + the same gate commands — no Claude-specific affordance. If
@@ -154,16 +159,23 @@ at the intended commit; the Step 4 bump commit and the Step 6 tag land here. (Th
 1. Edit the `version = "…"` line in `Cargo.toml` → `X.Y.Z` (strip the leading `v`; this is the ONLY
    source).
 2. `cargo update -p xdu` (refresh the `xdu` entry in `Cargo.lock`).
-3. **Man pages + completions rebuild only if the CLI changed.** The `doc/*.scd` sources carry no
+3. **HPCCM recipe tracks the release.** Bump `VERSION` in `hpccm/xdu.py` to `X.Y.Z` (strip
+   the leading `v`; the recipe re-adds it), regenerate from `hpccm/` with `make -B`
+   (requires `hpccm` on `PATH` — `pipx install 'hpccm==26.5.0'`), and confirm the spec diff
+   shows only version lines. Unlike `share/`, the specs are committed artifacts, so they ride
+   the bump commit; CI (`make check` in the packaging job) asserts freshness.
+4. **Man pages + completions rebuild only if the CLI changed.** The `doc/*.scd` sources carry no
    version string and completions derive from `src/cli.rs`, so a pure version bump touches neither —
    and `share/` is generated in CI (`release.yaml`) regardless and is git-ignored (do not commit it).
    A CLI change is the *feature's* same-commit responsibility and is already on `main`; a version cut
    normally rebuilds nothing here. Only if you must (an out-of-band CLI fix rode in): `scdoc <
    doc/NAME.1.scd > share/man/man1/NAME.1` and `cargo run --release --bin gen-completions …`.
-4. **Verify** `git diff` shows ONLY `Cargo.toml` (the version line) and `Cargo.lock` (the `xdu`
-   version) — a version-only bump.
-5. Commit `[release] Bump version to vX.Y.Z`, staging **exactly** these two files: `Cargo.toml`,
-   `Cargo.lock`. **No `Co-Authored-By` trailer.**
+5. **Verify** `git diff` shows ONLY the version bump: `Cargo.toml` (the version line),
+   `Cargo.lock` (the `xdu` version), `hpccm/xdu.py` (the `VERSION` line), and the regenerated
+   `hpccm/xdu.def` + `hpccm/xdu.docker` (version lines only).
+6. Commit `[release] Bump version to vX.Y.Z`, staging **exactly** these files: `Cargo.toml`,
+   `Cargo.lock`, `hpccm/xdu.py`, `hpccm/xdu.def`, `hpccm/xdu.docker`.
+   **No `Co-Authored-By` trailer.**
 
 ### Step 5 — Gate (mirrors CI; non-negotiable)
 Run all of: `cargo fmt --all -- --check`; `cargo clippy --all-targets --all-features -- -D warnings`;
