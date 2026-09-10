@@ -1039,6 +1039,42 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// Render one driver's per-partition progress line from its observed counters.
+///
+/// The line state derives from the counters, never from a thread claim: zero yielded entries
+/// means the driver holds the partition but the walk has produced nothing yet (`waiting`);
+/// entries without completed files mean metadata traversal with nothing countable
+/// (`scanning`, with directories visited and elapsed); completed files mean the lively shape.
+/// Elapsed arrives as whole seconds so the line stays stable between refresh ticks, and the
+/// speed fragment is the caller's verbatim (empty when the rolling window has no sample yet).
+pub fn format_partition_progress(
+    partition: &str,
+    files: u64,
+    bytes: u64,
+    dirs_visited: u64,
+    elapsed_secs: u64,
+    speed_fragment: &str,
+) -> String {
+    if files == 0 && dirs_visited == 0 {
+        format!("{}: waiting... {}s", partition, elapsed_secs)
+    } else if files == 0 {
+        format!(
+            "{}: scanning {} dirs, {}s, no files yet",
+            partition,
+            format_count(dirs_visited),
+            elapsed_secs
+        )
+    } else {
+        format!(
+            "{}: {} files, {}{}",
+            partition,
+            format_count(files),
+            format_bytes(bytes),
+            speed_fragment
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1110,6 +1146,68 @@ mod tests {
     fn test_format_bytes_mib() {
         assert_eq!(format_bytes(1024 * 1024), "1.00 MiB");
         assert_eq!(format_bytes(1024 * 1024 * 2 + 1024 * 512), "2.50 MiB");
+    }
+
+    // format_partition_progress() tests
+    #[test]
+    fn test_partition_progress_waiting() {
+        // Zero yielded entries: the driver holds the partition but the walk has produced
+        // nothing, so the line waits rather than borrowing the active word.
+        assert_eq!(
+            format_partition_progress("alice", 0, 0, 0, 0, ""),
+            "alice: waiting... 0s"
+        );
+        assert_eq!(
+            format_partition_progress("alice", 0, 0, 0, 47, ""),
+            "alice: waiting... 47s"
+        );
+    }
+
+    #[test]
+    fn test_partition_progress_quiet_scanning() {
+        // Entries without completed files: metadata traversal with nothing countable yet.
+        assert_eq!(
+            format_partition_progress("alice", 0, 0, 3, 12, ""),
+            "alice: scanning 3 dirs, 12s, no files yet"
+        );
+        // Directory counts scale the way file counts do.
+        assert_eq!(
+            format_partition_progress("alice", 0, 0, 1500, 61, ""),
+            "alice: scanning 1.5K dirs, 61s, no files yet"
+        );
+    }
+
+    #[test]
+    fn test_partition_progress_lively() {
+        // Completed files: counts and bytes, with the caller's speed fragment verbatim.
+        assert_eq!(
+            format_partition_progress("alice", 2, 2048, 5, 3, ""),
+            "alice: 2 files, 2.00 KiB"
+        );
+        assert_eq!(
+            format_partition_progress(
+                "alice",
+                1500,
+                4096,
+                9,
+                3,
+                " | 1.5k files/s (peak: 2.0k files/s)"
+            ),
+            "alice: 1.5K files, 4.00 KiB | 1.5k files/s (peak: 2.0k files/s)"
+        );
+    }
+
+    #[test]
+    fn test_partition_progress_carries_no_thread_claim() {
+        // The regression this cycle exists for: no line state may name a driver or worker.
+        let states = [
+            format_partition_progress("alice", 0, 0, 0, 30, ""),
+            format_partition_progress("alice", 0, 0, 500, 30, ""),
+            format_partition_progress("alice", 10, 1024, 5, 30, ""),
+        ];
+        for msg in &states {
+            assert!(!msg.contains("[T"), "thread claim leaked: {msg}");
+        }
     }
 
     #[test]

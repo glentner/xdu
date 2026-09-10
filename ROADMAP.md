@@ -128,6 +128,18 @@ threading model, with the single-pool work-stealing design unchanged.
 *Horizon: near-term · Depends on: — (display only; `src/bin/xdu.rs` progress block) · Refs: —*
 **Seed:** [`issues/crawl-progress-misleads-on-huge-trees.md`](issues/crawl-progress-misleads-on-huge-trees.md)
 
+## Crawl progress: quiet lines should show elapsed with zero yields
+
+The skewed-tree pass gives a quiet partition evidence of life, but only while its walker yields
+entries — the refresh sits inside the entry loop. A partition whose reads block entirely keeps the
+bare `scanning...` with no dirs count and no elapsed, so quiet-for-seconds and quiet-for-an-hour
+read identically, and a stall across every partition at once freezes the global line too. The
+intent is a yield-independent refresh (elapsed-since-activity on each quiet line) that leaves the
+single-pool work-stealing walk untouched.
+
+*Horizon: near-term · Depends on: the skewed-tree entry above (ships first) · Refs: `spec/crawl-progress-misleads-on-huge-trees/REVIEW.md` (cycle 1, F1)*
+**Seed:** [`issues/crawl-progress-zero-yield-stall.md`](issues/crawl-progress-zero-yield-stall.md)
+
 ## Machine-readable log output for cron-driven crawls
 
 `xdu` has one output posture: rich spinners on a TTY, plain lines otherwise. The non-TTY path
