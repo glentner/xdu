@@ -23,8 +23,8 @@ use xdu::crawl::{
     write_completion_marker,
 };
 use xdu::{
-    LogLevel, SizeMode, format_bytes, format_count, format_log_record, format_partition_progress,
-    format_speed, get_schema, parse_size,
+    COMPLETION_MARKER, LogLevel, SizeMode, format_bytes, format_count, format_log_record,
+    format_partition_progress, format_speed, get_schema, parse_size,
 };
 
 /// Crawl a directory tree using concurrent per-partition walks with a shared thread pool.
@@ -47,6 +47,19 @@ use xdu::{
 /// The run-level completion marker is cleared once pre-flight passes and written by
 /// `main` only on the success path, so an index this run abandons carries no
 /// attestation, while a run rejected before it crawls leaves the previous marker intact.
+/// Short label for the size mode in the run-start log record.
+///
+/// Mirrors the flag that selected it (`--apparent-size`, `--block-size SIZE`), defaulting
+/// to disk usage. Bin-local: only this binary's log renders it, and the record shape —
+/// including this token — is locked by the log-shape integration test.
+fn size_mode_label(mode: SizeMode) -> String {
+    match mode {
+        SizeMode::DiskUsage => "disk-usage".to_string(),
+        SizeMode::ApparentSize => "apparent-size".to_string(),
+        SizeMode::BlockRounded(block_size) => format!("block-rounded({block_size})"),
+    }
+}
+
 fn crawl(
     top_dir: &Path,
     outdir: &Path,
@@ -55,6 +68,7 @@ fn crawl(
     size_mode: SizeMode,
     schema: &Arc<Schema>,
     partition_filter: Option<&HashSet<String>>,
+    allow_errors: bool,
     is_tty: bool,
 ) -> Result<CrawlStats> {
     // Build shared rayon thread pool for jwalk walkers
@@ -118,7 +132,11 @@ fn crawl(
             filter_desc
         );
     } else {
-        let msg = format!("Indexing {}{}", top_dir.display(), filter_desc);
+        let mut opts = format!("jobs={jobs}, size={}", size_mode_label(size_mode));
+        if allow_errors {
+            opts.push_str(", allow-errors");
+        }
+        let msg = format!("Indexing {}{} ({opts})", top_dir.display(), filter_desc);
         eprintln!("{}", format_log_record(LogLevel::Info, &msg));
     }
 
@@ -550,9 +568,28 @@ fn crawl(
 }
 
 fn main() -> Result<()> {
+    let is_tty = stderr().is_terminal();
+    match run(is_tty) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            // The process verdict below (anyhow's `Error:` print) carries no timestamp,
+            // so a scripted run would log what failed without saying when. This record is
+            // the timestamped witness; the `Err` return still drives the exit code, and
+            // the marker ordering below is untouched — a failed run stays unattested.
+            if !is_tty {
+                eprintln!(
+                    "{}",
+                    format_log_record(LogLevel::Error, &format!("{err:#}"))
+                );
+            }
+            Err(err)
+        }
+    }
+}
+
+fn run(is_tty: bool) -> Result<()> {
     let args = XduArgs::parse();
     let start_time = Instant::now();
-    let is_tty = stderr().is_terminal();
 
     // Determine size calculation mode
     let size_mode = if let Some(ref bs) = args.block_size {
@@ -605,6 +642,7 @@ fn main() -> Result<()> {
         size_mode,
         &schema,
         partition_filter.as_ref(),
+        args.allow_errors,
         is_tty,
     )?;
 
@@ -669,6 +707,21 @@ fn main() -> Result<()> {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     write_completion_marker(&outdir, &completion_marker_contents(&stats, completed_at))?;
+
+    // The run is attested; say so on the record. The `Completed` summary above already
+    // carried the counts, but only this line names the marker — without it a script
+    // cannot tell attestation apart from a run that printed a summary and then failed
+    // to write.
+    if !is_tty {
+        let msg = format!(
+            "Marker {} written ({} files, {}{})",
+            outdir.join(COMPLETION_MARKER).display(),
+            format_count(stats.files),
+            format_bytes(stats.bytes),
+            summary_info
+        );
+        eprintln!("{}", format_log_record(LogLevel::Info, &msg));
+    }
 
     Ok(())
 }

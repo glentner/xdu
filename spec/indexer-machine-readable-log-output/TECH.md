@@ -6,7 +6,7 @@ appetite: small
 status: in_progress
 branch: feature/indexer-machine-readable-log-output
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-09-10'
 phases:
 - id: P1
@@ -25,7 +25,7 @@ phases:
     err.log && grep -q "INFO" err.log && grep -q "Completed" err.log'
 - id: P2
   name: Run-start arguments, marker verdict, and failure record
-  status: pending
+  status: done
   satisfies:
   - R2
   - R3
@@ -137,10 +137,10 @@ TTY output is provably untouched and stdout gains nothing.
 **Goal:** The log alone reconstructs the run and explains its exit status: what was asked,
 what was attested, and — on failure — what went wrong with no success marker in sight.
 
-- [ ] Extend the run-start record with effective arguments (jobs, size mode, partition
+- [x] Extend the run-start record with effective arguments (jobs, size mode, partition
   filter, `--allow-errors`); keep the `Indexing <dir>` tokens.
-- [ ] Emit a marker-verdict record after `write_completion_marker` on the success path only.
-- [ ] Emit an explicit `ERROR` record before each failure `Err` return (fail-loud bail and
+- [x] Emit a marker-verdict record after `write_completion_marker` on the success path only.
+- [x] Emit an explicit `ERROR` record before each failure `Err` return (fail-loud bail and
   pre-flight rejects); leave the `Err` returns, exit codes, and marker ordering untouched.
 - **Verify:** `.agents/factory/bin/temp_index.sh sh -c 'xdu /nonexistent-path-xyz -o idx2 2>fail.log; test $? -ne 0 && grep -q "ERROR" fail.log && test ! -e idx2/.xdu-complete'` (failing drive exits non-zero, logs a timestamped failure, writes no marker).
 - **Touches:** `src/bin/xdu.rs`.
