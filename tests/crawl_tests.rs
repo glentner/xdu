@@ -1009,3 +1009,120 @@ fn test_write_failure_abandons_queued_partitions() {
         "a run that failed on a write must not be marked complete"
     );
 }
+
+// =============================================================================
+// Non-TTY stderr is a timestamped, severity-tagged log; stdout stays clean
+// =============================================================================
+
+/// True when the line opens with `<UTC-stamp> <LEVEL> `: a `YYYY-MM-DDTHH:MM:SSZ`
+/// stamp plus one of the three severity tags. Structural only — the contract is the
+/// shape, and the exact clock value is unassertable.
+fn is_log_record(line: &str) -> bool {
+    let mut parts = line.splitn(3, ' ');
+    let (Some(stamp), Some(level), Some(_)) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    let b = stamp.as_bytes();
+    stamp.len() == 20
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b[10] == b'T'
+        && b[13] == b':'
+        && b[16] == b':'
+        && b[19] == b'Z'
+        && stamp
+            .bytes()
+            .all(|c| c.is_ascii_digit() || matches!(c, b'-' | b'T' | b':' | b'Z'))
+        && matches!(level, "INFO" | "WARN" | "ERROR")
+}
+
+#[test]
+fn test_non_tty_stderr_is_timestamped_log_records() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    let index = tmp.path().join("index");
+
+    create_test_file(&source.join("alice/f1.txt"), 100).unwrap();
+    create_test_file(&source.join("bob/f2.txt"), 200).unwrap();
+
+    // Captured pipes are not a TTY, so this drives the log path.
+    let (out, err, ok) = run_xdu(&[
+        "--apparent-size",
+        "-o",
+        index.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ]);
+    assert!(ok, "xdu build failed: {err}");
+    assert!(
+        out.is_empty(),
+        "stdout must stay clean and pipeable, got: {out:?}"
+    );
+
+    let lines: Vec<&str> = err.lines().collect();
+    assert!(!lines.is_empty(), "the run must log something: {err:?}");
+    for line in &lines {
+        assert!(is_log_record(line), "every line is one record: {line:?}");
+    }
+
+    // The log alone reconstructs the run: start with arguments, per-partition
+    // completions with counts, the marker verdict, and the final summary.
+    assert!(
+        err.contains("Indexing "),
+        "missing run-start record: {err:?}"
+    );
+    assert!(err.contains("jobs="), "run-start must state jobs: {err:?}");
+    assert!(
+        err.contains("size=apparent-size"),
+        "run-start must state the size mode: {err:?}"
+    );
+    assert!(
+        err.contains("Finished alice"),
+        "missing per-partition record: {err:?}"
+    );
+    assert!(
+        err.contains("Finished bob"),
+        "missing per-partition record: {err:?}"
+    );
+    assert!(
+        err.contains("Completed "),
+        "missing summary record: {err:?}"
+    );
+    assert!(
+        err.contains("Marker ") && err.contains(COMPLETION_MARKER) && err.contains("written"),
+        "missing marker verdict record: {err:?}"
+    );
+    assert!(
+        index.join(COMPLETION_MARKER).exists(),
+        "the attested run must leave its marker"
+    );
+}
+
+#[test]
+fn test_failing_run_logs_error_record_without_marker() {
+    let tmp = TempDir::new().unwrap();
+    let index = tmp.path().join("index");
+    let missing = tmp.path().join("missing");
+
+    let (_out, err, ok) = run_xdu(&["-o", index.to_str().unwrap(), missing.to_str().unwrap()]);
+    assert!(!ok, "indexing a missing directory must fail");
+
+    let errors: Vec<&str> = err.lines().filter(|l| l.contains("ERROR")).collect();
+    assert!(
+        !errors.is_empty(),
+        "the failure must leave a timestamped record: {err:?}"
+    );
+    for line in &errors {
+        assert!(
+            is_log_record(line),
+            "the failure record keeps the shape: {line:?}"
+        );
+    }
+    assert!(
+        err.contains("missing"),
+        "the record must name what failed: {err:?}"
+    );
+    assert!(
+        !index.join(COMPLETION_MARKER).exists(),
+        "a failed run must not be marked complete"
+    );
+}

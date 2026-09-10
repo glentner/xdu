@@ -3,10 +3,10 @@ slug: indexer-machine-readable-log-output
 title: Machine-readable log output for scripted and cron-driven crawls
 kind: feature
 appetite: small
-status: in_progress
+status: in_review
 branch: feature/indexer-machine-readable-log-output
 base: main
-current_phase: P3
+current_phase: done
 last_updated: '2026-09-10'
 phases:
 - id: P1
@@ -38,7 +38,7 @@ phases:
     2>fail.log; test $? -ne 0 && grep -q "ERROR" fail.log && test ! -e idx2/.xdu-complete'
 - id: P3
   name: Regression tests, full gate, and deferral ledger
-  status: pending
+  status: done
   satisfies:
   - R1
   - R2
@@ -151,13 +151,16 @@ what was attested, and — on failure — what went wrong with no success marker
 delivers no new CLI-observable behavior; its R-IDs are satisfied by the committed regression
 tests below, so the orchestrator (not the blind reviewer) grades them.
 
-- [ ] Add an integration test in `tests/crawl_tests.rs` locking the non-TTY record shape
+- [x] Add an integration test in `tests/crawl_tests.rs` locking the non-TTY record shape
   (every stderr line timestamped and tagged; run-start / per-partition / marker / summary
   records present; stdout pipeable).
-- [ ] Run the pre-release mirror: `fmt --check`, `clippy -D warnings`, full `cargo test`.
-- [ ] Walk P1–P2 checklists for "do not fix" / "follow-up" / "known limitation" language and
+- [x] Run the pre-release mirror: `fmt --check`, `clippy -D warnings`, full `cargo test`.
+- [x] Walk P1–P2 checklists for "do not fix" / "follow-up" / "known limitation" language and
   confirm each has a matching `issues/{slug}.md` plus `ROADMAP.md` entry; an unrecorded
-  deferral fails this phase.
+  deferral fails this phase. (Walked 2026-09-10: the sole follow-up mention is the GOAL
+  non-goal of a future `--log-format`/`--quiet` flag, negotiated at shaping — not a
+  build-time deferral, so no new `issues/` file; P1–P2 bodies and the diff carry no
+  "do not fix here".)
 - **Verify:** `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test`.
 - **Touches:** `tests/crawl_tests.rs`.
 
