@@ -65,6 +65,13 @@ very useful unless copied from the container onto the host.
 
 [hpccm]: https://github.com/NVIDIA/hpc-container-maker
 
+## Cutting a new release
+
+The recipe defaults track the latest tag, so a release moves three things together: bump
+`VERSION` in `xdu.py`, regenerate both specs with `make -B`, and commit recipe plus specs
+as one change. The base-image tags float; before the first container release, digest-pin
+them the way the top-level `Dockerfile` header describes.
+
 ## Caveats
 
 Container runscript is set to run `xdu`, for the `xdu-***` tools use `exec`
