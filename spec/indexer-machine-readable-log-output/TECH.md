@@ -3,7 +3,7 @@ slug: indexer-machine-readable-log-output
 title: Machine-readable log output for scripted and cron-driven crawls
 kind: feature
 appetite: small
-status: in_review
+status: blocked
 branch: feature/indexer-machine-readable-log-output
 base: main
 current_phase: done
@@ -53,10 +53,10 @@ phases:
   verify: cargo fmt --all -- --check && cargo clippy --all-targets --all-features
     -- -D warnings && cargo test
 review:
-  last_reviewed_commit: ''
-  verdict: none
-  blocked_reason: ''
-  cycle: 0
+  last_reviewed_commit: d14bd1508b08fa5e072d5127e8922f52fec16824
+  verdict: changes-requested
+  blocked_reason: 'R1 partial: untagged anyhow trailer on non-TTY failure (src/bin/xdu.rs)'
+  cycle: 1
 ---
 # TECH.md — Machine-readable log output for scripted and cron-driven crawls
 
