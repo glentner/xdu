@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: shaped on fix/crawl-progress-misleads-on-huge-trees (2026-09-09) — see spec/crawl-progress-misleads-on-huge-trees/GOAL.md
 kind: fix
 appetite: small
 ---
