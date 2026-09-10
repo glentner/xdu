@@ -151,3 +151,108 @@ authoritative path list; this copy may only ever **widen** to match it.)
 ## Optional completeness sub-pass (separate reviewer; may see TECH.md)
 
 - Not requested (`completeness` argument absent); not run.
+
+---
+
+## Review cycle 2 — approved (2026-09-10)
+
+- **Reviewed commit:** 9ae1b0c1952f0dc149cb2715f13659671d2592a4 · **Base:** main · **Date:** 2026-09-10
+- **Verdict:** approved
+- **Cycle:** 2 of ≤3 — mirrors `review.cycle` in `TECH.md`.
+- **Mode:** full blind pass over the spec-excluded diff (no scoping to prior findings).
+- **Contract drift:** `git log --oneline main..HEAD -- spec/indexer-machine-readable-log-output/GOAL.md`
+  shows only the shaping commit `474740c`; the locked contract did not move mid-build.
+- **Artifact-deliverable R-IDs:** none. All of R1–R5 have CLI-observable evidence in the
+  spec-excluded diff, so the blind reviewer graded all five.
+
+### Verification run
+
+Blind reviewer (fresh subagent, no `PLAN.md`/`TECH.md`/`META.md`/`spec/`):
+
+- `git diff main...HEAD -- . ':(exclude)spec/'` + `git log --oneline main..HEAD` → graded hunks in
+  `src/lib.rs`, `src/bin/xdu.rs`, `tests/crawl_tests.rs` (+ lifecycle `issues/*.md` status flip).
+- Success drive (multi-partition): every stderr line matched
+  `^[0-9]{4}-…Z (INFO|WARN|ERROR)`, stdout 0 bytes; run-start with args, per-partition `Finished`
+  with counts, `Marker … written`, `Completed` all observed; `--apparent-size` / `-k 4K` / default
+  render `size=apparent-size` / `block-rounded(4096)` / `disk-usage`; `--allow-errors` appends
+  `, allow-errors` and records `errors=1` in the marker.
+- Failure drives (missing dir, reserved-name `__root__`, bad partition, outdir-blocked, fail-loud
+  unreadable partition): each exited 1 with a shaped `ERROR` naming the cause, no `.xdu-complete`,
+  no `Marker … written`. Missing-dir drive is exactly 1/1 shaped lines; fail-loud drive 6/6 shaped.
+  Prior-cycle anyhow trailer (`Error:` / `Caused by:`) confirmed gone.
+- Embedded-newline partition drive (`we\nird`): `Finished` line stayed one folded shaped line.
+- Timestamp cross-check (hand-rolled Hinnant civil-from-days vs `datetime` reference: epoch, Y2K
+  boundary, leap days 2000/2024, `2026-09-10`, 2038, 2100, 9999-12-31; live stamp vs `date -u`):
+  all match.
+- TTY control under pty (`script -q`): styled ANSI `Indexing`/`Finished`/`Completed` with spinners,
+  zero timestamp-shaped lines; TTY failure keeps the native anyhow block with no tags. Correct per R5.
+- `eprintln!` audit of `src/bin/xdu.rs`: every off-TTY diagnostic goes through `format_log_record`;
+  the two bare `eprintln!` and both `mp.println` are inside TTY-only branches. No `println!` in
+  `src/bin/xdu.rs`, `src/lib.rs`, `src/crawl.rs`.
+- `grep -rn` for `R#`/`P#` in `src/` → no matches. `git diff main...HEAD -- src/cli.rs doc/ --stat`
+  → empty: no CLI change, no `.scd` update owed.
+- `cargo test --lib` (90 passed incl. 5 new log-shape unit tests), full `crawl_tests` 25/25 green,
+  `cargo fmt --check` clean, `cargo clippy -D warnings` clean, per reviewer.
+- `git status --porcelain` → empty on hand-back; temporary probes removed; no `target/` mutation
+  requiring restore (normal builds + throwaway-index drives only).
+
+Orchestrator second pass (this session):
+
+- `git status --porcelain` → empty; `git rev-parse HEAD` → `9ae1b0c`; spec-excluded diffstat →
+  `src/bin/xdu.rs`, `src/lib.rs`, `tests/crawl_tests.rs`, `issues/*.md` flip.
+- Missing-dir reproduction (`./target/debug/xdu -o "$TMP/index" "$TMP/missing" >out 2>err`) →
+  `exit=1`, stdout 0 bytes, stderr exactly 1 line
+  (`2026-09-10T15:00:29Z ERROR Failed to resolve directory: … (os error 2)`), all-shaped,
+  no marker. **Prior finding 1 confirmed fixed.**
+- Success drive via `temp_index.sh` (2 files) → `exit=0`, stdout 0 bytes, 5/5 stderr lines shaped,
+  `Marker … written` + `Completed` + marker file all present.
+- `cargo fmt --all -- --check` → clean (exit 0, orchestrator-observed).
+- `cargo test --test crawl_tests -- --nocapture test_non_tty test_failing_run` → 2 passed
+  (orchestrator-observed). **Prior finding 2 confirmed fixed.**
+- `grep -rn -E '\bR[0-9]+|\bP[0-9]+\b' src/lib.rs src/bin/xdu.rs` → exit 1, no matches.
+- `git diff main...HEAD -- src/cli.rs doc/ --stat` → empty. No `println!` in `src/bin/xdu.rs`.
+
+Gate states: `cargo fmt` clean and the two log-shape integration tests green are
+orchestrator-observed; full `cargo test` / `cargo clippy` green is reviewer-observed, not
+orchestrator-observed. Man-page gate: no `doc/*.scd` in the spec-excluded diff, so no render or
+literal assertion owed by this diff; base gate state **not observed**. CI rollup state
+**not observed** (this session has no `gh`; `xdu-publish` Step 1 reads the actual rollup).
+`ReportFindings` skipped per harness portability (no such tool here; `REVIEW.md` is the record).
+
+### Requirement → evidence matrix
+
+| R-ID | Implemented by (file/commit) | Verified how | Status |
+|------|------------------------------|--------------|--------|
+| R1 — non-TTY records are single timestamped severity-tagged lines on stderr | `LogLevel` + `format_log_timestamp` + `format_log_record` (`src/lib.rs`); all non-TTY arms in `src/bin/xdu.rs` routed through them; `main`/`run(is_tty)` split with `process::exit(1)` off-TTY suppresses the anyhow trailer (`9ae1b0c`) | Reviewer: success 6/6 shaped, fail-loud 6/6 shaped, missing-dir 1/1 shaped, newline-fold drive, 5 unit tests. Orchestrator: missing-dir 1/1 shaped, success 5/5 shaped. | ✅ |
+| R2 — run-start (args), per-partition finish (counts), warning, marker, summary | Run-start options string (`size_mode_label`, `jobs=`, `size=`, `allow-errors`); `Marker … written` after attestation; shaped `Finished`/`Completed` | Reviewer: all five record classes observed live; size-mode and allow-errors variants driven. Orchestrator: run-start / `Finished` / `Marker` / `Completed` observed on success drive. WARN facet inspection-only (only WARN emitter is the lossy-path branch; APFS rejects non-UTF-8 names so no live WARN drive — platform self-skip AGENTS.md documents). | ✅ |
+| R3 — failure record + no marker-success record | Shaped `ERROR` in the `run` Err branch; marker write strictly on the success path | Reviewer + orchestrator: five failure drives each exit 1 with shaped `ERROR`, no `.xdu-complete`, no `Marker … written`. | ✅ |
+| R4 — stdout stays clean and pipeable | No stdout writes added | Reviewer: 0-byte stdout on six drives; no `println!`. Orchestrator: 0-byte stdout on both drives; no bare `println!`. | ✅ |
+| R5 — TTY rendering untouched; new shape is non-TTY only | Only non-TTY branches changed | Reviewer: pty drive shows styled records, zero timestamped lines; TTY failure shows native anyhow block only. | ✅ |
+
+Unmapped changes (possible scope creep): one lifecycle hunk (`issues/*.md` status flip) — factory
+bookkeeping, not product scope. Everything else maps to an R-ID. Clap parse errors (exit 2)
+remain unshaped — considered and dropped by the reviewer (outside R1's evidence scope; reshaping
+clap would be scope creep into `src/cli.rs`).
+
+### Findings
+
+No CONFIRMED or PLAUSIBLE findings. Every candidate dissolved under execution (timestamp math,
+embedded-newline forging, marker ordering, fail-loud exits, `process::exit(1)` destructor safety,
+TTY byte-shape, `R#`/`P#` ids, manual drift).
+
+Remediation of cycle-1 findings, re-verified from scratch:
+
+- Cycle-1 HIGH (anyhow trailer, R1 partial) — fixed by the `main`/`run` split in `9ae1b0c`;
+  missing-dir and fail-loud drives now emit only shaped lines with identical exit codes.
+- Cycle-1 LOW (failure test filtered to `ERROR` lines) — fixed; the test now asserts every stderr
+  line keeps the record shape behind a non-empty guard.
+
+### Human-gate triggers
+
+- **Not triggered.** No CONFIRMED finding touches the high-blast-radius core or a
+  destructive-rm / schema-stability / atomic-write / SQL-injection invariant, so no sign-off gate
+  is owed by this cycle. (Cycle 1's gate on `src/bin/xdu.rs` is discharged by the verified fix.)
+
+### Optional completeness sub-pass (separate reviewer; may see TECH.md)
+
+- Not requested (`completeness` argument absent); not run.
