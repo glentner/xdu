@@ -1,0 +1,27 @@
+# Two ecosystems below.
+#  1) github-actions — version updates (grouped): bumps the pinned commit SHAs
+#     (and their `# vX.Y.Z` comments) in .github/workflows/*.yaml.
+#  2) cargo — version updates (grouped): bumps Cargo.lock. Version updates stay ON:
+#     xdu ships binaries, not a library, so there is no downstream API-compat contract
+#     to protect, and CI builds with --locked, so each bump is tested before merge.
+# Docker base images (rust:1-slim-bookworm, debian:bookworm-slim) are intentionally
+# absent: the Dockerfile defers digest-pinning to before the first container release,
+# and there is nothing for dependabot to track until then.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Batch all action bumps into a single PR to avoid weekly PR spam.
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      cargo:
+        patterns: ["*"]
