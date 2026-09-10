@@ -16,9 +16,11 @@ Without it hpccm drops the second stage and emits a definition file that
 builds only the downloader, so the recipe refuses to generate rather than let
 that pass quietly.
 
-The release binaries are built on Ubuntu 24.04 and need glibc >= 2.39, hence
-the Debian trixie runtime (2.41). Debian bookworm ships 2.36 and cannot run
-xdu-find, xdu-view or xdu-rm from a release tarball at all.
+The release binaries are built on Ubuntu 24.04. Measured against v0.5.1, xdu
+needs glibc 2.34, xdu-find and xdu-rm need 2.38, and xdu-view needs 2.39,
+hence the Debian trixie runtime (2.41) for an image holding all four.
+Debian bookworm ships 2.36, so it runs xdu from a release tarball but not
+the other three.
 
 Options, as --userarg key=value:
 
