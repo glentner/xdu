@@ -44,7 +44,11 @@ DISTRO = 'ubuntu'
 
 # Handle both v1.2 and 1.2
 version = 'v' + USERARG.get('version', VERSION).lstrip('v')
-prefix = USERARG.get('prefix', '/opt/xdu').rstrip('/') or '/'
+# An empty prefix means the filesystem root; the derived paths below stay free
+# of a doubled slash in that case ('//bin' works on Linux but reads wrong).
+prefix = USERARG.get('prefix', '/opt/xdu').rstrip('/')
+bindir = prefix + '/bin'
+mandir = prefix + '/share/man'
 runtime_base = USERARG.get('runtime_base', 'debian:trixie-slim')
 
 release = '{}/releases/download/{}'.format(PROJECT, version)
@@ -83,20 +87,20 @@ Stage1 += packages(apt=['ca-certificates', 'libstdc++6'])
 Stage1 += copy(_from='build', src=DIST, dest=DIST)
 
 Stage1 += shell(commands=[
-    'mkdir -p {}'.format(prefix),
-    'tar -xzf {} -C {}'.format(DIST, prefix),
+    'mkdir -p {}'.format(prefix or '/'),
+    'tar -xzf {} -C {}'.format(DIST, prefix or '/'),
     'rm -f {}'.format(DIST),
 ])
 
 # Running each binary fails the build on a base image whose glibc is too old,
 # instead of shipping an image that dies at first exec.
-Stage1 += shell(commands=['{}/bin/xdu --version'.format(prefix),
-                          '{}/bin/xdu-find --version'.format(prefix),
-                          '{}/bin/xdu-view --version'.format(prefix),
-                          '{}/bin/xdu-rm --version'.format(prefix)])
+Stage1 += shell(commands=['{}/xdu --version'.format(bindir),
+                          '{}/xdu-find --version'.format(bindir),
+                          '{}/xdu-view --version'.format(bindir),
+                          '{}/xdu-rm --version'.format(bindir)])
 Stage1 += environment(variables={
-    'PATH': '{}/bin:$PATH'.format(prefix),
-    'MANPATH': '{}/share/man:$MANPATH'.format(prefix),
+    'PATH': '{}:$PATH'.format(bindir),
+    'MANPATH': '{}:$MANPATH'.format(mandir),
 })
 
 # Docker only. Singularity has no USER and runs as the invoking user.
@@ -105,4 +109,4 @@ if hpccm.config.g_ctype == container_type.DOCKER:
                               'useradd --system --gid xdu --create-home xdu'])
     Stage1 += user(user='xdu')
 
-Stage1 += runscript(commands=['{}/bin/xdu'.format(prefix)])
+Stage1 += runscript(commands=['{}/xdu'.format(bindir)])
