@@ -23,8 +23,8 @@ use xdu::crawl::{
     write_completion_marker,
 };
 use xdu::{
-    SizeMode, format_bytes, format_count, format_partition_progress, format_speed, get_schema,
-    parse_size,
+    COMPLETION_MARKER, LogLevel, SizeMode, format_bytes, format_count, format_log_record,
+    format_partition_progress, format_speed, get_schema, parse_size,
 };
 
 /// Crawl a directory tree using concurrent per-partition walks with a shared thread pool.
@@ -47,6 +47,19 @@ use xdu::{
 /// The run-level completion marker is cleared once pre-flight passes and written by
 /// `main` only on the success path, so an index this run abandons carries no
 /// attestation, while a run rejected before it crawls leaves the previous marker intact.
+/// Short label for the size mode in the run-start log record.
+///
+/// Mirrors the flag that selected it (`--apparent-size`, `--block-size SIZE`), defaulting
+/// to disk usage. Bin-local: only this binary's log renders it, and the record shape —
+/// including this token — is locked by the log-shape integration test.
+fn size_mode_label(mode: SizeMode) -> String {
+    match mode {
+        SizeMode::DiskUsage => "disk-usage".to_string(),
+        SizeMode::ApparentSize => "apparent-size".to_string(),
+        SizeMode::BlockRounded(block_size) => format!("block-rounded({block_size})"),
+    }
+}
+
 fn crawl(
     top_dir: &Path,
     outdir: &Path,
@@ -55,6 +68,7 @@ fn crawl(
     size_mode: SizeMode,
     schema: &Arc<Schema>,
     partition_filter: Option<&HashSet<String>>,
+    allow_errors: bool,
     is_tty: bool,
 ) -> Result<CrawlStats> {
     // Build shared rayon thread pool for jwalk walkers
@@ -118,7 +132,12 @@ fn crawl(
             filter_desc
         );
     } else {
-        eprintln!("Indexing {}{}", top_dir.display(), filter_desc);
+        let mut opts = format!("jobs={jobs}, size={}", size_mode_label(size_mode));
+        if allow_errors {
+            opts.push_str(", allow-errors");
+        }
+        let msg = format!("Indexing {}{} ({opts})", top_dir.display(), filter_desc);
+        eprintln!("{}", format_log_record(LogLevel::Info, &msg));
     }
 
     // Global summary bar (positioned last, below per-partition bars)
@@ -182,12 +201,14 @@ fn crawl(
                     bar.enable_steady_tick(Duration::from_millis(100));
 
                     // Emit a diagnostic to stderr, coordinating with the progress bars in
-                    // TTY mode (stdout stays clean and pipeable).
-                    let report = |msg: &str| {
+                    // TTY mode (stdout stays clean and pipeable). Off-TTY the record
+                    // carries a timestamp and severity tag; on a TTY the styled line
+                    // stands as is.
+                    let report = |level: LogLevel, msg: &str| {
                         if is_tty {
                             let _ = mp_ref.println(msg);
                         } else {
-                            eprintln!("{}", msg);
+                            eprintln!("{}", format_log_record(level, msg));
                         }
                     };
 
@@ -265,11 +286,14 @@ fn crawl(
                                                     .io_error()
                                                     .map(|e| e.to_string())
                                                     .unwrap_or_else(|| err.to_string());
-                                                report(&format!(
-                                                    "error: {}: {}",
-                                                    path.display(),
-                                                    detail
-                                                ));
+                                                report(
+                                                    LogLevel::Error,
+                                                    &format!(
+                                                        "error: {}: {}",
+                                                        path.display(),
+                                                        detail
+                                                    ),
+                                                );
                                             }
                                         }
                                         continue;
@@ -297,7 +321,10 @@ fn crawl(
                                                 .unwrap_or_else(|| {
                                                     entry.path().display().to_string()
                                                 });
-                                            report(&format!("error: {}: {}", path, detail));
+                                            report(
+                                                LogLevel::Error,
+                                                &format!("error: {}: {}", path, detail),
+                                            );
                                         }
                                     }
                                 }
@@ -323,11 +350,14 @@ fn crawl(
                                                         .io_error()
                                                         .map(|e| e.to_string())
                                                         .unwrap_or_else(|| err.to_string());
-                                                    report(&format!(
-                                                        "error: {}: {}",
-                                                        entry.path().display(),
-                                                        detail
-                                                    ));
+                                                    report(
+                                                        LogLevel::Error,
+                                                        &format!(
+                                                            "error: {}: {}",
+                                                            entry.path().display(),
+                                                            detail
+                                                        ),
+                                                    );
                                                 }
                                             }
                                             continue;
@@ -346,13 +376,16 @@ fn crawl(
                                     if lossy {
                                         part_lossy += 1;
                                         if part_lossy == 1 {
-                                            report(&format!(
-                                                "warning: {}: non-UTF-8 path stored with \
+                                            report(
+                                                LogLevel::Warn,
+                                                &format!(
+                                                    "warning: {}: non-UTF-8 path stored with \
                                          replacement characters; it will not round-trip \
                                          to xdu-rm (further occurrences in this \
                                          partition are counted only)",
-                                                path.display()
-                                            ));
+                                                    path.display()
+                                                ),
+                                            );
                                         }
                                     }
 
@@ -473,13 +506,14 @@ fn crawl(
                                     status_info,
                                 ))?;
                             } else {
-                                eprintln!(
+                                let msg = format!(
                                     "Finished {} ({} files, {}{})",
                                     item.partition,
                                     format_count(buffer.file_count),
                                     format_bytes(buffer.byte_count),
                                     status_info,
                                 );
+                                eprintln!("{}", format_log_record(LogLevel::Info, &msg));
                             }
                         }
                         Ok(())
@@ -534,9 +568,32 @@ fn crawl(
 }
 
 fn main() -> Result<()> {
+    let is_tty = stderr().is_terminal();
+    match run(is_tty) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            if is_tty {
+                Err(err)
+            } else {
+                // The shaped record below is the run's only verdict. Returning `Err`
+                // would make the runtime print its own untimestamped `Error:`/`Caused
+                // by:` block after it, breaking the one-record-per-line shape the
+                // non-TTY log promises. Exiting directly keeps the failure loud at
+                // the same status code the `Err` return would have produced, and the
+                // marker ordering is untouched — a failed run stays unattested.
+                eprintln!(
+                    "{}",
+                    format_log_record(LogLevel::Error, &format!("{err:#}"))
+                );
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+fn run(is_tty: bool) -> Result<()> {
     let args = XduArgs::parse();
     let start_time = Instant::now();
-    let is_tty = stderr().is_terminal();
 
     // Determine size calculation mode
     let size_mode = if let Some(ref bs) = args.block_size {
@@ -589,6 +646,7 @@ fn main() -> Result<()> {
         size_mode,
         &schema,
         partition_filter.as_ref(),
+        args.allow_errors,
         is_tty,
     )?;
 
@@ -618,13 +676,14 @@ fn main() -> Result<()> {
             summary_info
         );
     } else {
-        eprintln!(
+        let msg = format!(
             "Completed {} files ({}) in {:.2}s{}",
             format_count(stats.files),
             format_bytes(stats.bytes),
             elapsed.as_secs_f64(),
             summary_info
         );
+        eprintln!("{}", format_log_record(LogLevel::Info, &msg));
     }
 
     // Fail loud: an unreadable region was skipped, so the index is incomplete. The
@@ -652,6 +711,21 @@ fn main() -> Result<()> {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     write_completion_marker(&outdir, &completion_marker_contents(&stats, completed_at))?;
+
+    // The run is attested; say so on the record. The `Completed` summary above already
+    // carried the counts, but only this line names the marker — without it a script
+    // cannot tell attestation apart from a run that printed a summary and then failed
+    // to write.
+    if !is_tty {
+        let msg = format!(
+            "Marker {} written ({} files, {}{})",
+            outdir.join(COMPLETION_MARKER).display(),
+            format_count(stats.files),
+            format_bytes(stats.bytes),
+            summary_info
+        );
+        eprintln!("{}", format_log_record(LogLevel::Info, &msg));
+    }
 
     Ok(())
 }
