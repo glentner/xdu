@@ -3,7 +3,7 @@ slug: indexer-machine-readable-log-output
 title: Machine-readable log output for scripted and cron-driven crawls
 kind: feature
 appetite: small
-status: in_review
+status: done
 branch: feature/indexer-machine-readable-log-output
 base: main
 current_phase: done
