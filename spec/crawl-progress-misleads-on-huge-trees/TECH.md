@@ -3,7 +3,7 @@ slug: crawl-progress-misleads-on-huge-trees
 title: Honest crawl progress on huge trees
 kind: fix
 appetite: small
-status: in_progress
+status: in_review
 branch: fix/crawl-progress-misleads-on-huge-trees
 base: main
 current_phase: P2
@@ -21,7 +21,7 @@ phases:
   verify: cargo test --lib
 - id: P2
   name: Quiet-partition liveness plus full gate and drive
-  status: pending
+  status: done
   satisfies:
   - R2
   - R3
@@ -119,15 +119,15 @@ unit-tested pure builder in `src/lib.rs`.
 frozen `scanning...`; the global line refreshes on the same hoisted tick; the full gate and a
 real-binary drive prove no regression.
 
-- [ ] Add a driver-local `dirs_visited` counter; hoist the throttled bar refresh so every
+- [x] Add a driver-local `dirs_visited` counter; hoist the throttled bar refresh so every
   walker entry (files and directories) triggers it, per `PLAN.md` §2.
-- [ ] Render the quiet states through the P1 builder — `waiting...` with elapsed at zero
+- [x] Render the quiet states through the P1 builder — `waiting...` with elapsed at zero
   yields, `scanning` with dirs visited plus elapsed once entries flow; leave the global
   message shape unchanged.
-- [ ] Drive the real binaries on a throwaway index and assert the index is byte-complete
+- [x] Drive the real binaries on a throwaway index and assert the index is byte-complete
   (`xdu-find --count` over the fixture); run `fmt --check`, `clippy -D warnings`, full
   `cargo test`.
-- [ ] Deferral ledger: walk P1–P2 for any "do not fix here" / "known limitation" /
+- [x] Deferral ledger: walk P1–P2 for any "do not fix here" / "known limitation" /
   follow-up language and confirm each has a matching `issues/` file plus `ROADMAP.md` entry.
   An unrecorded deferral fails this phase.
 - **Verify:** `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test && .agents/factory/bin/temp_index.sh xdu-find --count`.

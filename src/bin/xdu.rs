@@ -231,6 +231,11 @@ fn crawl(
                             let mut last_bar_update = Instant::now();
                             let bar_interval = Duration::from_millis(100);
 
+                            // Quiet-partition liveness: directories visited since this
+                            // partition started, plus the start itself for elapsed time.
+                            let part_start = Instant::now();
+                            let mut dirs_visited: u64 = 0;
+
                             // Per-partition speed tracking (1s rolling window)
                             let mut speed_sample_count: u64 = 0;
                             let mut speed_sample_time = Instant::now();
@@ -297,70 +302,72 @@ fn crawl(
                                     }
                                 }
 
-                                if !entry.file_type.is_file() {
-                                    continue;
-                                }
-
-                                // `DirEntry::metadata` is `symlink_metadata` here (the
-                                // walker sets follow_links(false)), which closes the
-                                // window where a file could be swapped for a symlink
-                                // between the directory read and this stat. For a regular
-                                // file lstat and stat agree, so sizes and atimes are
-                                // unchanged.
-                                let metadata = match entry.metadata() {
-                                    Ok(m) => m,
-                                    // The file raced away (ENOENT) or became unreadable
-                                    // between the walk and this stat: benign vs. hard.
-                                    Err(err) => {
-                                        let kind = err.io_error().map(|e| e.kind());
-                                        match classify_io_error(kind) {
-                                            EntryError::Vanished => part_vanished += 1,
-                                            EntryError::Hard => {
-                                                part_errors += 1;
-                                                let detail = err
-                                                    .io_error()
-                                                    .map(|e| e.to_string())
-                                                    .unwrap_or_else(|| err.to_string());
-                                                report(&format!(
-                                                    "error: {}: {}",
-                                                    entry.path().display(),
-                                                    detail
-                                                ));
+                                if entry.file_type.is_file() {
+                                    // `DirEntry::metadata` is `symlink_metadata` here (the
+                                    // walker sets follow_links(false)), which closes the
+                                    // window where a file could be swapped for a symlink
+                                    // between the directory read and this stat. For a regular
+                                    // file lstat and stat agree, so sizes and atimes are
+                                    // unchanged.
+                                    let metadata = match entry.metadata() {
+                                        Ok(m) => m,
+                                        // The file raced away (ENOENT) or became unreadable
+                                        // between the walk and this stat: benign vs. hard.
+                                        Err(err) => {
+                                            let kind = err.io_error().map(|e| e.kind());
+                                            match classify_io_error(kind) {
+                                                EntryError::Vanished => part_vanished += 1,
+                                                EntryError::Hard => {
+                                                    part_errors += 1;
+                                                    let detail = err
+                                                        .io_error()
+                                                        .map(|e| e.to_string())
+                                                        .unwrap_or_else(|| err.to_string());
+                                                    report(&format!(
+                                                        "error: {}: {}",
+                                                        entry.path().display(),
+                                                        detail
+                                                    ));
+                                                }
                                             }
+                                            continue;
                                         }
-                                        continue;
-                                    }
-                                };
+                                    };
 
-                                let (file_size, uid, gid, mode, atime, mtime, ctime) =
-                                    file_measurements(&metadata, size_mode);
-                                let path = entry.path();
-                                let (path_str, lossy) = lossy_path(&path);
+                                    let (file_size, uid, gid, mode, atime, mtime, ctime) =
+                                        file_measurements(&metadata, size_mode);
+                                    let path = entry.path();
+                                    let (path_str, lossy) = lossy_path(&path);
 
-                                // The stored path carries U+FFFD in place of the real
-                                // bytes, so it names no file on disk. Say so once per
-                                // partition and count the rest — a flood of these would
-                                // bury the errors that matter.
-                                if lossy {
-                                    part_lossy += 1;
-                                    if part_lossy == 1 {
-                                        report(&format!(
-                                            "warning: {}: non-UTF-8 path stored with \
+                                    // The stored path carries U+FFFD in place of the real
+                                    // bytes, so it names no file on disk. Say so once per
+                                    // partition and count the rest — a flood of these would
+                                    // bury the errors that matter.
+                                    if lossy {
+                                        part_lossy += 1;
+                                        if part_lossy == 1 {
+                                            report(&format!(
+                                                "warning: {}: non-UTF-8 path stored with \
                                          replacement characters; it will not round-trip \
                                          to xdu-rm (further occurrences in this \
                                          partition are counted only)",
-                                            path.display()
-                                        ));
+                                                path.display()
+                                            ));
+                                        }
                                     }
+
+                                    buffer.add(
+                                        &path_str, file_size, uid, gid, mode, atime, mtime, ctime,
+                                    )?;
+
+                                    // Update global atomics
+                                    global_files.fetch_add(1, Ordering::Relaxed);
+                                    global_bytes.fetch_add(file_size as u64, Ordering::Relaxed);
+                                } else if entry.file_type.is_dir() {
+                                    // Directories carry no row, but each one proves the walk
+                                    // is alive: count it for the quiet-branch message below.
+                                    dirs_visited += 1;
                                 }
-
-                                buffer.add(
-                                    &path_str, file_size, uid, gid, mode, atime, mtime, ctime,
-                                )?;
-
-                                // Update global atomics
-                                global_files.fetch_add(1, Ordering::Relaxed);
-                                global_bytes.fetch_add(file_size as u64, Ordering::Relaxed);
 
                                 // Update progress bars periodically
                                 let now = Instant::now();
@@ -413,16 +420,15 @@ fn crawl(
                                         String::new()
                                     };
 
-                                    // The lively branch only: files have completed, so the
-                                    // directory and elapsed counters cannot select another
-                                    // state. P2 supplies the live counters and wires the
-                                    // quiet branches through the same builder.
+                                    // Files completed select the lively branch; zero of
+                                    // both counters selects waiting, dirs without files
+                                    // select quiet-scanning — all inside the builder.
                                     bar.set_message(format_partition_progress(
                                         &item.partition,
                                         buffer.file_count,
                                         buffer.byte_count,
-                                        0,
-                                        0,
+                                        dirs_visited,
+                                        part_start.elapsed().as_secs(),
                                         &speed_str,
                                     ));
                                     global_bar_ref.set_message(format!(
