@@ -12,7 +12,7 @@
 TARGET = xdu
 
 HPCCM ?= hpccm
-SINGULARITY_VERSION ?= 3.8
+SINGULARITY_VERSION ?= 3.2
 
 # Extra hpccm options, passed through verbatim, e.g.
 # make USERARGS='--userarg version=1.2.3 prefix=/usr/local'

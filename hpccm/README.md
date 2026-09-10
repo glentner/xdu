@@ -37,9 +37,10 @@ release tarball. The download runs in a throwaway first stage, keeping `curl`
 out of the finished image, and the architecture is resolved inside the
 container from `uname -m`, so one spec serves both x86_64 and aarch64.
 
-Generating the Apptainer definition by hand needs `--singularity-version=3.8`,
+Generating the Apptainer definition by hand needs `--singularity-version=3.2`,
 without which hpccm silently emits only the first stage. The Makefile passes
-it.
+it as its default, and the recipe refuses to generate below it rather than
+letting that pass quietly.
 
 ## How this differs from the top-level Dockerfile
 
