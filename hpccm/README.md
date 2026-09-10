@@ -17,6 +17,7 @@ directly. A handy Makefile is provided to simplify operations.
 ## Usage
 
     make            regenerate xdu.def and xdu.docker
+    make check      fail unless the specs match the recipe
     make sif        build xdu.sif with apptainer, or singularity
     make image      build the xdu docker image
     make help       every target, and the current variable values

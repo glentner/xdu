@@ -252,6 +252,23 @@ jobs:
           mkdir -p share/bash-completion/completions share/zsh/site-functions
           ./target/release/gen-completions share/bash-completion/completions share/zsh/site-functions
 
+      # Container specs are generated-committed like the man pages: the recipe is
+      # the source, the specs are the artifact. Regenerate from scratch and fail
+      # on drift, so a recipe edit without its specs cannot land green. Pinned so
+      # the gate is deterministic; bump deliberately with a regen in the same
+      # commit. A step in the existing packaging job, not a new job, so the
+      # required-checks set is unchanged.
+      - name: Install hpccm
+        run: pipx install 'hpccm==26.5.0'
+
+      - name: Assert container specs match the HPCCM recipe
+        run: |
+          set -eu
+          cd hpccm
+          make -B xdu.def xdu.docker
+          git diff --exit-code -- xdu.def xdu.docker
+          echo "OK: container specs match the recipe"
+
       - name: Assert all man pages + completions were produced
         run: |
           set -eu

@@ -38,7 +38,7 @@ CHECK_HPCCM = @command -v $(HPCCM) >/dev/null || \
 
 .PRECIOUS: $(TARGET).def $(TARGET).docker
 
-.PHONY: all help sif image clean
+.PHONY: all help sif image check clean
 
 all: $(TARGET).def $(TARGET).docker
 
@@ -53,6 +53,7 @@ help:
 	@echo '  all              generate $(TARGET).def and $(TARGET).docker  (default)'
 	@echo '  sif              build $(TARGET).sif'
 	@echo '  image            build the $(TARGET) docker image'
+	@echo '  check            regenerate specs and fail on drift'
 	@echo '  <name>           generate <name>.def and <name>.docker'
 	@echo '  <name>.def       Apptainer definition file only'
 	@echo '  <name>.docker    Dockerfile only'
@@ -100,6 +101,12 @@ help:
 sif: $(TARGET).sif
 
 image: $(TARGET).image
+
+# Regenerate from scratch and fail on drift, so a recipe edit without its
+# specs cannot pass unnoticed. Used by CI; run it by hand before pushing.
+check:
+	$(MAKE) -B $(TARGET).def $(TARGET).docker
+	git diff --exit-code -- $(TARGET).def $(TARGET).docker
 
 clean:
 	rm -f $(TARGET).sif
