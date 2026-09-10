@@ -20,3 +20,5 @@ __pycache__/
 /bench/results/*
 !/bench/results/baseline.json
 !/bench/results/comparison-*.json
+# MacOS cache
+.DS_Store
