@@ -1,6 +1,6 @@
 # xdu.py is the source. The other two files are generated from it:
 #
-#   hpccm --recipe xdu.py --format docker > Dockerfile
+#   hpccm --recipe xdu.py --format docker > xdu.docker
 #   hpccm --recipe xdu.py --format singularity \
 #         --singularity-version=3.2 > xdu.def
 #
@@ -18,5 +18,5 @@
 
 /xdu.py      text eol=lf
 
-/Dockerfile  text eol=lf linguist-generated=true merge=binary
+/xdu.docker  text eol=lf linguist-generated=true merge=binary
 /xdu.def     text eol=lf linguist-generated=true merge=binary
