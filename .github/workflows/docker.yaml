@@ -32,7 +32,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}    # glentner/xdu (already lowercase)
+  IMAGE_NAME: ${{ github.repository }}    # xdu-project/xdu (already lowercase)
 
 concurrency:
   group: docker-${{ github.ref }}
@@ -231,7 +231,7 @@ jobs:
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       # GitHub-native, Rekor-logged SLSA provenance on the index digest. Verify with:
-      #   gh attestation verify oci://ghcr.io/glentner/xdu:<tag> -R glentner/xdu
+      #   gh attestation verify oci://ghcr.io/xdu-project/xdu:<tag> -R xdu-project/xdu
       - name: Attest build provenance
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
@@ -242,8 +242,8 @@ jobs:
       # Keyless cosign signature (OIDC → Fulcio → Rekor); --recursive covers the index and
       # each per-arch child. cosign 3.x — keyless is default, no COSIGN_EXPERIMENTAL. Verify:
       #   cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-      #     --certificate-identity-regexp 'https://github.com/glentner/xdu/.*' \
-      #     ghcr.io/glentner/xdu@<digest>
+      #     --certificate-identity-regexp 'https://github.com/xdu-project/xdu/.*' \
+      #     ghcr.io/xdu-project/xdu@<digest>
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 

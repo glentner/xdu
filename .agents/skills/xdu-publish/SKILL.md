@@ -86,7 +86,7 @@ Report the verdict, commits vs `main`, and whether a PR already exists (`gh pr s
    alongside the failing checks. A green local `cargo test` and a red GitHub runner are different
    facts: the man-page and container-toolchain gates fail *only* on the runner, and a red rollup has
    already sat one `gh pr merge` away from landing unexamined. `main` has **no branch protection**
-   (`repos/glentner/xdu/branches/main/protection` → 404, `…/rulesets` → `[]`), so this step is the only
+   (`repos/xdu-project/xdu/branches/main/protection` → 404, `…/rulesets` → `[]`), so this step is the only
    gate that exists. If the branch was never pushed there is nothing to read yet — say so, and re-check
    after Step 4a's push, before any `merge`.
 5. **Seed/roadmap pair nudge — warning only, never a STOP.** If the branch removed a ROADMAP `Seed:`
@@ -97,7 +97,7 @@ Report the verdict, commits vs `main`, and whether a PR already exists (`gh pr s
 
 ### Step 2 — Compose the PR title + body
 - **Title:** `[{kind}] {imperative summary}` synthesized from `GOAL.md` (not a copy of it).
-- **Body** (sectioned; link artifacts as `https://github.com/glentner/xdu/blob/{head_sha}/spec/{slug}/<file>`
+- **Body** (sectioned; link artifacts as `https://github.com/xdu-project/xdu/blob/{head_sha}/spec/{slug}/<file>`
   using the current `git rev-parse HEAD`):
   - **Summary** — a high-level description of the whole change (not a paste of GOAL).
   - **Goal** → link `GOAL.md`.

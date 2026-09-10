@@ -46,5 +46,5 @@ CLARIFICATION: …]` and **block** `xdu-plan` — never guess.
 
 ## Related materials
 
-- Issue: <https://github.com/glentner/xdu/issues/NN>
+- Issue: <https://github.com/xdu-project/xdu/issues/NN>
 - <docs, prior art, source paths, external references>

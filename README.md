@@ -5,8 +5,8 @@
 **High-performance file system indexer for large-scale storage administration**
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/glentner/xdu)](https://github.com/glentner/xdu/releases)
-[![Tests](https://img.shields.io/github/actions/workflow/status/glentner/xdu/test.yaml?branch=main&label=tests)](https://github.com/glentner/xdu/actions/workflows/test.yaml)
+[![Release](https://img.shields.io/github/v/release/xdu-project/xdu)](https://github.com/xdu-project/xdu/releases)
+[![Tests](https://img.shields.io/github/actions/workflow/status/xdu-project/xdu/test.yaml?branch=main&label=tests)](https://github.com/xdu-project/xdu/actions/workflows/test.yaml)
 
 </div>
 
@@ -77,7 +77,7 @@ A typical 100M file filesystem might take 2-3 hours to `du`. With xdu, the index
 ### Quick Install (Recommended)
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/glentner/xdu/main/install.sh | sh
+curl -sSfL https://xdu-project.org/install.sh | sh
 ```
 
 This downloads the latest release binary for your platform and installs it to `~/.local/bin`.
@@ -89,7 +89,7 @@ This downloads the latest release binary for your platform and installs it to `~
 ### From Source
 
 ```bash
-cargo install --git https://github.com/glentner/xdu.git
+cargo install --git https://github.com/xdu-project/xdu.git
 ```
 
 Requires [Rust](https://rustup.rs) nightly toolchain.

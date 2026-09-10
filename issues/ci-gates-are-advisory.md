@@ -19,11 +19,11 @@ without blocking a single action.
 `main` is unprotected, with no rulesets and no required checks:
 
 ```
-$ gh api repos/glentner/xdu/branches/main/protection
+$ gh api repos/xdu-project/xdu/branches/main/protection
 {"message":"Branch not protected", … "status":"404"}
-$ gh api repos/glentner/xdu/rulesets
+$ gh api repos/xdu-project/xdu/rulesets
 []
-$ gh api repos/glentner/xdu/branches/main -q '{protected:.protected,protection:.protection}'
+$ gh api repos/xdu-project/xdu/branches/main -q '{protected:.protected,protection:.protection}'
 {"protected":false,"protection":{"enabled":false,
  "required_status_checks":{"checks":[],"contexts":[],"enforcement_level":"off"}}}
 ```
@@ -43,7 +43,7 @@ Packaging (man + completions generate)
 **2. Direct pushes to `main` bypass PR gating entirely** — including the two guardrails at issue here.
 `445aa5b` (`[ci] Modernize CI/CD workflows and packaging`, which added the Dockerfile build guardrail)
 and `9c579cf` (`[harness] Make CI assert what the man page SAYS…`, which added the literal assertion)
-both return empty from `gh api /repos/glentner/xdu/commits/<sha>/pulls`. Ten of the last fifteen
+both return empty from `gh api /repos/xdu-project/xdu/commits/<sha>/pulls`. Ten of the last fifteen
 commits on `main` have no PR. This is also in tension with `AGENTS.md`'s own stated process
 ("**GitHub Flow on `main`** — branch off `main` …, open a **squash** PR back to `main`"), which the
 repository does not currently enforce on itself.
@@ -53,7 +53,7 @@ workflow run per push, for the tip only. The nine `[harness]` commits above were
 
 ```
 $ for s in 651a3a7 9c579cf f1205a7 5b8baa9; do
-    gh api "/repos/glentner/xdu/actions/runs?head_sha=$(git rev-parse $s)" -q .total_count; done
+    gh api "/repos/xdu-project/xdu/actions/runs?head_sha=$(git rev-parse $s)" -q .total_count; done
 0 0 0 0
 ```
 
@@ -124,7 +124,7 @@ Draft R-IDs, to be firmed up at promotion.
   `main` with `required_status_checks` (`Lint (fmt + clippy)`, `Test (ubuntu-24.04)`,
   `Test (macos-14)`, `Packaging (man + completions generate)`) plus `pull_request` required and
   non-fast-forward/deletion blocked. Rulesets are the current GitHub mechanism, are readable via
-  `gh api repos/glentner/xdu/rulesets`, and support a bypass list — which matters, because a
+  `gh api repos/xdu-project/xdu/rulesets`, and support a bypass list — which matters, because a
   single-maintainer repository still wants an escape hatch for the case this issue's own sequencing
   describes. Whether the maintainer sits in the bypass list is a genuine shaping question, not a
   detail: a bypass that is always used is the current state with extra steps.

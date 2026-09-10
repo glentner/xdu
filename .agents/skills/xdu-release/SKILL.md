@@ -196,8 +196,8 @@ Then `gh release create vX.Y.Z --verify-tag [--prerelease] --title "xdu vX.Y.Z" 
   `xdu-vX.Y.Z-<target>.tar.gz` assets and the `SHA256SUMS` file are present; `isPrerelease` is `true`
   and GitHub "Latest" stays on the prior stable for pre-release, `false`/Latest for release.
 - **ghcr:** fetch an anonymous pull token
-  (`curl -s "https://ghcr.io/token?scope=repository:glentner/xdu:pull"`), then
-  `GET /v2/glentner/xdu/tags/list` — confirm `:latest`/`{{major}}`/`{{major}}.{{minor}}` moved
+  (`curl -s "https://ghcr.io/token?scope=repository:xdu-project/xdu:pull"`), then
+  `GET /v2/xdu-project/xdu/tags/list` — confirm `:latest`/`{{major}}`/`{{major}}.{{minor}}` moved
   (release) or are ABSENT/unmoved with only `:X.Y.Z-rc.N` + `:sha-<short>` published (pre-release;
   metadata-action `type=semver` suppresses them for a SemVer prerelease).
 - **Actions:** `gh run list` / `gh run watch` for `release.yaml` + `docker.yaml` success.

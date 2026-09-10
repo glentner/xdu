@@ -1,6 +1,6 @@
 #!/bin/sh
 # xdu installer script
-# Usage: curl -sSfL https://raw.githubusercontent.com/glentner/xdu/main/install.sh | sh
+# Usage: curl -sSfL https://xdu-project.org/install.sh | sh
 #
 # Environment variables:
 #   XDU_VERSION  - Version to install (default: latest)
@@ -9,7 +9,7 @@
 
 set -eu
 
-REPO="glentner/xdu"
+REPO="xdu-project/xdu"
 BINARIES="xdu xdu-find xdu-view xdu-rm"
 
 # Colors for output (disabled if not a terminal)

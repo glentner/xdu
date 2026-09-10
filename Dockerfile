@@ -7,7 +7,7 @@
 #   docker run --rm xdu xdu --help
 #
 # Copy binaries into another image:
-#   COPY --from=ghcr.io/glentner/xdu:latest /usr/local/bin/xdu* /usr/local/bin/
+#   COPY --from=ghcr.io/xdu-project/xdu:latest /usr/local/bin/xdu* /usr/local/bin/
 #
 # Base images are tag-pinned to Debian bookworm (builder/runtime glibc + libstdc++ match).
 # For full supply-chain reproducibility, DIGEST-PIN both before the first container release:

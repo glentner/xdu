@@ -3,7 +3,7 @@ Version:        0.4.2
 Release:        1%{?dist}
 Summary:        High-performance file system indexer for large-scale storage administration
 License:        MIT
-URL:            https://github.com/glentner/xdu
+URL:            https://github.com/xdu-project/xdu
 Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz
 BuildRequires:       cargo
 BuildRequires:       rust
