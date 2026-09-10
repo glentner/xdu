@@ -33,8 +33,9 @@ gives you `make foo`, `make foo.def`, `make foo.sif` and `make foo.image`.
 
 A two-stage image holding the four binaries — `xdu`, `xdu-find`, `xdu-view`,
 `xdu-rm` — plus man pages and shell completions, taken from the published
-release tarball. The download runs in a throwaway first stage, keeping `curl`
-out of the finished image, and the architecture is resolved inside the
+release tarball. The download runs in a throwaway first stage, checked against
+the published `SHA256SUMS`, keeping `curl` out of the finished image, and the
+architecture is resolved inside the
 container from `uname -m`, so one spec serves both x86_64 and aarch64.
 
 Generating the Apptainer definition by hand needs `--singularity-version=3.2`,

@@ -8,7 +8,8 @@
 
 Installs the four xdu binaries, plus man pages and shell completions, from
 the upstream release tarball. The download runs in a throwaway first stage,
-so curl stays out of the finished image. Both stages use the same Debian or
+checked against the published SHA256SUMS, so curl stays out of the finished
+image. Both stages use the same Debian or
 Ubuntu base image, which must have apt.
 
 Being two-stage, the Singularity output needs --singularity-version=3.2.
@@ -61,6 +62,14 @@ Stage0 += baseimage(image=runtime_base, _as='build', _distro=DISTRO)
 Stage0 += packages(apt=['ca-certificates', 'curl'])
 Stage0 += shell(commands=[
     'curl -fsSL -o {} "{}/{}"'.format(DIST, release, tarball),
+    'curl -fsSL -o /xdu-SHA256SUMS "{}/SHA256SUMS"'.format(release),
+    # SHA256SUMS lists the arch-specific tarball name while the download lands
+    # at the fixed DIST path, so the check compares hashes rather than names.
+    # The [ -n ... ] guard fails the build when no entry matches, instead of
+    # piping an empty expectation into a vacuous pass.
+    'expected=$(grep -F "{}" /xdu-SHA256SUMS | cut -d" " -f1) && '
+    '[ -n "$expected" ] && echo "$expected  {}" | sha256sum -c - && '
+    'rm -f /xdu-SHA256SUMS'.format(tarball, DIST),
 ])
 
 # Stage 1: the image that ships.
