@@ -1,0 +1,863 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>xdu &mdash; one billion files, one index</title>
+<meta name="description" content="xdu is a high-performance filesystem indexer and query suite for HPC and enterprise storage. It walks a billion-file tree once into a Hive-partitioned Parquet index, then answers size, age, ownership and pattern questions in seconds.">
+<link rel="canonical" href="https://xdu-project.org/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="xdu &mdash; one billion files, one index">
+<meta property="og:description" content="Walk the tree once. Query it all week. A filesystem indexer and query suite for storage at HPC scale, in pure Rust.">
+<meta property="og:url" content="https://xdu-project.org/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20width='16'%20height='16'%20fill='%23c0c0c0'/%3E%3Cpath%20d='M0%200h16v1H0zM0%2015h16v1H0zM0%200h1v16H0zM15%200h1v16h-1z'%20fill='%23808080'/%3E%3Ctext%20x='8'%20y='12.5'%20font-family='monospace'%20font-size='13'%20font-weight='bold'%20text-anchor='middle'%20fill='%23000080'%3Ex%3C/text%3E%3C/svg%3E">
+<style>
+/* ------------------------------------------------------------------ tokens */
+:root{
+  --chrome:#c0c0c0; --chrome-lo:#7f7f7f; --chrome-hi:#ffffff;
+  --paper:#fdfdf6; --ink:#161616; --ink-dim:#4c4c4c;
+  --head:#000080; --rule:#808080;
+  --link:#0000ee; --vlink:#551a8b; --alink:#dd0000;
+  --code-bg:#eeeee6; --note-bg:#ffffdd; --th-bg:#c8c8c0;
+  --term-bg:#080808; --term-fg:#c9c9c9;
+  --t-green:#00cd44; --t-cyan:#00cdcd; --t-blue:#6a6aff;
+  --t-dim:#8a8a8a; --t-white:#f0f0f0;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --chrome:#3a3a38; --chrome-lo:#1c1c1a; --chrome-hi:#5e5e5a;
+    --paper:#1b1b19; --ink:#dcdcd2; --ink-dim:#a4a49a;
+    --head:#a9c1ff; --rule:#5a5a56;
+    --link:#89b4ff; --vlink:#c9a6ff; --alink:#ff8b6b;
+    --code-bg:#26262300; --code-bg:#262623; --note-bg:#2e2c1f; --th-bg:#302f2c;
+  }
+}
+/* ------------------------------------------------------------------ frame */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; padding:0;
+  background:var(--chrome);
+  color:var(--ink);
+  font:400 17px/1.6 "Times New Roman",Times,Georgia,"Nimbus Roman",serif;
+}
+.skip{position:absolute;left:-9999px}
+.skip:focus{left:8px;top:8px;background:var(--note-bg);color:#000;padding:6px 10px;border:2px solid #000;z-index:9}
+.page{
+  max-width:56em; margin:0 auto;
+  background:var(--paper);
+  border:2px outset var(--chrome);
+  border-top:0; border-bottom:0;
+}
+.pad{padding-block:1px;padding-inline:clamp(18px,4.5vw,54px)}
+@media (min-width:60em){ .page{border-top:2px outset var(--chrome);border-bottom:2px outset var(--chrome);margin-block:1.6em} }
+/* ------------------------------------------------------------------ header */
+header{text-align:center;padding:2.2em 1em 1.4em}
+h1.wordmark{
+  margin:0 -.06em 0 0; line-height:1;
+  font:700 clamp(3.4rem,13vw,6rem)/1 "Courier New",Courier,monospace;
+  letter-spacing:.06em; color:var(--head);
+  text-shadow:2px 2px 0 var(--chrome);
+}
+p.tagline{
+  margin:.55em auto .2em; max-width:24em;
+  font-size:clamp(1.15rem,3.4vw,1.5rem); font-weight:700; font-style:italic;
+}
+p.sub{margin:.3em auto .9em;max-width:34em;color:var(--ink-dim)}
+p.stamp{
+  margin:0; font:400 .78rem/1.5 "Courier New",Courier,monospace;
+  text-transform:uppercase; letter-spacing:.12em; color:var(--ink-dim);
+}
+/* ------------------------------------------------------------------ nav */
+nav{
+  background:var(--chrome); border-top:2px outset var(--chrome);
+  border-bottom:2px outset var(--chrome);
+  padding:.5em clamp(10px,3vw,20px); text-align:center;
+  font:400 .92rem/2 "Courier New",Courier,monospace;
+}
+nav a{white-space:nowrap}
+nav .bar{color:var(--chrome-lo);padding:0 .35em}
+/* ------------------------------------------------------------------ text */
+a{color:var(--link);text-decoration:underline}
+a:visited{color:var(--vlink)}
+a:active{color:var(--alink)}
+a:focus-visible{outline:2px solid var(--head);outline-offset:2px}
+h2{
+  margin:2.4em 0 0; scroll-margin-top:.6em;
+  font:700 1.6rem/1.25 "Times New Roman",Times,Georgia,serif; color:var(--head);
+}
+h2 + hr{margin:.35em 0 1em}
+h3{margin:1.8em 0 .3em;font-size:1.15rem;color:var(--head)}
+hr{border:0;border-top:2px groove var(--rule);height:0;margin:1.6em 0}
+p{margin:.85em 0}
+ul,ol{margin:.85em 0;padding-left:1.7em}
+li{margin:.35em 0}
+strong{font-weight:700}
+.lead{font-size:1.08rem}
+.dim{color:var(--ink-dim)}
+.small{font-size:.9rem}
+figure{margin:1.5em 0}
+figcaption{margin-top:.5em;font-size:.9rem;color:var(--ink-dim);font-style:italic}
+/* ------------------------------------------------------- abstract / notes */
+.abstract{
+  margin:1.4em 0; padding:.9em 1.2em;
+  background:var(--note-bg); border:2px ridge var(--chrome);
+}
+.abstract p:first-child{margin-top:0}
+.abstract p:last-child{margin-bottom:0}
+.abstract dl{margin:0}
+.abstract dt{font-weight:700;margin-top:.5em}
+.abstract dt:first-child{margin-top:0}
+.abstract dd{margin:0 0 .1em}
+/* ------------------------------------------------------------------ code */
+code,kbd,samp{
+  font-family:"Courier New",Courier,"DejaVu Sans Mono",monospace;
+  font-size:.94em;
+}
+p code,li code,dd code,td code,figcaption code,.abstract code{
+  background:var(--code-bg); border:1px solid var(--rule);
+  padding:0 .25em; white-space:nowrap;
+}
+/* long command lines: break at spaces, never mid-flag */
+code.w{white-space:normal;overflow-wrap:break-word}
+kbd{
+  background:var(--chrome); border:2px outset var(--chrome);
+  padding:0 .3em; font-size:.85em; color:var(--ink);
+}
+pre{margin:0;overflow-x:auto}
+.sh{
+  margin:1.2em 0; padding:.8em 1em;
+  background:var(--code-bg); border:2px inset var(--chrome);
+  font:400 .88rem/1.62 "Courier New",Courier,"DejaVu Sans Mono",monospace;
+  white-space:pre; tab-size:8;
+}
+.sh b{font-weight:700}
+.sh .c{color:var(--ink-dim);font-style:italic}
+.sh .p{color:var(--head);font-weight:700}
+/* ------------------------------------------------------------- terminals */
+.term{margin:0;border:2px outset var(--chrome);background:var(--chrome)}
+.term .tbar{
+  display:flex;align-items:center;gap:.5em;
+  padding:2px 4px;background:var(--chrome);
+  font:400 .8rem/1.6 "Courier New",Courier,monospace;color:#111;
+}
+@media (prefers-color-scheme:dark){ .term .tbar{color:#e6e6dc} }
+.term .tbar .btn{
+  flex:none;width:.95em;height:.95em;background:var(--chrome);
+  border:2px outset var(--chrome);
+}
+.term .tbar .ttl{
+  flex:1 1 auto;text-align:center;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;font-weight:700;letter-spacing:.04em;
+}
+.term .screen{
+  background:var(--term-bg);color:var(--term-fg);
+  border:2px inset var(--chrome);
+  padding:.7em .8em;
+}
+.term .screen pre{
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,"DejaVu Sans Mono","Courier New",monospace;
+  font-size:clamp(.62rem,1.72vw,.83rem); line-height:1.45;
+  white-space:pre; letter-spacing:0;
+}
+.t-green{color:var(--t-green)}
+.t-cyan{color:var(--t-cyan)}
+.t-dim{color:var(--t-dim)}
+.t-bold{color:var(--t-white);font-weight:700}
+.t-border{color:#bdbdbd}
+.t-dimborder{color:#6a6a6a}
+.t-activeborder{color:var(--t-blue)}
+.t-previewborder{color:var(--t-cyan)}
+.t-sel{background:#2f2f6e;color:#ffffff}
+/* ------------------------------------------------------------------ tables */
+.scroll{overflow-x:auto;margin:1.3em 0;border:0}
+table{
+  border-collapse:collapse; width:100%; min-width:31em;
+  background:var(--paper);
+  font-size:.94rem;
+}
+caption{
+  caption-side:top;text-align:left;padding:0 0 .45em;
+  font-size:.9rem;font-style:italic;color:var(--ink-dim);
+}
+th,td{border:1px solid var(--rule);padding:.34em .6em;text-align:left;vertical-align:top}
+thead th{background:var(--th-bg);font-weight:700;white-space:nowrap}
+tbody th{background:transparent;font-weight:700;white-space:nowrap}
+td code,th code{white-space:nowrap}
+.num{text-align:right;font-family:"Courier New",Courier,monospace;white-space:nowrap}
+table.tight{min-width:22em}
+/* ------------------------------------------------------------------ roadmap */
+dl.feat{margin:1.2em 0}
+dl.feat dt{
+  margin:1.5em 0 .2em; font-weight:700; font-size:1.05rem;
+  padding-bottom:.15em; border-bottom:1px dotted var(--rule);
+}
+dl.feat dd{margin:0}
+.ver{
+  float:right; margin-left:1em;
+  font:700 .74rem/1.7 "Courier New",Courier,monospace;
+  letter-spacing:.06em; white-space:nowrap;
+  background:var(--note-bg); color:var(--ink);
+  border:1px solid var(--rule); padding:0 .45em;
+}
+.legend{
+  margin:1.2em 0; padding:.7em 1em;
+  border-left:4px solid var(--rule); background:var(--code-bg);
+  font-size:.92rem;
+}
+/* ------------------------------------------------------------------ footer */
+footer{
+  margin-top:2.6em; padding:1.2em clamp(18px,4.5vw,54px) 2em;
+  border-top:2px groove var(--rule);
+  font-size:.88rem; color:var(--ink-dim); text-align:center;
+}
+footer p{margin:.4em 0}
+footer .mono{font-family:"Courier New",Courier,monospace;letter-spacing:.04em}
+/* ------------------------------------------------------------------ print */
+@media print{
+  body{background:#fff}
+  .page{border:0;max-width:none}
+  nav{display:none}
+  .term .screen{background:#fff;color:#000;border:1px solid #000}
+  .t-sel{background:#ddd;color:#000}
+  a{color:#000}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#overview">Skip to content</a>
+<div class="page">
+
+<header>
+  <h1 class="wordmark">xdu</h1>
+  <p class="tagline">One billion files. One index.<br>Answers in seconds.</p>
+  <p class="sub">A filesystem indexer and query suite for storage at HPC scale.
+    Pure Rust. No daemon, no database server, no runtime.</p>
+  <p class="stamp">version 0.5.1 &nbsp;&middot;&nbsp; MIT licence &nbsp;&middot;&nbsp; Linux &amp; macOS &nbsp;&middot;&nbsp; x86-64 &amp; arm64</p>
+</header>
+
+<nav>
+  <a href="#overview">Overview</a><span class="bar">|</span>
+  <a href="#suite">The&nbsp;Suite</a><span class="bar">|</span>
+  <a href="#screens">Screenshots</a><span class="bar">|</span>
+  <a href="#index">The&nbsp;Index</a><span class="bar">|</span>
+  <a href="#speed">Speed</a><span class="bar">|</span>
+  <a href="#install">Install</a><span class="bar">|</span>
+  <a href="#queries">Queries</a><span class="bar">|</span>
+  <a href="#roadmap">Roadmap</a><span class="bar">|</span>
+  <a href="https://github.com/xdu-project/xdu">Source</a>
+</nav>
+
+<div class="pad">
+
+<h2 id="overview">What it is</h2>
+<hr>
+
+<p class="lead"><code>du(1)</code> was written for filesystems you could walk while the
+coffee brewed. A modern research storage system holds hundreds of millions to billions of
+files, and every <code>du</code> or <code>find</code> re-walks the whole tree to answer one
+question &mdash; hours of metadata traffic, discarded the moment the prompt comes back.</p>
+
+<p><strong>xdu</strong> walks the tree once and writes down what it learned: a persistent,
+Hive-partitioned <strong>Parquet</strong> index of every file's path, size, owner, group,
+permission bits and three timestamps. Everything after that is a query. Who is consuming the
+quota; what has not been touched in two years; which permission bits are wrong; where the
+whale directories are hiding &mdash; answered in seconds, thousands of times, against the
+same index.</p>
+
+<p>Crawl <code>/scratch</code> overnight. Audit it all week.</p>
+
+<div class="abstract">
+<dl>
+  <dt>Built once, queried forever</dt>
+  <dd>One traversal produces an index that answers questions instantly &mdash; from the shell,
+      from an interactive TUI, or from DuckDB, Polars and Spark directly.</dd>
+  <dt>Partition pruning by design</dt>
+  <dd>The index is partitioned by top-level subdirectory, so one user's data is queried
+      without touching anyone else's, and re-indexed without rebuilding the whole tree.</dd>
+  <dt>Honest about what it knows</dt>
+  <dd>A run attests to itself. Readers refuse an index whose format they do not understand,
+      and warn about one whose crawl skipped an unreadable region.</dd>
+  <dt>One binary each, nothing to run</dt>
+  <dd>Self-contained Rust binaries with DuckDB and its Parquet reader compiled in.
+      Works on an air-gapped host. Installs by copying a file.</dd>
+</dl>
+</div>
+
+<h2 id="suite">The suite</h2>
+<hr>
+
+<p>Four commands. One writes the index; three read it.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr>
+      <th><code>xdu</code></th>
+      <td>The crawler. Walks a tree with a shared work-stealing thread pool and writes the
+          eight-column Parquet index, one directory of chunks per partition.</td>
+    </tr>
+    <tr>
+      <th><code>xdu-find</code></th>
+      <td>The query CLI. Glob or regex on paths, size and age windows, owner, group and
+          octal permission filters; <code>--count</code>, <code>--top</code>, and
+          <code>path</code>&thinsp;/&thinsp;<code>size</code>&thinsp;/&thinsp;<code>atime</code>&thinsp;/&thinsp;<code>csv</code>&thinsp;/&thinsp;<code>json</code>
+          output. Pipes into anything.</td>
+    </tr>
+    <tr>
+      <th><code>xdu-view</code></th>
+      <td>The explorer. An <code>ncdu</code>-style terminal UI over the index, with a list
+          view and a Miller-columns tree view, file-type detection, a text preview pane, and
+          filters and sorts you can change without leaving it. Strictly read-only.</td>
+    </tr>
+    <tr>
+      <th><code>xdu-rm</code></th>
+      <td>The enforcer. Parallel bulk deletion of exactly the set an index query selected,
+          with <code>--dry-run</code>, a confirmation prompt, and a <code>--safe</code> mode
+          that re-<code>stat</code>s each file and refuses to delete one a user touched since
+          the index was built.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p class="small dim">Every reader takes its index from <code>-i</code> or from
+<code>$XDU_INDEX</code>; every parallel command takes its thread count from <code>-j</code>
+or <code>$XDU_JOBS</code>. Man pages and shell completions for all four ship in the release
+tarball.</p>
+
+<h2 id="screens">Screenshots</h2>
+<hr>
+
+<figure>
+  <div class="term">
+    <div class="tbar"><span class="btn"></span><span class="ttl">xdu &mdash; crawling /scratch</span><span class="btn"></span></div>
+    <div class="screen"><pre><span class="t-dim">$ </span><span class="t-bold">xdu /scratch -o /index/scratch -j 32</span>
+
+<span class="t-green">    Finished</span> __root__ (312 files, 1.44 GiB)
+<span class="t-green">    Finished</span> x-lentner (8.4M files, 214.66 TiB)
+<span class="t-green">    Finished</span> bioinfo (41.2M files, 1044.31 TiB, 118 vanished)
+<span class="t-green">⠙</span> 160.1M files, 3882.38 TiB | 412.8k files/s (peak: 501.3k files/s)
+<span class="t-cyan">⠴</span> genomics: 92.4M files, 2192.38 TiB | 284.1k files/s (peak: 331.5k files/s) [T3]
+<span class="t-cyan">⠋</span> climate: 18.1M files, 431.02 TiB | 96.4k files/s (peak: 140.2k files/s) [T7]
+<span class="t-cyan">⠒</span> cms-data: scanning...</pre></div>
+  </div>
+  <figcaption>The crawler mid-flight. Each partition that finishes prints and scrolls away;
+  the live lines show files, bytes, current and peak rate, and the driver thread holding the
+  bar. The top line is the whole run.</figcaption>
+</figure>
+
+<figure>
+  <div class="term">
+    <div class="tbar"><span class="btn"></span><span class="ttl">xdu &mdash; done</span><span class="btn"></span></div>
+    <div class="screen"><pre><span class="t-green">   Completed</span> 1.0B files (8614.40 TiB) in 3218.44s, 2143 vanished</pre></div>
+  </div>
+  <figcaption>Fifty-four minutes later. A billion files, indexed &mdash; and honest about the
+  two thousand that vanished underneath it while it walked.</figcaption>
+</figure>
+
+<figure>
+  <div class="term">
+    <div class="tbar"><span class="btn"></span><span class="ttl">xdu-view &mdash; list mode</span><span class="btn"></span></div>
+    <div class="screen"><pre><span class="t-border">┌─ genomics/rnaseq [older:90d] [min:1.00 MiB] ─────────────────────────────────┐</span>
+<span class="t-border">│</span><span class="t-sel"> ▸ alignments                        412.83 TiB   18.4M files    4 months ago </span><span class="t-border">│</span>
+<span class="t-border">│</span> ▸ fastq                             184.22 TiB    2.1M files    7 months ago <span class="t-border">│</span>
+<span class="t-border">│</span> ▸ counts                              1.42 TiB  884.2K files    3 months ago <span class="t-border">│</span>
+<span class="t-border">│</span> ▸ qc                                884.10 GiB   12.9K files      8 days ago <span class="t-border">│</span>
+<span class="t-border">│</span> ▸ .snakemake                         41.06 GiB  308.4K files     2 years ago <span class="t-border">│</span>
+<span class="t-border">│</span>   run_manifest.tsv                    4.50 KiB        1 file           today <span class="t-border">│</span>
+<span class="t-border">└──────────────────────────────────────────────────────────────────────────────┘</span>
+<span class="t-dim"> 1.4K entries in 0.18s (filtered) │ sort:size-desc mode:list │ q:quit jk↑↓:nav</span></pre></div>
+  </div>
+  <figcaption><code class="w">xdu-view -i /index/scratch -u genomics --older-than 90 --min-size 1M -s size-desc</code>
+  &mdash; the list view, filtered to stale data over a megabyte and sorted by weight. Active
+  filters are named in the title bar; <kbd>/</kbd>, <kbd>o</kbd>, <kbd>&gt;</kbd> and
+  <kbd>&lt;</kbd> change them in place. Nothing here can write to your filesystem.</figcaption>
+</figure>
+
+<figure>
+  <div class="term">
+    <div class="tbar"><span class="btn"></span><span class="ttl">xdu-view &mdash; tree mode</span><span class="btn"></span></div>
+    <div class="screen"><pre><span class="t-dimborder">┌─scratch────────────┐</span><span class="t-dimborder">┌─genomics─────────┐</span><span class="t-activeborder">┌─rnaseq───────────┐</span><span class="t-previewborder">┌─env.yml────────┐</span>
+<span class="t-dimborder">│</span> ▸ bioinfo 1044 TiB <span class="t-dimborder">│</span><span class="t-dimborder">│</span><span class="t-sel"> ▸ rnaseq 412 TiB </span><span class="t-dimborder">│</span><span class="t-activeborder">│</span> ▸ 2024    88 TiB <span class="t-activeborder">│</span><span class="t-previewborder">│</span> name: rnaseq   <span class="t-previewborder">│</span>
+<span class="t-dimborder">│</span> ▸ climate  431 TiB <span class="t-dimborder">│</span><span class="t-dimborder">│</span> ▸ wgs    988 TiB <span class="t-dimborder">│</span><span class="t-activeborder">│</span> ▸ 2025   204 TiB <span class="t-activeborder">│</span><span class="t-previewborder">│</span> channels:      <span class="t-previewborder">│</span>
+<span class="t-dimborder">│</span> ▸ cms-data 2145 TiB<span class="t-dimborder">│</span><span class="t-dimborder">│</span> ▸ atac   284 TiB <span class="t-dimborder">│</span><span class="t-activeborder">│</span>   README.md 4 KiB<span class="t-activeborder">│</span><span class="t-previewborder">│</span>  - bioconda    <span class="t-previewborder">│</span>
+<span class="t-dimborder">│</span><span class="t-sel"> ▸ genomics 2192 TiB</span><span class="t-dimborder">│</span><span class="t-dimborder">│</span> ▸ ref     12 TiB <span class="t-dimborder">│</span><span class="t-activeborder">│</span><span class="t-sel">   env.yml   2 KiB</span><span class="t-activeborder">│</span><span class="t-previewborder">│</span>  - conda-forge <span class="t-previewborder">│</span>
+<span class="t-dimborder">│</span> ▸ x-lentner 214 TiB<span class="t-dimborder">│</span><span class="t-dimborder">│</span>                  <span class="t-dimborder">│</span><span class="t-activeborder">│</span>                  <span class="t-activeborder">│</span><span class="t-previewborder">│</span> dependencies:  <span class="t-previewborder">│</span>
+<span class="t-dimborder">│</span>                    <span class="t-dimborder">│</span><span class="t-dimborder">│</span>                  <span class="t-dimborder">│</span><span class="t-activeborder">│</span>                  <span class="t-activeborder">│</span><span class="t-previewborder">│</span>  - star=2.7.11 <span class="t-previewborder">│</span>
+<span class="t-dimborder">│</span>                    <span class="t-dimborder">│</span><span class="t-dimborder">│</span>                  <span class="t-dimborder">│</span><span class="t-activeborder">│</span>                  <span class="t-activeborder">│</span><span class="t-previewborder">│</span>  - salmon=1.10 <span class="t-previewborder">│</span>
+<span class="t-dimborder">└────────────────────┘</span><span class="t-dimborder">└──────────────────┘</span><span class="t-activeborder">└──────────────────┘</span><span class="t-previewborder">└────────────────┘</span>
+<span class="t-dim"> genomics/rnaseq/env.yml │ 2.05 KiB │ 1 file │ 6 days ago │ mode:tree</span></pre></div>
+  </div>
+  <figcaption><kbd>t</kbd> switches to Miller columns: the hierarchy cascades left to right,
+  the active column is highlighted, and selecting a file opens a preview pane on the right.
+  Sizes are rolled up per directory, straight out of the index &mdash; no second walk.</figcaption>
+</figure>
+
+<h3>&hellip;and from the shell</h3>
+
+<pre class="sh"><span class="c"># which partitions hold the most files, biggest first</span>
+<span class="p">$</span> xdu-find -i /index/scratch --top 5
+genomics
+cms-data
+bioinfo
+climate
+x-lentner
+
+<span class="c"># a gigabyte or more, untouched for two years, owned by a departed user</span>
+<span class="c"># (-f size emits bytes and a tab, ready for cut, awk or sort -n)</span>
+<span class="p">$</span> xdu-find -i /index/scratch --owner jdoe --min-size 1G --older-than 730 -f size
+4629938784665	/scratch/genomics/wgs/NA12878.cram
+2023949056512	/scratch/genomics/wgs/NA12891.cram
+&hellip;
+
+<span class="c"># how much of the shared project is world-writable?</span>
+<span class="p">$</span> xdu-find -i /index/scratch -u bioinfo --mode /002 --count
+1884203
+
+<span class="c"># hand the whole slice to your own tooling</span>
+<span class="p">$</span> xdu-find -i /index/scratch -u climate --mtime-older-than 365 -f csv &gt; stale.csv
+
+<span class="c"># enforce the retention policy: preview, then commit</span>
+<span class="p">$</span> xdu-rm -i /index/scratch --older-than 60 --dry-run | tail -1
+847231 file(s) would be deleted.
+<span class="p">$</span> xdu-rm -i /index/scratch --older-than 60 --safe -j 16 --force -v
+SKIP (accessed since index): /scratch/bioinfo/refs/hg38.fa
+DELETE: /scratch/climate/cmip6/tmp/run0417.nc
+DELETE: /scratch/bioinfo/tmp/sorted.bam.tmp
+&hellip;
+
+Deleted: 847203
+Skipped (safe mode): 28</pre>
+
+<h2 id="index">The index</h2>
+<hr>
+
+<p>Eight columns, one row per file, Snappy-compressed Parquet. Nothing clever &mdash; the
+point is that it is boring, small, and readable by every tool in the modern data stack.</p>
+
+<div class="scroll">
+<table>
+  <caption>The index schema.</caption>
+  <thead><tr><th>Column</th><th>Type</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><th><code>path</code></th><td>UTF&#8209;8</td><td>Absolute file path</td></tr>
+    <tr><th><code>size</code></th><td>INT64</td><td>Disk usage from <code>st_blocks</code>, or apparent length under <code>--apparent-size</code></td></tr>
+    <tr><th><code>uid</code></th><td>INT64</td><td>Owning user id</td></tr>
+    <tr><th><code>gid</code></th><td>INT64</td><td>Owning group id</td></tr>
+    <tr><th><code>mode</code></th><td>INT64</td><td>Permission bits (<code>st_mode &amp; 07777</code>)</td></tr>
+    <tr><th><code>atime</code></th><td>INT64</td><td>Last access, Unix epoch seconds</td></tr>
+    <tr><th><code>mtime</code></th><td>INT64</td><td>Last modification</td></tr>
+    <tr><th><code>ctime</code></th><td>INT64</td><td>Last inode change</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Hive layout</h3>
+
+<p>One directory per top-level subdirectory of the indexed root, holding numbered chunks.
+Loose files directly under the root land in a reserved <code>__root__</code> partition.</p>
+
+<pre class="sh">/index/scratch/
+&#9500;&#9472;&#9472; .xdu-complete          <span class="c"># run attestation: xdu, files, bytes, vanished, errors, format</span>
+&#9500;&#9472;&#9472; __root__/
+&#9474;   &#9492;&#9472;&#9472; 000000.parquet
+&#9500;&#9472;&#9472; bioinfo/
+&#9474;   &#9500;&#9472;&#9472; 000000.parquet
+&#9474;   &#9500;&#9472;&#9472; 000001.parquet
+&#9474;   &#9492;&#9472;&#9472; 000002.parquet
+&#9500;&#9472;&#9472; climate/
+&#9474;   &#9492;&#9472;&#9472; 000000.parquet
+&#9492;&#9472;&#9472; genomics/
+    &#9492;&#9472;&#9472; 000000.parquet</pre>
+
+<p>That layout is doing real work. It gives DuckDB <strong>partition pruning</strong>, so
+<code>-u alice</code> reads one directory instead of scanning a petabyte-scale index; it lets
+partitions be written <strong>in parallel</strong> and re-indexed <strong>incrementally</strong>
+(<code class="w">xdu /scratch -o /index/scratch --partition alice</code>, which also retires that
+partition's stale chunks); and because it is just Hive-partitioned Parquet on a filesystem, it
+maps unchanged onto object-store key prefixes.</p>
+
+<h3>Chunks are atomic; runs attest</h3>
+
+<p>Every chunk is written as <code>NNNNNN.parquet.partial</code> and renamed into place, so a
+reader never sees half a file. But per-file atomicity cannot say whether the <em>run</em>
+finished &mdash; a crawl that died after three partitions leaves three perfectly valid
+directories. So <code>xdu</code> clears <code>.xdu-complete</code> before it writes and
+restores it only on the success path, recording the file and byte counts, the files that
+vanished mid-walk, any tolerated errors, and the index format version.</p>
+
+<p>All three readers check that marker first. An index whose format they do not recognise is
+<strong>refused</strong> &mdash; no rows, and in <code>xdu-rm</code>'s case no deletions. An
+index whose crawl skipped an unreadable region still answers, but says so on stderr. By
+default an unreadable path fails the crawl outright; <code>--allow-errors</code> is how you
+opt into indexing what is reachable, and the marker remembers that you did.</p>
+
+<h2 id="speed">Why it's fast</h2>
+<hr>
+
+<ol>
+  <li><strong>One shared pool, work-stealing at every level.</strong> All walkers draw from a
+      single <a href="https://docs.rs/rayon/">rayon</a> pool, so directory reads rebalance
+      continuously across active partitions. The classic thread-per-partition layout has a
+      long tail: a handful of 30-million-file whales pin one thread each while a thousand
+      small partitions sit finished and idle. Here they don't.</li>
+  <li><strong>Parallel <code>stat</code>.</strong> Metadata calls happen inside the pool, which
+      is what matters on a network or parallel filesystem where each one is a round trip.</li>
+  <li><strong>Columnar storage.</strong> Parquet compresses long shared path prefixes hard
+      &mdash; frequently 10:1 &mdash; and lets query predicates be pushed down into the read
+      rather than filtering rows after the fact.</li>
+  <li><strong>Buffered writes.</strong> Records accumulate in memory and flush in chunks
+      (<code>-B</code>, default 100,000 rows), keeping write syscalls off the hot path.</li>
+  <li><strong>One traversal, many queries.</strong> The real win, and the least clever one.
+      The expensive thing is walking the tree; do it once.</li>
+</ol>
+
+<div class="scroll">
+<table>
+  <caption>Committed benchmark baseline. Median of five reps, warm cache; Apple M4&nbsp;Max,
+  14 cores, APFS.</caption>
+  <thead>
+    <tr><th>Shape</th><th class="num">Files</th><th class="num">Threads</th>
+        <th class="num">Wall</th><th class="num">Files/s</th><th class="num">Peak RSS</th></tr>
+  </thead>
+  <tbody>
+    <tr><th>mixed fan-out</th><td class="num">819,216</td><td class="num">1</td><td class="num">5.87 s</td><td class="num">139,560</td><td class="num">32 MiB</td></tr>
+    <tr><th>mixed fan-out</th><td class="num">819,216</td><td class="num">2</td><td class="num">3.59 s</td><td class="num">228,194</td><td class="num">38 MiB</td></tr>
+    <tr><th>mixed fan-out</th><td class="num">819,216</td><td class="num">4</td><td class="num">2.49 s</td><td class="num">329,002</td><td class="num">61 MiB</td></tr>
+    <tr><th>mixed fan-out</th><td class="num">819,216</td><td class="num">8</td><td class="num">2.61 s</td><td class="num">313,876</td><td class="num">102 MiB</td></tr>
+    <tr><th>1,000 partitions</th><td class="num">400,000</td><td class="num">4</td><td class="num">1.28 s</td><td class="num">312,500</td><td class="num">12 MiB</td></tr>
+    <tr><th>one flat directory</th><td class="num">400,000</td><td class="num">4</td><td class="num">3.17 s</td><td class="num">126,183</td><td class="num">141 MiB</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="small dim">Read that table for its <em>shape</em>, not its absolute numbers. Local
+APFS on a laptop saturates around four threads; a parallel filesystem with real metadata
+latency wants far more, which is what <code>-j 32</code> is for. The flat-directory row is the
+honest worst case: a single directory is the unit of parallelism, so one enormous flat
+directory cannot be split. And the harness's own noise floor is 3&ndash;28% depending on
+shape, so no single figure here is a promise. Reproduce it with
+<code>sh bench/run.sh baseline</code>.</p>
+
+<h2 id="install">Install</h2>
+<hr>
+
+<pre class="sh"><span class="p">$</span> curl -sSfL https://raw.githubusercontent.com/xdu-project/xdu/main/install.sh | sh</pre>
+
+<p>Fetches the release binaries for your platform and installs them, with man pages and shell
+completions, under <code>~/.local/bin</code>. Set <code>XDU_INSTALL=/usr/local/bin</code> to
+put them somewhere else, or <code>XDU_VERSION=v0.5.1</code> to pin a version.</p>
+
+<p>From source, with a <a href="https://rustup.rs">Rust</a> nightly toolchain:</p>
+
+<pre class="sh"><span class="p">$</span> cargo install --git https://github.com/xdu-project/xdu.git</pre>
+
+<p>Native <code>.deb</code> and <code>.rpm</code> packages are also
+published&nbsp;<span class="ver" style="float:none;margin:0">&#8224; v0.6.3</span>, built from
+the same release layout.</p>
+
+<div class="scroll">
+<table class="tight">
+  <caption>Release targets.</caption>
+  <thead><tr><th>Platform</th><th>Triple</th></tr></thead>
+  <tbody>
+    <tr><th>Linux, x86-64</th><td><code>x86_64-unknown-linux-gnu</code></td></tr>
+    <tr><th>Linux, arm64</th><td><code>aarch64-unknown-linux-gnu</code></td></tr>
+    <tr><th>macOS, Intel</th><td><code>x86_64-apple-darwin</code></td></tr>
+    <tr><th>macOS, Apple silicon</th><td><code>aarch64-apple-darwin</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="small dim">Unix only: <code>xdu</code> reads ownership, mode and timestamps through
+<code>std::os::unix::fs::MetadataExt</code>.</p>
+
+<h2 id="queries">Queries</h2>
+<hr>
+
+<p><code>xdu-find</code> and <code>xdu-view</code> cover the common questions. For anything
+else, the index is just Parquet &mdash; point DuckDB, Polars, pandas or Spark at it and write
+whatever you want.</p>
+
+<pre class="sh"><span class="c">-- total usage per user, by partition, no full scan</span>
+SELECT
+    regexp_extract(path, '/scratch/([^/]+)/', 1) AS project,
+    sum(size) / 1e12                             AS tb,
+    count(*)                                     AS files
+FROM read_parquet('/index/scratch/*/*.parquet')
+GROUP BY project
+ORDER BY tb DESC;
+
+<span class="c">-- the top ten cold whales</span>
+SELECT path, size, to_timestamp(atime) AS last_read
+FROM read_parquet('/index/scratch/*/*.parquet')
+WHERE atime &lt; epoch(now()) - 86400 * 180
+ORDER BY size DESC
+LIMIT 10;
+
+<span class="c">-- exposure audit: world-writable files, by owner</span>
+SELECT uid, count(*) AS n, sum(size) / 1e9 AS gb
+FROM read_parquet('/index/scratch/*/*.parquet')
+WHERE mode &amp; 2 != 0
+GROUP BY uid
+ORDER BY n DESC;
+
+<span class="c">-- one partition only: DuckDB never opens the others</span>
+SELECT sum(size) / 1e12 AS tb
+FROM read_parquet('/index/scratch/genomics/*.parquet');</pre>
+
+<h3>Keeping it fresh</h3>
+
+<p>Crawl on a schedule:</p>
+
+<pre class="sh">0 2 * * *  /usr/local/bin/xdu /scratch -o /index/scratch -j 32 &gt;&gt; /var/log/xdu.log 2&gt;&amp;1</pre>
+
+<p>On a multi-petabyte ZFS filesystem, where a full crawl runs for hours and users keep
+working the whole time, index a <strong>snapshot</strong> instead. The snapshot is
+instantaneous and read-only, so the index describes an exact moment rather than a smear
+across eight hours &mdash; and if anyone later disputes a number, you can mount the same
+snapshot and check.</p>
+
+<pre class="sh"><span class="p">#</span> zfs snapshot tank/scratch@xdu-$(date +%F)
+<span class="p">#</span> mount -t zfs -o ro tank/scratch@xdu-$(date +%F) /mnt/xdu-snap
+<span class="p">#</span> xdu /mnt/xdu-snap -o /index/scratch -j 32
+<span class="p">#</span> umount /mnt/xdu-snap &amp;&amp; zfs destroy tank/scratch@xdu-$(date +%F)</pre>
+
+<h2 id="roadmap">Roadmap</h2>
+<hr>
+
+<p>Where this is going, and roughly when. The dependency ordering below is real; the version
+numbers are intent, not commitment.</p>
+
+<div class="legend">
+  <strong>&#8224;&nbsp;How to read this.</strong> Everything described elsewhere on this page
+  is in <strong>v0.5.1</strong> today. Each entry below is annotated with the release it is
+  announced for. Nothing in this section has shipped yet.
+</div>
+
+<h3>Bulk operations</h3>
+
+<dl class="feat">
+  <dt><span class="ver">&#8224; v0.8</span><code>xdu-cp</code> and <code>xdu-mv</code></dt>
+  <dd><code>xdu-rm</code> proved the pattern: select a set with an index query, act on exactly
+      that set, with a dry run, a confirmation, a <code>--safe</code> re-<code>stat</code> and
+      deterministic ordering under <code>--limit</code>. That path becomes one shared
+      select-and-act engine behind <code>rm</code>, <code>cp</code> and <code>mv</code> instead
+      of three copies of the same <code>main</code>. &ldquo;Move everything untouched in two
+      years to cold storage&rdquo; becomes one command that can be reviewed before it
+      runs.</dd>
+
+  <dt><span class="ver">&#8224; v0.8.1</span><code>xdu-tar</code> slice archives</dt>
+  <dd>Archive exactly the matched set &mdash; everything older than X, everything changed since
+      the last backup &mdash; as one ordered, reproducible stream to a file or to stdout, with
+      the tree structure preserved. <code>xdu-find | xargs tar</code> inherits every
+      <code>xargs</code> failure mode and assembles ten thousand appends where tape wants a
+      single stream.</dd>
+
+  <dt><span class="ver">&#8224; v0.8.2</span>Index diffing</dt>
+  <dd>Compare two indexes of the same root into added, changed, removed and unchanged, keyed on
+      path. &ldquo;Changed since the last backup&rdquo; stops being a guess about wall clocks
+      &mdash; <code>--newer-than</code> filters on <em>access</em> time, the wrong clock for a
+      modification question &mdash; and becomes a measured difference, which is exactly the
+      selection <code>xdu-tar</code> wants for an incremental slice.</dd>
+</dl>
+
+<h3>Reaching past the local disk</h3>
+
+<dl class="feat">
+  <dt><span class="ver">&#8224; v0.9</span>S3 as an index target</dt>
+  <dd><code>-o s3://bucket/prefix</code>. Indexes on local disk are tied to the machine that
+      built them; the Hive layout maps onto object-store key prefixes with no change, so an
+      index can be built once centrally and read from anywhere by any tool &mdash; including a
+      browser.</dd>
+
+  <dt><span class="ver">&#8224; v1.2</span>S3 as a crawl source</dt>
+  <dd>Organisations park enormous datasets in object storage &mdash; data lakes, cold archives,
+      tiered backups &mdash; and get none of the size and age accounting there that xdu gives a
+      POSIX tree. This puts the crawler behind a backend trait so a local walker and an
+      S3-listing walker are interchangeable under one CLI, and makes per-source capability
+      differences explicit: object storage has no access time to report, so the Unix
+      assumptions stop holding for every backend.</dd>
+
+  <dt><span class="ver">&#8224; v1.3</span>Streaming updates and the Lustre changelog</dt>
+  <dd>A full re-crawl of a filesystem with a billion files is stale before it finishes, and
+      running it again is enormously expensive. The answer is merge-on-read, in the style of
+      Iceberg: a base snapshot from one full crawl, delta files fed continuously from the
+      storage system's own change stream, and periodic compaction folding the deltas back into
+      the base. The Lustre changelog is the driver &mdash; a modern successor to Robinhood
+      &mdash; but the change stream is a pluggable abstraction, with an inotify backend as a
+      general-purpose reference implementation.</dd>
+
+  <dt><span class="ver">&#8224; v1.1</span><code>xdu-web</code></dt>
+  <dd><code>xdu-view</code>, compiled to WebAssembly: the same list and tree views, the same
+      filters and sorts, in a progressive web app pointed straight at an index in object
+      storage. A central index becomes explorable by anyone with a link, with no shell account
+      and nothing installed.</dd>
+</dl>
+
+<h3>Richer questions</h3>
+
+<dl class="feat">
+  <dt><span class="ver">&#8224; v0.7</span>Fuzzy filename matching</dt>
+  <dd>Approximate name search across all three readers, for the very common case of half
+      remembering what a file was called.</dd>
+
+  <dt><span class="ver">&#8224; v0.7</span>Full-text search</dt>
+  <dd>DuckDB's FTS extension over indexed paths, for the queries that neither a glob nor an
+      anchored regex expresses comfortably.</dd>
+
+  <dt><span class="ver">&#8224; v1.1</span>Content-type filters</dt>
+  <dd><code>--type video --min-size 1G</code>. MIME detection recorded at crawl time, so
+      &ldquo;every video file over a gigabyte&rdquo; is an index query rather than a second
+      walk of the tree.</dd>
+
+  <dt><span class="ver">&#8224; v1.0</span>Permission-aware, access-scoped queries</dt>
+  <dd>An index built as root describes files its readers are not entitled to see &mdash; sizes
+      and paths a user could never <code>stat</code> themselves. Borrowing GUFI's shadow-tree
+      model, queries can be scoped so each user sees only what they would normally have access
+      to. This is the piece that makes a centrally built index safe to hand to the tenants it
+      describes.</dd>
+</dl>
+
+<h3>Operating it</h3>
+
+<dl class="feat">
+  <dt><span class="ver">&#8224; v0.6</span>Machine-readable crawl logs</dt>
+  <dd>A log mode alongside the interactive display: timestamped, severity-tagged, parseable
+      records of the invocation and its arguments, each partition completion, every tolerated
+      warning, the attestation verdict and a final summary. Today a 3 a.m. cron failure leaves
+      a log that says what finished without saying when, or how badly. The spinners on a
+      terminal are untouched.</dd>
+
+  <dt><span class="ver">&#8224; v0.6</span>Crawl progress you can trust on skewed trees</dt>
+  <dd>On very large filesystems the display can settle into a state that reads as hung: one
+      partition counting files while every other line sits at <code>scanning&hellip;</code>.
+      Throughput is fine; the <em>report</em> is misleading, because each bar is owned by one
+      driver for life while the pool work-steals across all of them. Every line gets its own
+      evidence of life and labels that match the threading model &mdash; because on shared
+      scratch, &ldquo;skewed&rdquo; versus &ldquo;stuck&rdquo; is the difference between
+      letting a job run and killing it.</dd>
+
+  <dt><span class="ver">&#8224; v0.6.3</span>Native OS packages</dt>
+  <dd><code>apt install xdu</code>, <code>dnf install xdu</code>. The tarball layout and
+      <code>install.sh</code> already define the exact file map these would ship.</dd>
+</dl>
+
+<h3>Engineering and hardening</h3>
+
+<p class="small">Smaller work, mostly invisible from the outside &mdash; except the first
+three, which are not.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Item</th><th>What changes</th><th>Release</th></tr></thead>
+  <tbody>
+    <tr>
+      <th>Clean exits on closed pipes</th>
+      <td><code>xdu-find &hellip; | head -1</code> succeeds instead of failing with
+          <code>Broken pipe (os error 32)</code>, while a genuinely full disk stays loud.</td>
+      <td class="num">v0.6.1</td>
+    </tr>
+    <tr>
+      <th>Panic-safe terminal restore</th>
+      <td>A drop guard and panic hook in <code>xdu-view</code>, plus multibyte-safe name
+          truncation, so neither a fault nor an awkward filename can leave a terminal
+          wedged.</td>
+      <td class="num">v0.6.1</td>
+    </tr>
+    <tr>
+      <th>Man pages that survive <code>groff</code></th>
+      <td>No soft hyphen inserted into the middle of <code>OUTDIR/.xdu-complete</code>, and a
+          rendering gate that uses the same renderer users do.</td>
+      <td class="num">v0.6.1</td>
+    </tr>
+    <tr>
+      <th>Per-partition attestation</th>
+      <td>A <code>--partition</code>-scoped run stops rewriting the whole index's completion
+          marker from its own statistics, and so stops retiring warnings it knows nothing
+          about.</td>
+      <td class="num">v0.6.2</td>
+    </tr>
+    <tr>
+      <th>Whole-index reconciliation</th>
+      <td>A partition whose source directory is gone is retired on re-index, instead of
+          answering queries with rows for files that no longer exist.</td>
+      <td class="num">v0.6.2</td>
+    </tr>
+    <tr>
+      <th>Prune guard for unreadable partitions</th>
+      <td><code>finalize</code> declines to prune chunks it could not read, so a permission
+          change or a stale mount can no longer cost you rows you already had.</td>
+      <td class="num">v0.6.2</td>
+    </tr>
+    <tr>
+      <th>Man-page gate from <code>doc/*.scd</code></th>
+      <td>The asserted page list is derived from the sources that are rendered, so a fifth man
+          page cannot ship unchecked.</td>
+      <td class="num">v0.6.x</td>
+    </tr>
+    <tr>
+      <th>Benchmark baseline guard</th>
+      <td><code>bench/run.sh baseline</code> can no longer overwrite the committed reference it
+          is being compared against &mdash; the one file in <code>bench/results/</code> that is
+          not reproducible on demand.</td>
+      <td class="num">v0.6.x</td>
+    </tr>
+    <tr>
+      <th>CI that binds</th>
+      <td>A branch ruleset with required checks and no direct pushes, plus a scheduled canary
+          for the container image, so a red gate stops a merge instead of decorating one.</td>
+      <td class="num">v0.6.x</td>
+    </tr>
+    <tr>
+      <th>Library extraction</th>
+      <td>Validated escaping on the index-glob seam, one count formatter rather than two, and
+          the TUI's pure helpers &mdash; <code>strip_ansi</code> above all, which is
+          load-bearing for terminal safety &mdash; lifted out of a 2,500-line binary into
+          <code>lib</code> where they can be tested.</td>
+      <td class="num">v0.6.x</td>
+    </tr>
+    <tr>
+      <th>The v1.0 checkpoint</th>
+      <td>A written motivation-and-architecture piece, a project identity, a contribution guide
+          and a maintenance plan. A v1.0 is as much about explaining a project as shipping
+          code.</td>
+      <td class="num">v1.0</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Already shipped</h3>
+
+<p class="small">Delivered in the 0.5 series and present in the binaries described above: the
+eight-column index &mdash; owner, group, mode, mtime and ctime alongside path, size and atime;
+on-disk index format versioning, which readers refuse to guess at; glob-by-default path
+matching, with <code>--regex</code> to opt back in; <code>-V</code>/<code>--version</code> on
+every binary; the in-list file preview overlay in <code>xdu-view</code>; and an RPM spec.
+Before that: the crawler and its shared pool, all four binaries, the release tarball,
+<code>install.sh</code>, man pages and shell completions.</p>
+
+</div><!-- /pad -->
+
+<footer>
+  <p><strong>xdu</strong> is free software under the
+     <a href="https://github.com/xdu-project/xdu/blob/main/LICENSE">MIT licence</a>.</p>
+  <p><a href="https://github.com/xdu-project/xdu">github.com/xdu-project/xdu</a>
+     &nbsp;&middot;&nbsp;
+     <a href="https://github.com/xdu-project/xdu/issues">Issues</a>
+     &nbsp;&middot;&nbsp;
+     <a href="https://github.com/xdu-project/xdu/releases">Releases</a>
+     &nbsp;&middot;&nbsp;
+     <a href="https://github.com/xdu-project/xdu/blob/main/ROADMAP.md">Roadmap</a></p>
+  <p class="mono">one file &nbsp;&middot;&nbsp; no scripts &nbsp;&middot;&nbsp;
+     no external requests &nbsp;&middot;&nbsp; no cookies</p>
+  <p class="mono">last updated 9 September 2026</p>
+</footer>
+
+</div><!-- /page -->
+</body>
+</html>
