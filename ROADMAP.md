@@ -114,20 +114,6 @@ make the full crawl itself faster or gentler on metadata servers than going thro
 *Horizon: long-term · Depends on: — (largest effort on the roadmap; expect several sub-phases) · Refs: —*
 **Seed:** [`issues/streaming-index-updates-lustre-changelog.md`](issues/streaming-index-updates-lustre-changelog.md)
 
-## Crawl progress that stays trustworthy on skewed trees
-
-On very large filesystems the interactive crawl display settles into a state that reads as hung:
-one partition shows file counts while every other line sits at `scanning...` indefinitely. Each
-driver owns one display bar for life while the shared rayon pool work-steals across all walkers,
-so the `[Tn]` label names the bar owner rather than the threads doing the work — the display
-reports the inverse of a healthy skewed crawl. Throughput is likely correct, but an operator
-cannot tell a skewed crawl from a stuck one, and on shared scratch that distinction decides
-whether a job lives or dies. The intent is per-line evidence of life and labels that match the
-threading model, with the single-pool work-stealing design unchanged.
-
-*Horizon: near-term · Depends on: — (display only; `src/bin/xdu.rs` progress block) · Refs: —*
-**Seed:** [`issues/crawl-progress-misleads-on-huge-trees.md`](issues/crawl-progress-misleads-on-huge-trees.md)
-
 ## Crawl progress: quiet lines should show elapsed with zero yields
 
 The skewed-tree pass gives a quiet partition evidence of life, but only while its walker yields
@@ -137,7 +123,7 @@ read identically, and a stall across every partition at once freezes the global 
 intent is a yield-independent refresh (elapsed-since-activity on each quiet line) that leaves the
 single-pool work-stealing walk untouched.
 
-*Horizon: near-term · Depends on: the skewed-tree entry above (ships first) · Refs: `spec/crawl-progress-misleads-on-huge-trees/REVIEW.md` (cycle 1, F1)*
+*Horizon: near-term · Depends on: the skewed-tree display fix, delivered on `main` — see `spec/crawl-progress-misleads-on-huge-trees/` · Refs: `spec/crawl-progress-misleads-on-huge-trees/REVIEW.md` (cycle 1, F1)*
 **Seed:** [`issues/crawl-progress-zero-yield-stall.md`](issues/crawl-progress-zero-yield-stall.md)
 
 ## Machine-readable log output for cron-driven crawls

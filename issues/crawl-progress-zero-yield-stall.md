@@ -66,6 +66,5 @@ Draft R-IDs, to be firmed up at promotion. Prefer EARS phrasing (see
 ## Notes
 
 - Related: `spec/crawl-progress-misleads-on-huge-trees/REVIEW.md` (cycle 1, F1 triage);
-  `issues/crawl-progress-misleads-on-huge-trees.md` (the parent symptom, in flight on
-  `fix/crawl-progress-misleads-on-huge-trees`).
+  the parent symptom, shipped on `main` — see `spec/crawl-progress-misleads-on-huge-trees/`.
 - Found by: `crawl-progress-misleads-on-huge-trees` review cycle 1.

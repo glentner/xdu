@@ -46,7 +46,6 @@ status. The interactive TTY display is untouched.
 
 ## Notes
 
-- Related: the companion progress-trust seed
-  [`crawl-progress-misleads-on-huge-trees.md`](crawl-progress-misleads-on-huge-trees.md) (the
-  interactive half of the same output surface).
+- Related: the companion progress-trust work, shipped on `main` — see
+  `spec/crawl-progress-misleads-on-huge-trees/` (the interactive half of the same output surface).
 - Found by: maintainer, from scripted-audit practice; recorded 2026-09-07.
