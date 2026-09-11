@@ -336,6 +336,10 @@ footer .mono{font-family:"Courier New",Courier,monospace;letter-spacing:.03em}
   a{color:#000}
 }
 .ver.nofloat{float:none;margin:0}
+.ver.landed{
+  color:var(--field);background:var(--accent);
+  border-color:var(--hi) var(--lo) var(--lo) var(--hi);
+}
 </style>
 </head>
 <body>
@@ -692,9 +696,21 @@ shape, so no single figure here is a promise. Reproduce it with
 completions, under <code>~/.local/bin</code>. Set <code>XDU_INSTALL=/usr/local/bin</code> to
 put them somewhere else, or <code>XDU_VERSION=v0.5.1</code> to pin a version.</p>
 
-<p>From source, with a <a href="https://rustup.rs">Rust</a> nightly toolchain:</p>
+<p>From source, with the <a href="https://rustup.rs">Rust</a> toolchain the repository pins
+(<code>rust-toolchain.toml</code>, currently 1.97.1 &mdash; <code>rustup</code> honours it
+automatically):</p>
 
 <pre class="sh"><span class="p">$</span> cargo install --git https://github.com/xdu-project/xdu.git</pre>
+
+<p>Or run it from a container&nbsp;<span class="ver nofloat landed">on&nbsp;main</span>. Docker and
+Apptainer/Singularity specs are generated from a single
+<a href="https://github.com/NVIDIA/hpc-container-maker">HPCCM</a> recipe in <code>hpccm/</code>:</p>
+
+<pre class="sh"><span class="p">$</span> make -C hpccm sif      <span class="c"># xdu.sif, via apptainer</span>
+<span class="p">$</span> make -C hpccm image    <span class="c"># the docker image</span></pre>
+
+<p>They install the published release binaries rather than building from source, so they finish in
+seconds, and they follow release tags rather than the working tree.</p>
 
 <p>Native <code>.deb</code> and <code>.rpm</code> packages are also
 published&nbsp;<span class="ver nofloat">&#8224; v0.6.3</span>, built from
@@ -712,6 +728,10 @@ the same release layout.</p>
   </tbody>
 </table>
 </div>
+
+<p class="small dim">The Linux tarballs are built on Ubuntu 24.04 and currently want glibc 2.39,
+so they will not exec on RHEL8, RHEL9 or bookworm &mdash; use the container specs on those hosts
+until the portable baseline lands&nbsp;<span class="ver nofloat">&#8224;&nbsp;v0.6</span>.</p>
 
 <p class="small dim">Unix only: <code>xdu</code> reads ownership, mode and timestamps through
 <code>std::os::unix::fs::MetadataExt</code>.</p>
@@ -776,15 +796,96 @@ snapshot and check.</p>
   <div class="flabel">Roadmap</div>
   <div class="fbody">
 
-<p>Where this is going, and roughly when. The dependency ordering below is real; the version
-numbers are intent, not commitment.</p>
+<p>Where this is going, and roughly when.</p>
 
 <div class="legend">
   <span class="icon" aria-hidden="true">!</span>
-  <div class="body"><strong>&#8224;&nbsp;How to read this.</strong> Everything described elsewhere on this page
-  is in <strong>v0.5.1</strong> today. Each entry below is annotated with the release it is
-  announced for. Nothing in this section has shipped yet.</div>
+  <div class="body"><strong>How to read this.</strong> Everything described elsewhere on this page
+  is in <strong>v0.5.1</strong> today. Below, <span class="ver nofloat landed">on&nbsp;main</span>
+  marks work that is merged and waiting for a release &mdash; real, reviewed, not yet in a tarball
+  you can download. <span class="ver nofloat">&#8224;&nbsp;v0.7</span> marks work that is planned,
+  annotated with the release it is announced for. The dependency ordering is real; the version
+  numbers are intent.</div>
 </div>
+
+<h3>Reaching past the local disk</h3>
+
+<dl class="feat">
+  <dt><span class="ver">&#8224; v0.9</span>S3 as an index target</dt>
+  <dd><code>-o s3://bucket/prefix</code>. Indexes on local disk are tied to the machine that
+      built them; the Hive layout maps onto object-store key prefixes with no change, so an
+      index can be built once centrally and read from anywhere by any tool.</dd>
+
+  <dt><span class="ver">&#8224; v1.2</span>S3 as a crawl source</dt>
+  <dd>Organisations park enormous datasets in object storage &mdash; data lakes, cold archives,
+      tiered backups &mdash; and get none of the size and age accounting there that xdu gives a
+      POSIX tree. This puts the crawler behind a backend trait so a local walker and an
+      S3-listing walker are interchangeable under one CLI, and makes per-source capability
+      differences explicit: object storage has no access time to report, so the Unix
+      assumptions stop holding for every backend.</dd>
+
+  <dt><span class="ver">&#8224; v1.3</span>Streaming updates and the Lustre changelog</dt>
+  <dd>A full re-crawl of a filesystem with a billion files is stale before it finishes, and
+      running it again is enormously expensive. The answer is merge-on-read, in the style of
+      Iceberg: a base snapshot from one full crawl, delta files fed continuously from the
+      storage system's own change stream, and periodic compaction folding the deltas back into
+      the base. The Lustre changelog is the driver &mdash; a modern successor to Robinhood
+      &mdash; but the change stream is a pluggable abstraction, with an inotify backend as a
+      general-purpose reference implementation.</dd>
+</dl>
+
+<h3>The shared index</h3>
+
+<p>A central index built as root describes every tenant on the filesystem. Handing that to the
+people it describes is the hardest problem on this roadmap, and the answer is not a cleverer
+query &mdash; it is a service.</p>
+
+<dl class="feat">
+  <dt><span class="ver">&#8224; v1.0</span>Permission-aware, access-scoped queries</dt>
+  <dd>An index built as root holds sizes and paths its readers could never <code>stat</code> for
+      themselves. The scoping cannot live in the reader: DuckDB runs inside the calling process
+      with the calling user's privileges, so a filter a client applies is a convenience for
+      display and never a boundary &mdash; anyone who can open the files reads every row in them.
+      Two invariants replace what would otherwise be a page of configuration. <strong>An index
+      you built yourself inherits the permissions you had when you crawled it</strong>, and needs
+      no scoping machinery at all; that is what ships today. <strong>A shared index is only ever
+      read through the service</strong>, and needs none either.</dd>
+
+  <dt><span class="ver">&#8224; v1.0</span><code>xdu-api</code></dt>
+  <dd>The query service for a shared index, and the only reader with access to it. It
+      authenticates the caller, resolves them to the part of the tree they could actually walk,
+      answers queries scoped to that, and records what it answered. Totals report what you can
+      see and count what was withheld &mdash; a total that silently includes rows you cannot see
+      is a way to learn about them. The index is read-only, so the service is stateless:
+      replicas behind a load balancer, no coordination.</dd>
+
+  <dt><span class="ver">&#8224; v1.0</span><code>xdu-login</code></dt>
+  <dd>Authenticate once; then <code>xdu-find</code>, <code>xdu-view</code> and
+      <code>xdu-rm</code> reach a served tree under exactly the invocation you would have used
+      locally. The token lands in your config directory, refreshes itself, and the readers carry
+      no authentication code of their own &mdash; so a query from a batch script works and
+      nothing ever prompts halfway through one. <code>xdu-login --status</code> reports who the
+      service thinks you are and how much of the tree that resolves to, which is the first
+      question worth asking when an expected row is missing.</dd>
+
+  <dt><span class="ver">&#8224; v1.1</span><code>xdu-web</code></dt>
+  <dd><code>xdu-view</code>, compiled to WebAssembly: the same list and tree views, the same
+      filters and sorts, in a progressive web app. Against a shared index it authenticates and
+      queries through <code>xdu-api</code>, which scopes every answer to what you could see
+      yourself; against an index file you already hold it runs entirely in the browser, with no
+      service and nothing to configure. A browser has no Unix identity to scope with &mdash;
+      which is precisely why the service exists, rather than the page reaching object storage
+      on its own.</dd>
+</dl>
+
+<p class="small">Four supporting pieces carry that architecture and are tracked as their own
+roadmap entries&nbsp;<span class="ver nofloat">&#8224; v0.9&ndash;v1.0</span>. The crawl computes
+each row's visibility from its whole directory chain rather than the file's own mode &mdash; a
+<code>0600</code> file under world-readable directories is visible to <code>du</code>, and a
+world-readable file under one private ancestor is not. The service speaks a typed operation set
+rather than SQL, because SQL over a served index reaches the filesystem and the network. The
+readers route to a service by path prefix. And the service refuses to start against a store that
+anyone but itself can read.</p>
 
 <h3>Bulk operations</h3>
 
@@ -813,39 +914,6 @@ numbers are intent, not commitment.</p>
       selection <code>xdu-tar</code> wants for an incremental slice.</dd>
 </dl>
 
-<h3>Reaching past the local disk</h3>
-
-<dl class="feat">
-  <dt><span class="ver">&#8224; v0.9</span>S3 as an index target</dt>
-  <dd><code>-o s3://bucket/prefix</code>. Indexes on local disk are tied to the machine that
-      built them; the Hive layout maps onto object-store key prefixes with no change, so an
-      index can be built once centrally and read from anywhere by any tool &mdash; including a
-      browser.</dd>
-
-  <dt><span class="ver">&#8224; v1.2</span>S3 as a crawl source</dt>
-  <dd>Organisations park enormous datasets in object storage &mdash; data lakes, cold archives,
-      tiered backups &mdash; and get none of the size and age accounting there that xdu gives a
-      POSIX tree. This puts the crawler behind a backend trait so a local walker and an
-      S3-listing walker are interchangeable under one CLI, and makes per-source capability
-      differences explicit: object storage has no access time to report, so the Unix
-      assumptions stop holding for every backend.</dd>
-
-  <dt><span class="ver">&#8224; v1.3</span>Streaming updates and the Lustre changelog</dt>
-  <dd>A full re-crawl of a filesystem with a billion files is stale before it finishes, and
-      running it again is enormously expensive. The answer is merge-on-read, in the style of
-      Iceberg: a base snapshot from one full crawl, delta files fed continuously from the
-      storage system's own change stream, and periodic compaction folding the deltas back into
-      the base. The Lustre changelog is the driver &mdash; a modern successor to Robinhood
-      &mdash; but the change stream is a pluggable abstraction, with an inotify backend as a
-      general-purpose reference implementation.</dd>
-
-  <dt><span class="ver">&#8224; v1.1</span><code>xdu-web</code></dt>
-  <dd><code>xdu-view</code>, compiled to WebAssembly: the same list and tree views, the same
-      filters and sorts, in a progressive web app pointed straight at an index in object
-      storage. A central index becomes explorable by anyone with a link, with no shell account
-      and nothing installed.</dd>
-</dl>
-
 <h3>Richer questions</h3>
 
 <dl class="feat">
@@ -861,33 +929,49 @@ numbers are intent, not commitment.</p>
   <dd><code>--type video --min-size 1G</code>. MIME detection recorded at crawl time, so
       &ldquo;every video file over a gigabyte&rdquo; is an index query rather than a second
       walk of the tree.</dd>
-
-  <dt><span class="ver">&#8224; v1.0</span>Permission-aware, access-scoped queries</dt>
-  <dd>An index built as root describes files its readers are not entitled to see &mdash; sizes
-      and paths a user could never <code>stat</code> themselves. Borrowing GUFI's shadow-tree
-      model, queries can be scoped so each user sees only what they would normally have access
-      to. This is the piece that makes a centrally built index safe to hand to the tenants it
-      describes.</dd>
 </dl>
 
 <h3>Operating it</h3>
 
 <dl class="feat">
-  <dt><span class="ver">&#8224; v0.6</span>Machine-readable crawl logs</dt>
-  <dd>A log mode alongside the interactive display: timestamped, severity-tagged, parseable
-      records of the invocation and its arguments, each partition completion, every tolerated
-      warning, the attestation verdict and a final summary. Today a 3 a.m. cron failure leaves
-      a log that says what finished without saying when, or how badly. The spinners on a
-      terminal are untouched.</dd>
+  <dt><span class="ver landed">on main</span>Machine-readable crawl logs</dt>
+  <dd>Run <code>xdu</code> off a terminal and every diagnostic goes to stderr as one
+      timestamped, severity-tagged line: the invocation and its arguments, each partition's
+      finish with file and byte counts, every tolerated warning, the completion-marker verdict
+      and a final summary &mdash; so the log alone explains the exit status. Stdout stays clean
+      and pipeable, and the interactive display on a TTY is untouched. A 3 a.m. cron failure
+      used to leave a log that said what finished without saying when, or how badly.</dd>
 
-  <dt><span class="ver">&#8224; v0.6</span>Crawl progress you can trust on skewed trees</dt>
-  <dd>On very large filesystems the display can settle into a state that reads as hung: one
-      partition counting files while every other line sits at <code>scanning&hellip;</code>.
-      Throughput is fine; the <em>report</em> is misleading, because each bar is owned by one
-      driver for life while the pool work-steals across all of them. Every line gets its own
-      evidence of life and labels that match the threading model &mdash; because on shared
-      scratch, &ldquo;skewed&rdquo; versus &ldquo;stuck&rdquo; is the difference between
-      letting a job run and killing it.</dd>
+  <dt><span class="ver landed">on main</span>Crawl progress you can trust on skewed trees</dt>
+  <dd>On very large filesystems the display could settle into a state that read as hung: one
+      partition counting files while every other line sat at <code>scanning&hellip;</code>.
+      Throughput was fine; the <em>report</em> was misleading, because each bar was owned by one
+      driver for life while the pool work-steals across all of them. Every line now carries its
+      own evidence of life, with labels that match the threading model &mdash; because on shared
+      scratch, &ldquo;skewed&rdquo; versus &ldquo;stuck&rdquo; is the difference between letting
+      a job run and killing it.</dd>
+
+  <dt><span class="ver">&#8224; v0.6</span>Elapsed time on quiet progress lines</dt>
+  <dd>The follow-up that work exposed. A partition's refresh still sits inside its entry loop,
+      so a walker whose reads block entirely keeps a bare <code>scanning&hellip;</code> with no
+      elapsed time, and quiet-for-seconds reads identically to quiet-for-an-hour. The fix is a
+      yield-independent refresh that leaves the single-pool work-stealing walk alone.</dd>
+
+  <dt><span class="ver landed">on main</span>Containers for Docker and Apptainer</dt>
+  <dd>Both specs generated from one <a href="https://github.com/NVIDIA/hpc-container-maker">HPCCM</a>
+      recipe in <code>hpccm/</code>, so they cannot drift apart. A two-stage build installs the
+      published release binaries, man pages and completions &mdash; no Rust toolchain, so it
+      finishes in seconds &mdash; with the download verified against the published
+      <code>SHA256SUMS</code> in a throwaway first stage and the architecture resolved from
+      <code>uname -m</code>, so one spec serves x86-64 and arm64. They track release tags rather
+      than the working tree.</dd>
+
+  <dt><span class="ver">&#8224; v0.6</span>Portable Linux baseline for RHEL8/9</dt>
+  <dd>Release tarballs are built on Ubuntu 24.04 and want glibc 2.39, so they fail at first exec
+      on RHEL8 (2.28), RHEL9 (2.34) and even bookworm (2.36) &mdash; the machines HPC operators
+      actually run. The fix is a <code>manylinux_2_28</code>-class builder floor, guarded in CI
+      so it cannot float back with the next toolchain bump. Until then the container specs above
+      are the way onto those hosts.</dd>
 
   <dt><span class="ver">&#8224; v0.6.3</span>Native OS packages</dt>
   <dd><code>apt install xdu</code>, <code>dnf install xdu</code>. The tarball layout and
@@ -1006,7 +1090,7 @@ Before that: the crawler and its shared pool, all four binaries, the release tar
   <div class="statusbar">
     <span>xdu-project.org &middot; v0.5.1 &middot; four commands &middot; MIT licence</span>
     <span class="grow" aria-hidden="true"></span>
-    <span>last updated 10 September 2026</span>
+    <span>last updated 11 September 2026</span>
     <span class="sash" aria-hidden="true"></span>
   </div>
 
