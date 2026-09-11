@@ -105,12 +105,135 @@ guaranteed present by the schema now delivered on `main` (record in `spec/richer
 
 Once ownership and permissions are indexed, the index itself becomes a way to leak information: a
 non-root user could read sizes and paths they'd never be allowed to `stat` on the live filesystem.
-Borrowing from GUFI's shadow-tree model, queries could be scoped so a user only sees data they could
-normally access — applied by default (or by an explicit flag) when `xdu` builds or serves an index as
-root. This is what makes a shared, centrally built index safe to expose to the tenants it describes.
+The trap is that this looks like a query-shaping problem and is not — DuckDB has no user model and
+no row-level security, so a filter the reader applies is a convenience for display and never a
+boundary: anyone who can open the index files reads every row in them. Enforcement has to come from
+a process the caller does not control. That resolves into two invariants, each stateable in one
+line. **A local index inherits the permissions of whoever crawled it** — nothing to configure, and
+what ships today. **A shared index is only ever read through the service** — nothing to configure,
+and the seven entries below. The web client is what makes the second unavoidable rather than merely
+preferable: a browser has no POSIX identity, so a centrally built index needs an authenticated query
+service whether or not anything else does. Together with the v1.0 checkpoint, this stack is the end
+state the project is aiming at before a v1.0 cut.
 
-*Horizon: long-term · Depends on: richer index schema (owner/group/perms), delivered on `main` · Refs: #3*
+*Horizon: long-term · Depends on: richer index schema (owner/group/perms), delivered on `main`; decomposed into the seven entries below · Refs: #3*
 **Seed:** [`issues/access-scoped-queries.md`](issues/access-scoped-queries.md)
+
+## Crawl-time visibility classification
+
+A shared index cannot be scoped per user until it knows who may see each row, and the `uid`/`gid`/
+`mode` columns on `main` are the wrong key for it. `xdu` stats rather than opening files, so
+visibility is a property of the *directory chain* and not the leaf: a `0600` file under `0755`
+directories is fully visible to `du`, and a `0644` file under one `0700` ancestor is invisible.
+Resolving that per row at query time means walking ancestors, which is the work the index exists to
+avoid. The intent is a top-down closure computed once at crawl time — a directory's class is its
+parent's intersected with its own, and files inherit their parent's — running over the directory set
+rather than the file set, so it costs little next to the walk. Crawling as root is what makes it
+complete rather than merely convenient. The same pass pins a `uid`→name snapshot to the generation,
+so an index read months later cannot attribute one person's paths to whoever holds that uid now.
+
+*Horizon: mid-term · Depends on: richer index schema, delivered on `main` · Refs: —*
+**Seed:** [`issues/index-visibility-classification.md`](issues/index-visibility-classification.md)
+
+## Shared-index API contract: typed operations, not SQL
+
+`xdu-find` exposes DuckDB SQL, which is right for an index the caller owns and unshippable for a
+served one: the dialect includes `read_parquet()`, `ATTACH` and `COPY ... TO`, so caller-written SQL
+is arbitrary file read and write as the service account — and with `httpfs` loaded, a route to the
+service's own credentials. Appending a scoping predicate does not rescue it, since a CTE or `UNION
+ALL` reaches the base relation before any wrapper applies. The intent is a typed, versioned surface
+covering what the readers actually need — prefix rollups, top-N, owner/age/size/pattern filters,
+histograms — each compiled server-side into SQL the service authored, so the scoping predicate is
+structural and every operation has a bounded cost shape. Ad-hoc SQL survives as an operator
+endpoint, where the caller could already read the filesystem anyway. It is also the surface the Wasm
+client needs, and it can be settled before the server exists.
+
+*Horizon: mid-term · Depends on: — (specifiable ahead of the service) · Refs: —*
+**Seed:** [`issues/shared-index-api-contract.md`](issues/shared-index-api-contract.md)
+
+## `xdu-api`: the shared-index query service
+
+An index built as root across a center describes every tenant on it, and nothing today can hand a
+tenant only their slice. The intent is a service that is the only reader with access to the store:
+it authenticates the caller, resolves them to a set of visibility classes, answers typed API
+operations scoped to that set, and records what it answered. The index is read-only, so the service
+is stateless — replicas behind a load balancer, no coordination. DuckDB runs hardened and locked
+(external access disabled, configuration locked after the index is attached), a posture only
+reachable with the index on local disk, which points at object storage as the distribution mechanism
+rather than the query path. Aggregates report what the caller can see and count what was withheld: a
+true total across invisible rows is a differencing oracle, and a silently filtered one contradicts
+`lfs quota`. Serving queries rather than handing out data is also what keeps grants revocable.
+
+*Horizon: long-term · Depends on: visibility classification, the API contract, authentication; S3 as an index target — expect sub-phases · Refs: —*
+**Seed:** [`issues/xdu-api-query-service.md`](issues/xdu-api-query-service.md)
+
+## Authentication (`xdu-login`) and group resolution for a shared index
+
+The service can only scope a query if it knows who is asking and which groups they are in, and
+neither client can simply tell it — a browser has no POSIX identity at all, and a CLI's uid is not
+something a service can trust across a network. Nor does a CLI caller have anywhere to keep proof of
+identity between invocations: `xdu-find` runs in loops and from scripts, so a reader that negotiates
+credentials on every call is unusable non-interactively, and one that prompts partway through a
+query is worse. The intent is one authentication path for both clients — bearer tokens from the
+center's identity provider, device-code flow for the CLI, Kerberos where a site already runs it —
+fronted on the command line by **`xdu-login`**, which performs the exchange once, stores the token
+under the user's config directory with owner-only permissions, and refreshes it on expiry, so the
+readers carry no authentication code of their own and `xdu-login --status` answers the first
+question anyone debugging a missing row will ask. The two halves of identity pull opposite ways and
+cannot share a table: group membership must be current, because someone added to an allocation this
+morning expects to see it this morning, while `uid`→name must be pinned to the generation, because
+centers recycle uids after account deletion. Membership is precomputed on a bounded TTL rather than
+an LDAP query per request, which also makes the exposure window a number a center can publish: crawl
+interval plus group TTL.
+
+*Horizon: long-term · Depends on: visibility classification (generation identity snapshot); per-center IdP variation, expect dedicated research · Refs: —*
+**Seed:** [`issues/shared-index-authentication.md`](issues/shared-index-authentication.md)
+
+## Client routing to a shared index
+
+`xdu-find`, `xdu-view` and `xdu-rm` take an index path and open it. Once some trees are served
+instead, every user would have to know which is which and invoke the tools differently — a
+distinction that is an artifact of how the index is stored, not something a user asking about
+`/scratch` should have to hold. The intent is a routing table mapping path prefixes to service
+endpoints, shipped by config management under `/etc/xdu/` with an environment override for module
+files and testing, so the common case is that `xdu-find /scratch/...` simply works. Routing stays a
+convenience and never a control: the client is untrusted by construction, so the service
+independently validates that a prefix is within its jurisdiction, and paths are canonicalized before
+matching so a query cannot be steered at the wrong service.
+
+*Horizon: long-term · Depends on: the API contract · Refs: —*
+**Seed:** [`issues/shared-index-client-routing.md`](issues/shared-index-client-routing.md)
+
+## Deployment guards for a shared index
+
+The architecture rests on one premise — that nothing but the service can read the index store — and
+as designed that premise is upheld by an operator reading documentation and not making a mistake,
+which is exactly the class of failure the served design was chosen to eliminate. The intent is
+software that refuses to run misconfigured: `xdu-api` preflights its store at startup and declines
+to serve if it is reachable by anyone else, checking provider policy APIs where they exist and
+falling back to an anonymous fetch of a known object where they don't, failing closed when the check
+cannot be completed. Object names carry no meaning either, since keys named for their visibility
+class publish a group-size census to anyone who obtains `List`. The deny-by-default store policy
+ships with the project, so a center applies a reviewed configuration instead of composing one.
+
+*Horizon: long-term · Depends on: `xdu-api` (enforces its store-privacy requirement at startup) · Refs: —*
+**Seed:** [`issues/shared-index-deployment-guards.md`](issues/shared-index-deployment-guards.md)
+
+## Web client (`xdu-web`)
+
+`xdu-view` is terminal-only, which limits who can explore an index and from where. A Wasm-compiled
+progressive web app would be the web equivalent — the same list and tree views, the same search and
+filtering — in two modes mirroring the CLI's: a **shared index**, where the app authenticates and
+issues typed API operations against `xdu-api`, which scopes every answer to what that user could see
+on the live filesystem; and a **local index** the user already holds, queried in-browser with no
+service and no configuration. The earlier framing here — browsing an S3-backed index straight from
+the browser — was dropped in the 2026-09-11 design pass: reaching the store from a page means either
+a world-readable index or credentials the user can read back out of it, and a browser has no POSIX
+identity with which to scope anything. That constraint is also what makes the served architecture
+unavoidable rather than merely preferable.
+
+*Horizon: long-term · Depends on: the API contract, authentication, `xdu-api`; S3 as an index target for the store · Refs: —*
+**Seed:** [`issues/xdu-web-client.md`](issues/xdu-web-client.md)
 
 ## Streaming index updates & Lustre changelog
 
@@ -137,16 +260,6 @@ single-pool work-stealing walk untouched.
 
 *Horizon: near-term · Depends on: the skewed-tree display fix, delivered on `main` — see `spec/crawl-progress-misleads-on-huge-trees/` · Refs: `spec/crawl-progress-misleads-on-huge-trees/REVIEW.md` (cycle 1, F1)*
 **Seed:** [`issues/crawl-progress-zero-yield-stall.md`](issues/crawl-progress-zero-yield-stall.md)
-
-## Web client (`xdu-web`)
-
-`xdu-view` is terminal-only, which limits who can explore an index and from where. Once indices live
-in S3, a Wasm-compiled progressive web app could browse them straight from the browser — the web
-equivalent of `xdu-view`, with the same list and tree views and the same search and filtering —
-making a centrally stored index explorable by anyone with a link, no shell account required.
-
-*Horizon: long-term · Depends on: S3 as an index target · Refs: —*
-**Seed:** [`issues/xdu-web-client.md`](issues/xdu-web-client.md)
 
 ## `man xdu` hyphenates the completion-marker path, so the page operators read is wrong
 
