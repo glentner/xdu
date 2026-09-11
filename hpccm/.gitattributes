@@ -1,0 +1,22 @@
+# xdu.py is the source. The other two files are generated from it:
+#
+#   hpccm --recipe xdu.py --format docker > xdu.docker
+#   hpccm --recipe xdu.py --format singularity \
+#         --singularity-version=3.2 > xdu.def
+#
+# Patterns are anchored with a leading slash so they apply to this directory
+# only, and cannot reach the hand-written Dockerfile at the repository root.
+#
+# linguist-generated  GitHub keeps the file out of the repository's language
+#                     statistics and collapses its diff by default.
+# merge=binary        never textually merge generated output. A merge touching
+#                     both sides conflicts and leaves your branch's copy in
+#                     the worktree, so you regenerate rather than hand-resolve
+#                     something that matches neither recipe.
+# eol=lf              both outputs are read by a shell inside a container;
+#                     CRLF would break them whatever the committer's platform.
+
+/xdu.py      text eol=lf
+
+/xdu.docker  text eol=lf linguist-generated=true merge=binary
+/xdu.def     text eol=lf linguist-generated=true merge=binary

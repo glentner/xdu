@@ -198,6 +198,12 @@ ordering is load-bearing:
 - `share/` is a **generated** artifact (man via `scdoc` from `doc/*.scd`; completions via
   `gen-completions` from `src/cli.rs`), git-ignored, rebuilt in CI and by `/xdu-release`; CI asserts
   it generates. `.scd` sources carry no version string (a pure version bump doesn't touch them).
+- `hpccm/` specs are **generated-committed, the reverse of `share/`**: `xdu.py` is the source,
+  `xdu.def` + `xdu.docker` are committed artifacts regenerated with `make -B`. A recipe edit
+  without its specs is a drifted tree — CI's `make check` step in the packaging job fails on it,
+  and `make check` is the local form. The recipe `VERSION` pins the installed release, so unlike
+  the `.scd` sources it moves on every version bump: `/xdu-release` bumps it in lockstep with
+  `Cargo.toml` and carries the regenerated specs in the bump commit.
 - **`doc/*.scd` authoring is its own footgun** — `scdoc` publishes a **wrong page at exit 0** (a
   mis-escaped `*` turned `_OUTDIR_/*/*.parquet` into `OUTDIR//.parquet`; a line beginning with `.`
   loses that period), so a green render gate proves nothing about the text. The escaping and

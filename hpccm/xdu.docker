@@ -1,0 +1,43 @@
+FROM debian:trixie-slim AS build
+
+RUN apt-get update -y && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL -o /xdu-dist.tar.gz "https://github.com/xdu-project/xdu/releases/download/v0.5.1/xdu-v0.5.1-$(uname -m)-unknown-linux-gnu.tar.gz" && \
+    curl -fsSL -o /xdu-SHA256SUMS "https://github.com/xdu-project/xdu/releases/download/v0.5.1/SHA256SUMS" && \
+    expected=$(grep -F "xdu-v0.5.1-$(uname -m)-unknown-linux-gnu.tar.gz" /xdu-SHA256SUMS | cut -d" " -f1) && [ -n "$expected" ] && echo "$expected  /xdu-dist.tar.gz" | sha256sum -c - && rm -f /xdu-SHA256SUMS
+
+FROM debian:trixie-slim
+
+LABEL org.opencontainers.image.source=https://github.com/xdu-project/xdu \
+    org.opencontainers.image.version=v0.5.1
+
+RUN apt-get update -y && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libstdc++6 && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /xdu-dist.tar.gz /xdu-dist.tar.gz
+
+RUN mkdir -p /opt/xdu && \
+    tar -xzf /xdu-dist.tar.gz -C /opt/xdu && \
+    rm -f /xdu-dist.tar.gz
+
+RUN /opt/xdu/bin/xdu --version && \
+    /opt/xdu/bin/xdu-find --version && \
+    /opt/xdu/bin/xdu-view --version && \
+    /opt/xdu/bin/xdu-rm --version
+
+ENV MANPATH=/opt/xdu/share/man:$MANPATH \
+    PATH=/opt/xdu/bin:$PATH
+
+RUN groupadd --system xdu && \
+    useradd --system --gid xdu --create-home xdu
+
+USER xdu
+
+ENTRYPOINT ["/opt/xdu/bin/xdu"]
