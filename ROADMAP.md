@@ -26,6 +26,42 @@ Everything below builds on that baseline.
 
 ---
 
+## Portable Linux baseline (manylinux) for RHEL8/9
+
+Release tarballs build on Ubuntu 24.04 and need glibc up to 2.39, so they fail at first exec on
+RHEL8 (2.28), RHEL9 (2.34), and even bookworm (2.36) — the machines HPC operators actually run.
+The container recipe works around this with a trixie runtime, but the native tarball stays
+unusable without one. The intent is a `manylinux_2_28`-class builder floor (2.28 covers RHEL8 and
+everything newer; Ubuntu 22.04 at 2.35 does not), guarded in CI so the floor cannot float back
+with the next toolchain bump, with the container recipe tracking the new baseline afterward.
+
+*Horizon: near-term · Depends on: — · Refs: —*
+**Seed:** [`issues/manylinux-release-baseline.md`](issues/manylinux-release-baseline.md)
+
+## S3 as an index target
+
+Indices today live on local disk, which ties them to the machine that built them. The existing
+Hive-partitioned layout (`<partition>/<chunk>.parquet`) maps directly onto object-store key prefixes,
+so writing the index to S3-compatible storage is cheap — and it unlocks centralized,
+build-once/read-anywhere indices that any tool (or a future web client) can point at without copying
+files around.
+
+*Horizon: mid-term · Depends on: — (write path only; layout carries over) · Refs: —*
+**Seed:** [`issues/s3-index-target.md`](issues/s3-index-target.md)
+
+## S3 as a crawl source
+
+Organizations increasingly park huge datasets in object storage — data lakes, cold archives, tiered
+backups — and get none of the size/age/pattern auditing there that xdu gives a POSIX tree. Treating
+an S3 bucket as a *source* of file metadata, alongside the local filesystem, brings that same
+accounting to object storage. Architecturally this is a larger move than the write path: it means
+abstracting the crawler behind a trait so a local jwalk backend and an S3-listing backend are
+interchangeable behind one CLI, and expressing per-source capability differences (object storage has
+no atime — the Unix-only/no-atime assumption no longer holds for every backend).
+
+*Horizon: long-term · Depends on: crawler-source abstraction; expect dedicated research + sub-phases · Refs: —*
+**Seed:** [`issues/s3-crawl-source.md`](issues/s3-crawl-source.md)
+
 ## Bulk operations: `xdu-cp` and `xdu-mv` over a shared select-act engine
 
 First of the bulk-operations theme, whose entries land in file order: copy/move, then archives,
@@ -75,30 +111,6 @@ root. This is what makes a shared, centrally built index safe to expose to the t
 
 *Horizon: long-term · Depends on: richer index schema (owner/group/perms), delivered on `main` · Refs: #3*
 **Seed:** [`issues/access-scoped-queries.md`](issues/access-scoped-queries.md)
-
-## S3 as an index target
-
-Indices today live on local disk, which ties them to the machine that built them. The existing
-Hive-partitioned layout (`<partition>/<chunk>.parquet`) maps directly onto object-store key prefixes,
-so writing the index to S3-compatible storage is cheap — and it unlocks centralized,
-build-once/read-anywhere indices that any tool (or a future web client) can point at without copying
-files around.
-
-*Horizon: mid-term · Depends on: — (write path only; layout carries over) · Refs: —*
-**Seed:** [`issues/s3-index-target.md`](issues/s3-index-target.md)
-
-## S3 as a crawl source
-
-Organizations increasingly park huge datasets in object storage — data lakes, cold archives, tiered
-backups — and get none of the size/age/pattern auditing there that xdu gives a POSIX tree. Treating
-an S3 bucket as a *source* of file metadata, alongside the local filesystem, brings that same
-accounting to object storage. Architecturally this is a larger move than the write path: it means
-abstracting the crawler behind a trait so a local jwalk backend and an S3-listing backend are
-interchangeable behind one CLI, and expressing per-source capability differences (object storage has
-no atime — the Unix-only/no-atime assumption no longer holds for every backend).
-
-*Horizon: long-term · Depends on: crawler-source abstraction; expect dedicated research + sub-phases · Refs: —*
-**Seed:** [`issues/s3-crawl-source.md`](issues/s3-crawl-source.md)
 
 ## Streaming index updates & Lustre changelog
 
@@ -298,18 +310,6 @@ already define the exact file map these packages would ship.
 
 *Horizon: near-term, low priority · Depends on: — (builds on the established release layout) · Refs: #5*
 **Seed:** [`issues/native-os-packages-deb-rpm.md`](issues/native-os-packages-deb-rpm.md)
-
-## Portable Linux baseline (manylinux) for RHEL8/9
-
-Release tarballs build on Ubuntu 24.04 and need glibc up to 2.39, so they fail at first exec on
-RHEL8 (2.28), RHEL9 (2.34), and even bookworm (2.36) — the machines HPC operators actually run.
-The container recipe works around this with a trixie runtime, but the native tarball stays
-unusable without one. The intent is a `manylinux_2_28`-class builder floor (2.28 covers RHEL8 and
-everything newer; Ubuntu 22.04 at 2.35 does not), guarded in CI so the floor cannot float back
-with the next toolchain bump, with the container recipe tracking the new baseline afterward.
-
-*Horizon: near-term · Depends on: — · Refs: —*
-**Seed:** [`issues/manylinux-release-baseline.md`](issues/manylinux-release-baseline.md)
 
 ## Toward v1.0: narrative, branding, and community
 
